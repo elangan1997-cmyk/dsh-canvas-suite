@@ -1922,12 +1922,15 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
           const selected = await new Promise((resolve) => {
             const input = document.createElement('input');
             let settled = false;
+            let timeout = null;
             const finish = (value) => {
               if (settled) return;
               settled = true;
+              if (timeout) window.clearTimeout(timeout);
               input.remove();
               resolve(value || '');
             };
+            timeout = window.setTimeout(() => finish(''), 5 * 60 * 1000);
             input.type = 'file';
             input.accept = '.exe,.app,application/x-msdownload,application/octet-stream';
             input.tabIndex = -1;
