@@ -86,9 +86,9 @@ Secrets, chat contents, and user asset paths are intentionally omitted.
 - Root cause: the Windows branch delegated to the generic system opener instead of resolving the requested Adobe executable
 - Fix: discover installed Adobe product directories under both Program Files roots and launch the matching executable directly; return an honest missing-product error when unavailable
 - Environment result: Illustrator 2022 is installed and launched successfully with a harmless SVG; Photoshop is not installed on this computer
-- Model image editing: selected engine is the default `dsh-codex`, but the module is not installed/authenticated and no legacy image API credential is configured; the base canvas remains available and editing must show setup guidance
+- Model image editing: `dsh-codex 0.2.5` is installed and OAuth-authenticated; the image engine health is `ready: true`. The fallback API is not configured. DSH/Node must inherit the active Clash proxy (`127.0.0.1:7890`) for token refresh and image requests.
 - Automatic check: JavaScript syntax, portability, and diff checks passed
-- Status: fixed, installed, and DSH restarted; final button click confirmation pending
+- Status: fixed, installed, and DSH restarted; runtime health passed; final button click confirmation pending
 
 ## Test Matrix
 
