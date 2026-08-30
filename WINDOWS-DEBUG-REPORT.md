@@ -113,7 +113,7 @@ Secrets, chat contents, and user asset paths are intentionally omitted.
 | Move, resize, duplicate, rename, delete | partial | duplicate passed; rename race fixed and installed, final refresh confirmation pending; destructive delete awaits explicit confirmation |
 | PNG export | n/a | passed; generated PNG opened and contained all live elements |
 | PSD/AI/SVG/PDF fallback | passed | Photoshop 2022 and Illustrator 2022 endpoint launches returned `ok: true`; source-file fallback remains safe |
-| Image engine degradation and retry | partial | no engine is currently ready; static fallback path is intact, UI confirmation pending |
+| Image engine degradation and retry | partial | dsh-codex is installed/authenticated/ready; fallback API remains unconfigured and retry path is covered by static checks |
 | 去背景 / 转矢量 | passed | rembg generated transparent PNG; ImageTracerJS generated valid SVG; Windows venv transition fixed |
 | PowerShell 5.1 installer parsing | passed | passed |
 | Programmatic mutation persistence | passed | passed across reload |
