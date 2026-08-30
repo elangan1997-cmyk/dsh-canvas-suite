@@ -19,7 +19,6 @@ import {
   isWindows,
   openFolder,
   openWithSystem,
-  pickExecutable,
   pickFolder,
   platformCapabilities,
   revealFile,
@@ -667,15 +666,10 @@ function apply(ctx) {
             respond(res, 403, { 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: '仅允许从当前 DSH 页面打开程序选择器' }));
             return;
           }
-          try {
-            const body = JSON.parse(await readBody(req) || '{}');
-            const product = String(body.product || '').toLowerCase();
-            if (!['photoshop', 'illustrator'].includes(product)) throw new Error('不支持的 Adobe 程序');
-            const path = await pickExecutable(ctx, runProcess, product);
-            respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true, product, path: path || '' }));
-          } catch (err) {
-            respond(res, 400, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: String((err && err.message) || err) }));
-          }
+          // Kept as a fast compatibility response for an already-cached old
+          // client.  The current UI opens the chooser in the renderer itself;
+          // never start a modal WinForms process from the headless host.
+          respond(res, 409, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: '程序选择器已改由画布页面打开，请刷新 DSH 页面后重试' }));
           return;
         }
         if (pathname === '/dsh-canvas/image-setup' && req.method === 'POST') {
