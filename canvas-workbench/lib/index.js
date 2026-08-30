@@ -57,6 +57,25 @@ function sourceKindOf(p) {
   if (ext === 'ai') return 'ai';
   return 'image';
 }
+async function findWindowsAdobeExecutable(product) {
+  if (!isWindows) return '';
+  const roots = [...new Set([process.env.ProgramFiles, process.env['ProgramFiles(x86)']].filter(Boolean).map((root) => join(root, 'Adobe')))];
+  const prefix = product === 'photoshop' ? 'Adobe Photoshop' : 'Adobe Illustrator';
+  for (const root of roots) {
+    let folders = [];
+    try { folders = (await readdir(root, { withFileTypes: true })).filter((entry) => entry.isDirectory() && entry.name.toLowerCase().startsWith(prefix.toLowerCase())).map((entry) => entry.name).sort().reverse(); } catch (err) {}
+    for (const folder of folders) {
+      const base = join(root, folder);
+      const candidates = product === 'photoshop'
+        ? [join(base, 'Photoshop.exe')]
+        : [join(base, 'Support Files', 'Contents', 'Windows', 'Illustrator.exe'), join(base, 'Illustrator.exe')];
+      for (const executable of candidates) {
+        try { if ((await stat(executable)).isFile()) return executable; } catch (err) {}
+      }
+    }
+  }
+  return '';
+}
 function cleanJobId(value) {
   return String(value || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 96);
 }
@@ -1332,7 +1351,9 @@ function apply(ctx) {
             let opened = false;
             let lastError = '';
             if (isWindows) {
-              const result = await openWithSystem(ctx, runProcess, path, dirname(path));
+              const executable = await findWindowsAdobeExecutable('photoshop');
+              if (!executable) throw new Error('未找到 Adobe Photoshop，请先安装 Photoshop');
+              const result = await runProcess(executable, [path], dirname(path));
               opened = result.exitCode === 0;
               lastError = result.stderr.trim();
             } else {
@@ -1421,7 +1442,9 @@ function apply(ctx) {
             let opened = false;
             let lastError = '';
             if (isWindows) {
-              const result = await openWithSystem(ctx, runProcess, path, dirname(path));
+              const executable = await findWindowsAdobeExecutable('illustrator');
+              if (!executable) throw new Error('未找到 Adobe Illustrator，请先安装 Illustrator');
+              const result = await runProcess(executable, [path], dirname(path));
               opened = result.exitCode === 0;
               lastError = result.stderr.trim();
             } else {

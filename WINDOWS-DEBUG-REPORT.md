@@ -78,6 +78,18 @@ Secrets, chat contents, and user asset paths are intentionally omitted.
 - Real UI regression: the fault was reproduced and diagnosed in the real UI; post-fix click regression awaits one manual local-page refresh because browser automation access to `127.0.0.1` was blocked after the DSH restart
 - Status: fixed in code and installed; final UI confirmation pending
 
+## WIN-006 Windows Adobe buttons use the default file association
+
+- Severity: serious functional mismatch
+- Expected: `Ps 编辑` always starts Photoshop and `AI 编辑` always starts Illustrator
+- Actual: both endpoints used the Windows default file association, so raster images could open in Photos and SVG files could open in a browser while the canvas reported Adobe success
+- Root cause: the Windows branch delegated to the generic system opener instead of resolving the requested Adobe executable
+- Fix: discover installed Adobe product directories under both Program Files roots and launch the matching executable directly; return an honest missing-product error when unavailable
+- Environment result: Illustrator 2022 is installed and launched successfully with a harmless SVG; Photoshop is not installed on this computer
+- Model image editing: selected engine is the default `dsh-codex`, but the module is not installed/authenticated and no legacy image API credential is configured; the base canvas remains available and editing must show setup guidance
+- Automatic check: JavaScript syntax, portability, and diff checks passed
+- Status: fixed, installed, and DSH restarted; final button click confirmation pending
+
 ## Test Matrix
 
 | Area | Static check | Real UI |
@@ -89,8 +101,8 @@ Secrets, chat contents, and user asset paths are intentionally omitted.
 | Selection and send to chat | n/a | single selection and two-image selection attached to the current draft without sending |
 | Move, resize, duplicate, rename, delete | partial | duplicate passed; rename race fixed and installed, final refresh confirmation pending; destructive delete awaits explicit confirmation |
 | PNG export | n/a | passed; generated PNG opened and contained all live elements |
-| PSD/AI/SVG/PDF fallback | pending | blocked by WIN-001 |
-| Image engine degradation and retry | pending | settings UI opens; behavior pending |
+| PSD/AI/SVG/PDF fallback | partial | Illustrator 2022 executable launch passed; Photoshop unavailable on this host; endpoint targeting fixed |
+| Image engine degradation and retry | partial | no engine is currently ready; static fallback path is intact, UI confirmation pending |
 | PowerShell 5.1 installer parsing | passed | passed |
 | Programmatic mutation persistence | passed | passed across reload |
 | Windows managed asset containment | passed | passed; no recursive growth after repair |
