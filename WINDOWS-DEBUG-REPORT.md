@@ -1,0 +1,84 @@
+# Windows Debug Report
+
+## Environment
+
+- Date: 2026-08-31 (Asia/Shanghai)
+- DSH URL: `http://127.0.0.1:3080/`
+- Active profile: `web`
+- Installed canvas-workbench before repair: `1.4.0-windows-preview.1`
+- Installed home-explorer: `1.1.0`
+- Node.js: `24.16.0`
+- Python: `3.12`
+- Git: `2.54.0`
+
+Secrets, chat contents, and user asset paths are intentionally omitted.
+
+## WIN-001 Canvas iframe fails to parse and renders blank
+
+- Severity: blocker
+- Environment: Windows, DSH web profile, canvas-workbench 1.4.0-windows-preview.1
+- Preconditions: enable Design Mode and open the existing test canvas project
+- Minimal reproduction: Design Mode → project menu → open test project
+- Expected: the saved canvas and its image elements render
+- Actual: the shell reports the project as loaded, but the iframe is blank
+- Console/service error: `SyntaxError: Unexpected token '.'` from `about:srcdoc`
+- Root cause: the embedded iframe source contained `e.deltaY>0?.9:1.1`. Without separation after the ternary question mark, Chromium parses `0?.9` as malformed optional chaining and rejects the complete embedded script before startup.
+- Modified files: `canvas-workbench/lib/client.js`, `tests/check-portability.mjs`
+- Automatic check: `node --check` and portability check passed before installation
+- Real UI regression: passed after installation and DSH reload; iframe controls and saved images render
+- Status: passed
+
+## WIN-002 Windows PowerShell 5.1 cannot parse localized installer
+
+- Severity: blocker
+- Environment: Windows PowerShell 5.1, repository installer scripts encoded as UTF-8 without BOM
+- Minimal reproduction: run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File windows-installer/install.ps1 -NoScheduledTask`
+- Expected: installer synchronizes both runtime copies and the recovery distribution
+- Actual: Chinese text is decoded as mojibake, followed by unterminated-string and unexpected-brace parser errors
+- Root cause: Windows PowerShell 5.1 does not reliably treat BOM-less localized scripts as UTF-8
+- Modified files: all `windows-installer/*.ps1` files now use UTF-8 with BOM; `tests/check-portability.mjs` verifies the BOM
+- Automatic check: PowerShell 5.1 parser and portability checks passed
+- Real UI regression: installer synchronized web/desktop runtime copies successfully
+- Status: passed
+
+## WIN-003 Programmatic canvas changes disappear after reload
+
+- Severity: critical data loss
+- Minimal reproduction: copy a selected image or paste an image, wait for autosave, then reload
+- Expected: the new element remains in the shared project
+- Actual: the new element is visible and exportable in the live iframe but disappears after reload
+- Root cause: Excalidraw programmatic `api.updateScene()` mutations were assumed to trigger the same persistence callback as direct pointer edits. The parent never received a guaranteed fresh snapshot for copy/paste and related programmatic operations.
+- Fix: add an explicit `publishCanvasChange()` snapshot notification after programmatic mutations; assign unique names to copied images.
+- Automatic check: added persistence-notification markers to portability checks
+- Real UI regression: copy and paste snapshots wrote to `canvas.json`; reload preserved the new elements
+- Status: passed
+
+## WIN-004 Windows managed-asset path mismatch causes recursive copies
+
+- Severity: critical disk growth / data corruption
+- Minimal reproduction: load a managed image whose `dshSourcePath` uses a Windows drive path and allow project synchronization to run
+- Expected: paths already inside `<project>\\assets` are recognized as managed and left in place
+- Actual: the client compares a backslash path to a forward-slash `/assets/` prefix, repeatedly rematerializes the same image, and nests the previous full path into each new file name
+- Root cause: separator and case normalization were missing from managed-path containment checks; the rename endpoint had the same separator-sensitive containment issue
+- Fix: normalize drive paths to forward slashes and lower case before containment/deduplication; use resolved normalized paths on the host
+- Test-data recovery: DSH was stopped; 1,016 generated files from the dedicated `TEST` project were moved (not deleted) to `D:\\dsh-画布\\TEST-quarantine-20260831`; `canvas.json` was backed up and its two original managed paths restored
+- Automatic check: Windows managed-path marker added to portability checks
+- Real UI regression: managed paths no longer recursively rematerialize; asset count remained stable except for one intentional copy per test action
+- Status: passed
+
+## Test Matrix
+
+| Area | Static check | Real UI |
+|---|---|---|
+| DSH startup and Design Mode shell | n/a | passed |
+| Embedded canvas startup | passed | passed after reload/restart |
+| Project load and persistence | passed | copy and paste remained after reload |
+| Drag/drop and paste deduplication | partial | consecutive paste added exactly one element per paste; OS drag still pending |
+| Selection and send to chat | n/a | single selection and two-image selection attached to the current draft without sending |
+| Move, resize, duplicate, rename, delete | partial | duplicate and rename passed; destructive delete awaits explicit confirmation |
+| PNG export | n/a | passed; generated PNG opened and contained all live elements |
+| PSD/AI/SVG/PDF fallback | pending | blocked by WIN-001 |
+| Image engine degradation and retry | pending | settings UI opens; behavior pending |
+| PowerShell 5.1 installer parsing | passed | passed |
+| Programmatic mutation persistence | passed | passed across reload |
+| Windows managed asset containment | passed | passed; no recursive growth after repair |

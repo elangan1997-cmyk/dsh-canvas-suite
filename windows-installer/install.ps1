@@ -1,4 +1,4 @@
-param(
+﻿param(
   [switch]$NoScheduledTask,
   [switch]$CheckOnly
 )

@@ -1,7 +1,7 @@
 import { access, mkdir, open, readFile, readdir, rename, rmdir, stat, unlink, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
-import { basename, dirname, extname, join } from 'node:path';
+import { basename, dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm';
 import {
@@ -443,7 +443,7 @@ function apply(ctx) {
     }
     if (!saved) throw new Error('无法生成不重名的项目图片');
     const info = await stat(saved);
-    return { path: saved, name: saved.slice(saved.lastIndexOf('/') + 1), mtime: info.mtimeMs, size: info.size, kind: 'image', managed: true, url: previewUrl(saved, info.mtimeMs) };
+    return { path: saved, name: basename(saved), mtime: info.mtimeMs, size: info.size, kind: 'image', managed: true, url: previewUrl(saved, info.mtimeMs) };
   };
   const writeManagedSource = async (projectDir, requestedName, bytes, fallbackExt) => {
     if (!bytes || bytes.byteLength === 0 || bytes.byteLength > MAX_SOURCE_BYTES) throw new Error('源文件为空或超过 128MB');
@@ -1151,7 +1151,7 @@ function apply(ctx) {
               try {
                 await access(source);
                 await mkdir(recycleDir, { recursive: true });
-                const originalName = source.slice(source.lastIndexOf('/') + 1);
+                const originalName = basename(source);
                 let target = join(recycleDir, originalName);
                 for (let index = 1; index <= 1000; index += 1) {
                   try { await access(target); target = join(recycleDir, originalName.replace(/(\.[^.]+)?$/, '-删除于-' + stamp + (index > 1 ? '-' + index : '') + '$1')); }
@@ -1450,7 +1450,9 @@ function apply(ctx) {
             await mkdir(assetsDir, { recursive: true });
             const oldName = safeImageName(body.oldName || '', body.ext || 'png');
             const linkedSource = expandHome(String(body.sourcePath || ''));
-            const sourceInsideProject = linkedSource && (linkedSource === projectDir || linkedSource.startsWith(projectDir + '/')) && isSourceImagePath(linkedSource);
+            const normalizedProject = resolve(projectDir).replace(/\\/g, '/').toLowerCase();
+            const normalizedSource = linkedSource ? resolve(linkedSource).replace(/\\/g, '/').toLowerCase() : '';
+            const sourceInsideProject = linkedSource && (normalizedSource === normalizedProject || normalizedSource.startsWith(normalizedProject + '/')) && isSourceImagePath(linkedSource);
             const oldExt = sourceInsideProject ? extOf(linkedSource) : (extname(oldName).replace(/^\./, '') || 'png');
             const requested = String(body.newName || '').replace(/\.[a-zA-Z0-9]+$/, '');
             const newName = safeImageName(requested, oldExt);

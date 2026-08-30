@@ -1,4 +1,4 @@
-param([switch]$KeepSettings)
+﻿param([switch]$KeepSettings)
 $ErrorActionPreference = 'Stop'
 $DshRoot = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $HOME '.dsh' }
 $ProfilesRoot = Join-Path $DshRoot 'profiles'
