@@ -1,0 +1,36 @@
+{
+  "name": "@local/canvas-workbench",
+  "version": "1.4.0-windows-preview.1",
+  "private": true,
+  "type": "module",
+  "description": "可插拔设计模式：独立 Excalidraw 画布、渐进增强的会话图片工具与本地项目资产",
+  "os": ["darwin", "win32"],
+  "dshCanvasCompatibility": {
+    "strategy": "capability-detection",
+    "hardClientDependencies": ["slots"],
+    "optionalClientCapabilities": ["conversation.chat.turnTail", "conversation.input.dock", "shell.overlay", "dsh-codex", "image-engine-settings"],
+    "failurePolicy": "disable-subfeature-without-blocking-renderer"
+  },
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-model-selection"
+      ]
+    }
+  }
+}

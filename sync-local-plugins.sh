@@ -1,0 +1,397 @@
+#!/usr/bin/env bash
+# DSH 本地插件：一键同步 + 健康检查
+#
+# 权威源码在本脚本所在工作区；DSH 运行副本在 ~/.dsh/profiles 下。
+# 默认执行：同步 canvas-workbench、home-explorer 到 node/desktop 两层，
+# 然后检查源码语法、安装副本、profile 注入项和 DSH HTTP 状态。
+#
+# 用法：
+#   ./sync-local-plugins.sh                  # 同步 + 检查
+#   ./sync-local-plugins.sh --check          # 只检查，不复制文件
+#   ./sync-local-plugins.sh --install-agent  # 安装登录时/每 5 分钟自动自愈
+#   ./sync-local-plugins.sh --remove-agent   # 移除自动任务
+#
+# DSH 更新器没有稳定、公开的“更新完成”钩子，因此不依赖私有 Electron 事件。
+# --install-agent 使用 macOS LaunchAgent 在登录时和固定间隔检查，若更新重建了
+# profiles 副本，会在下一次检查时恢复；脚本默认不会擅自安装后台任务。
+
+set -euo pipefail
+umask 022
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+USER_HOME="${HOME:?无法确定用户主目录}"
+DSH_ROOT="${DSH_ROOT:-$USER_HOME/.dsh}"
+PROFILES_ROOT="$DSH_ROOT/profiles"
+LOG_DIR="$DSH_ROOT/logs"
+LOG_FILE="$LOG_DIR/dsh-local-plugins-sync.log"
+AGENT_LABEL="ai.deepseek.dsh.canvas-suite.sync"
+LEGACY_AGENT_LABEL="com.ganzhenglin.dsh-local-plugins-sync"
+AGENT_PLIST="$USER_HOME/Library/LaunchAgents/$AGENT_LABEL.plist"
+
+MODE="sync"
+QUIET=0
+for arg in "$@"; do
+  case "$arg" in
+    --check) MODE="check" ;;
+    --install-agent) MODE="install-agent" ;;
+    --remove-agent) MODE="remove-agent" ;;
+    --quiet) QUIET=1 ;;
+    -h|--help)
+      sed -n '1,32p' "$0"
+      exit 0
+      ;;
+    *)
+      printf '未知参数：%s\n' "$arg" >&2
+      exit 2
+      ;;
+  esac
+done
+
+mkdir -p "$LOG_DIR"
+
+log_line() {
+  printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOG_FILE"
+}
+
+say() {
+  log_line "$*"
+  if [ "$QUIET" -eq 0 ]; then
+    printf '%s\n' "$*"
+  fi
+}
+
+fail() {
+  log_line "ERROR: $*"
+  printf '❌ %s\n' "$*" >&2
+  exit 1
+}
+
+ensure_source() {
+  local package="$1"
+  local source="$SCRIPT_DIR/$package"
+  [ -f "$source/package.json" ] || fail "源码缺少 package.json：$source"
+  [ -f "$source/lib/client.js" ] || fail "源码缺少 lib/client.js：$source"
+  [ -f "$source/lib/index.js" ] || fail "源码缺少 lib/index.js：$source"
+  if [ "$(basename "$source")" = "canvas-workbench" ]; then
+    [ -f "$source/lib/image-engine.js" ] || fail "源码缺少 lib/image-engine.js：$source"
+    [ -f "$source/lib/platform.js" ] || fail "源码缺少 lib/platform.js：$source"
+  fi
+}
+
+sync_package() {
+  local package="$1"
+  local source="$SCRIPT_DIR/$package"
+  local destination
+
+  for destination in \
+    "$PROFILES_ROOT/node_modules/@local/$package" \
+    "$PROFILES_ROOT/desktop/node_modules/@local/$package"; do
+    mkdir -p "$destination"
+    if [ -L "$destination" ]; then
+      local source_real destination_real
+      source_real="$(cd "$source" && pwd -P)"
+      destination_real="$(cd "$destination" && pwd -P)"
+      if [ "$source_real" = "$destination_real" ]; then
+        say "已同步 $package → ${destination}（已是源码符号链接）"
+        continue
+      fi
+    fi
+    if [ -f "$destination/package.json" ] \
+      && [ -f "$destination/lib/client.js" ] \
+      && [ -f "$destination/lib/index.js" ] \
+      && cmp -s "$source/package.json" "$destination/package.json" \
+      && cmp -s "$source/lib/client.js" "$destination/lib/client.js" \
+      && cmp -s "$source/lib/index.js" "$destination/lib/index.js" \
+      && { [ "$(basename "$source")" != "canvas-workbench" ] || cmp -s "$source/lib/image-engine.js" "$destination/lib/image-engine.js"; } \
+      && { [ "$(basename "$source")" != "canvas-workbench" ] || cmp -s "$source/lib/platform.js" "$destination/lib/platform.js"; } \
+      && { [ ! -f "$source/README.md" ] || cmp -s "$source/README.md" "$destination/README.md"; } \
+      && { [ ! -d "$source/scripts" ] \
+        || { [ -d "$destination/scripts" ] \
+          && diff -qr "$source/scripts" "$destination/scripts" >/dev/null; }; }; then
+      say "已是最新，跳过复制：$destination"
+      continue
+    fi
+    # 先完整复制到同级临时目录，再一次性替换。DSH 更新后若刚好正在启动，
+    # 不会读到“只复制了一半”的 client/host 文件而进入恢复模式。
+    local parent stage previous
+    parent="$(dirname "$destination")"
+    stage="$parent/.${package}.stage.$$"
+    previous="$parent/.${package}.previous.$$"
+    rm -rf "$stage" "$previous"
+    mkdir -p "$stage"
+    cp -R "$source/." "$stage/"
+    if [ -e "$destination" ] || [ -L "$destination" ]; then mv "$destination" "$previous"; fi
+    if ! mv "$stage" "$destination"; then
+      [ -e "$previous" ] && mv "$previous" "$destination"
+      fail "原子同步失败，已恢复旧副本：$destination"
+    fi
+    rm -rf "$previous"
+    say "已同步 $package → $destination"
+  done
+}
+
+patch_entry() {
+  local package_id="$1"
+  local package_name="$2"
+  cat <<EOF
+- insert:
+    - id: $package_id
+      name: '$package_name'
+EOF
+}
+
+ensure_patch_entry() {
+  local patch="$1"
+  local package_id="$2"
+  local package_name="$3"
+  local temp
+
+  [ -f "$patch" ] || return 0
+  grep -qF "name: '$package_name'" "$patch" && return 0
+
+  temp="$patch.tmp.$$"
+  if grep -qE '^[[:space:]]*\[\][[:space:]]*$' "$patch"; then
+    awk -v entry="$(patch_entry "$package_id" "$package_name")" \
+      '/^[[:space:]]*\[\][[:space:]]*$/ { print entry; next } { print }' \
+      "$patch" > "$temp"
+  else
+    {
+      cat "$patch"
+      printf '\n%s\n' "$(patch_entry "$package_id" "$package_name")"
+    } > "$temp"
+  fi
+  mv "$temp" "$patch"
+  say "已补入 profile：$package_name → $patch"
+}
+
+sync_profiles() {
+  [ -d "$PROFILES_ROOT" ] || fail "DSH profiles 目录不存在：$PROFILES_ROOT"
+
+  # 只改桌面会使用的 Profile，绝不再污染 headless 或其他用途的组合。
+  # 新版 Desktop 可使用任意命名活动 Profile，因此同时读取它的选择状态。
+  local selection="$USER_HOME/Library/Application Support/DSH Desktop/profile-selection/state.json"
+  local active=""
+  if [ -f "$selection" ]; then
+    active="$(/usr/bin/plutil -extract active raw -o - "$selection" 2>/dev/null || true)"
+  fi
+  for profile in web desktop "$active"; do
+    [ -n "$profile" ] || continue
+    ensure_patch_entry "$PROFILES_ROOT/$profile/cordis.patch.yml" \
+      canvas-workbench '@local/canvas-workbench'
+  done
+
+  # 文件浏览器只在 web/desktop 组合中启用，避免改变 headless/历史 profile 的行为。
+  for profile in web desktop; do
+    ensure_patch_entry "$PROFILES_ROOT/$profile/cordis.patch.yml" \
+      home-explorer '@local/home-explorer'
+  done
+}
+
+check_package() {
+  local package="$1"
+  local source="$SCRIPT_DIR/$package"
+  local destination
+
+  if command -v node >/dev/null 2>&1; then
+    node --check "$source/lib/client.js" >/dev/null \
+      || fail "$package/lib/client.js 语法检查失败"
+    node --check "$source/lib/index.js" >/dev/null \
+      || fail "$package/lib/index.js 语法检查失败"
+    if [ "$package" = "canvas-workbench" ]; then
+      node --check "$source/lib/image-engine.js" >/dev/null \
+        || fail "$package/lib/image-engine.js 语法检查失败"
+    fi
+    say "语法通过：$package"
+  else
+    say "⚠ 未安装 Node.js，跳过开发期语法检查：$package（不影响 DSH 加载已打包插件）"
+  fi
+
+  for destination in \
+    "$PROFILES_ROOT/node_modules/@local/$package" \
+    "$PROFILES_ROOT/desktop/node_modules/@local/$package"; do
+    [ -f "$destination/package.json" ] \
+      || fail "安装副本缺少 package.json：$destination"
+    [ -f "$destination/lib/client.js" ] \
+      || fail "安装副本缺少 lib/client.js：$destination"
+    [ -f "$destination/lib/index.js" ] \
+      || fail "安装副本缺少 lib/index.js：$destination"
+    cmp -s "$source/package.json" "$destination/package.json" \
+      || fail "package.json 与安装副本不一致：$destination"
+    cmp -s "$source/lib/client.js" "$destination/lib/client.js" \
+      || fail "lib/client.js 与安装副本不一致：$destination"
+    cmp -s "$source/lib/index.js" "$destination/lib/index.js" \
+      || fail "lib/index.js 与安装副本不一致：$destination"
+    if [ "$package" = "canvas-workbench" ]; then
+      [ -f "$destination/lib/image-engine.js" ] \
+        || fail "安装副本缺少 lib/image-engine.js：$destination"
+      cmp -s "$source/lib/image-engine.js" "$destination/lib/image-engine.js" \
+        || fail "lib/image-engine.js 与安装副本不一致：$destination"
+      [ -f "$destination/lib/platform.js" ] \
+        || fail "安装副本缺少 lib/platform.js：$destination"
+      cmp -s "$source/lib/platform.js" "$destination/lib/platform.js" \
+        || fail "lib/platform.js 与安装副本不一致：$destination"
+    fi
+    if [ -f "$source/README.md" ]; then
+      [ -f "$destination/README.md" ] \
+        || fail "安装副本缺少 README.md：$destination"
+      cmp -s "$source/README.md" "$destination/README.md" \
+        || fail "README.md 与安装副本不一致：$destination"
+    fi
+
+    if [ -d "$source/scripts" ]; then
+      [ -d "$destination/scripts" ] \
+        || fail "安装副本缺少 scripts：$destination"
+      diff -qr "$source/scripts" "$destination/scripts" >/dev/null \
+        || fail "scripts 与安装副本不一致：$destination"
+    fi
+    say "副本一致：$destination"
+  done
+}
+
+check_profiles() {
+  local patch selection active
+  selection="$USER_HOME/Library/Application Support/DSH Desktop/profile-selection/state.json"
+  active=""
+  if [ -f "$selection" ]; then
+    active="$(/usr/bin/plutil -extract active raw -o - "$selection" 2>/dev/null || true)"
+  fi
+  if [ -n "$active" ] && [ -f "$PROFILES_ROOT/$active/cordis.patch.yml" ]; then
+    patch="$PROFILES_ROOT/$active/cordis.patch.yml"
+    grep -qF "name: '@local/canvas-workbench'" "$patch" \
+      || fail "当前活动 profile 未注入 canvas-workbench：$patch"
+    say "活动 profile 通过：$active"
+  fi
+
+  for profile in web desktop; do
+    patch="$PROFILES_ROOT/$profile/cordis.patch.yml"
+    [ -f "$patch" ] || continue
+    grep -qF "name: '@local/home-explorer'" "$patch" \
+      || fail "web/desktop profile 未注入 home-explorer：$patch"
+  done
+}
+
+check_compatibility_contract() {
+  # 客户端只能把稳定的 slots 声明为硬依赖；其他 DSH 服务必须能力探测。
+  grep -qF "exports.inject = ['slots']" "$SCRIPT_DIR/canvas-workbench/lib/client.js" \
+    || fail "canvas-workbench 声明了不稳定的客户端硬依赖"
+  grep -qF "ctx.inject(['conversation']" "$SCRIPT_DIR/canvas-workbench/lib/client.js" \
+    || fail "canvas-workbench 未通过兼容层延迟获取 conversation 服务"
+  grep -qF "api.events.register(canvasImagesDefinition)" "$SCRIPT_DIR/canvas-workbench/lib/client.js" \
+    || fail "canvas-workbench 未注册会话图片事件"
+  grep -qF "typeof ctx.slots.inject !== 'function'" "$SCRIPT_DIR/canvas-workbench/lib/client.js" \
+    || fail "canvas-workbench 未对 slots 做能力探测"
+  local version="未知"
+  if [ -f "/Applications/DSH Desktop.app/Contents/Info.plist" ]; then
+    version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' '/Applications/DSH Desktop.app/Contents/Info.plist' 2>/dev/null || printf '未知')"
+  fi
+  say "兼容层通过：DSH Desktop ${version}（可选会话能力不会阻断启动）"
+}
+
+check_dsh() {
+  local code
+  if ! command -v curl >/dev/null 2>&1; then
+    say "⚠ 未找到 curl，跳过 DSH HTTP 检查"
+    return 0
+  fi
+  code="$(curl -sS -o /dev/null --max-time 3 -w '%{http_code}' \
+    http://127.0.0.1:43120/ 2>/dev/null || true)"
+  if [[ "$code" =~ ^[23][0-9][0-9]$ ]]; then
+    say "DSH HTTP 检查通过：127.0.0.1:43120（HTTP $code）"
+  elif [[ "$code" =~ ^4(01|03)$ ]]; then
+    # 2.0.4 默认要求桌面会话授权；401/403 说明服务已监听，不能误报为未启动。
+    say "DSH HTTP 检查通过：127.0.0.1:43120（HTTP ${code}，服务已监听并要求授权）"
+  else
+    # DSH 未启动不阻断文件同步；启动 DSH 后再次执行 --check 即可确认。
+    say "⚠ DSH HTTP 当前不可用（状态：${code:-连接失败}），文件检查仍已完成"
+  fi
+}
+
+install_agent() {
+  local uid
+  uid="$(id -u)"
+  mkdir -p "$(dirname "$AGENT_PLIST")"
+  # 迁移早期仅适用于开发机的任务名，避免安装公共分发包后重复轮询。
+  launchctl bootout "gui/$uid/$LEGACY_AGENT_LABEL" >/dev/null 2>&1 || true
+  rm -f "$USER_HOME/Library/LaunchAgents/$LEGACY_AGENT_LABEL.plist"
+  cat > "$AGENT_PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>$AGENT_LABEL</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$SCRIPT_DIR/sync-local-plugins.sh</string>
+    <string>--quiet</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StartInterval</key>
+  <integer>300</integer>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>$LOG_FILE</string>
+  <key>StandardErrorPath</key>
+  <string>$LOG_FILE</string>
+</dict>
+</plist>
+EOF
+
+  launchctl bootout "gui/$uid/$AGENT_LABEL" >/dev/null 2>&1 || true
+  launchctl bootstrap "gui/$uid" "$AGENT_PLIST" \
+    || fail "LaunchAgent 安装失败：$AGENT_PLIST"
+  launchctl kickstart -k "gui/$uid/$AGENT_LABEL" >/dev/null 2>&1 || true
+  say "已安装自动同步任务：登录时运行，并每 5 分钟检查一次"
+  say "日志：$LOG_FILE"
+}
+
+remove_agent() {
+  local uid
+  uid="$(id -u)"
+  launchctl bootout "gui/$uid/$AGENT_LABEL" >/dev/null 2>&1 || true
+  launchctl bootout "gui/$uid/$LEGACY_AGENT_LABEL" >/dev/null 2>&1 || true
+  if [ -f "$AGENT_PLIST" ]; then
+    rm -f "$AGENT_PLIST"
+    say "已移除自动同步任务：$AGENT_PLIST"
+  else
+    say "自动同步任务未安装"
+  fi
+  rm -f "$USER_HOME/Library/LaunchAgents/$LEGACY_AGENT_LABEL.plist"
+}
+
+if [ "$MODE" = "remove-agent" ]; then
+  remove_agent
+  exit 0
+fi
+
+ensure_source canvas-workbench
+ensure_source home-explorer
+
+if [ "$MODE" != "check" ]; then
+  sync_profiles
+  sync_package canvas-workbench
+  sync_package home-explorer
+fi
+
+check_package canvas-workbench
+check_package home-explorer
+check_compatibility_contract
+check_profiles
+check_dsh
+
+if [ "$MODE" = "install-agent" ]; then
+  install_agent
+fi
+
+if [ "$MODE" = "check" ]; then
+  say "✅ 健康检查完成"
+else
+  say "✅ 同步与健康检查完成"
+fi
