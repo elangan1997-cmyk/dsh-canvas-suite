@@ -11,7 +11,7 @@
 
 1. 安装并启动一次 DSH Desktop，然后完全退出。
 2. 从 Releases 下载 `DSH-Canvas-Suite-*-Windows-preview.zip` 并完整解压。
-3. 在解压目录打开 PowerShell：
+3. 双击 `windows-installer/install.cmd`。也可以在解压目录打开 PowerShell：
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
@@ -20,7 +20,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 4. 重新打开 DSH Desktop。
 
-详细能力边界见 [Windows 安装说明](windows-installer/安装说明.md)，测试反馈请按 [验收清单](WINDOWS-TEST-CHECKLIST.md) 提供。
+详细能力边界见 [Windows 安装说明](windows-installer/INSTALL-WINDOWS.md)，测试反馈请按 [验收清单](WINDOWS-TEST-CHECKLIST.md) 提供。
 
 ## Windows Preview 能力
 
