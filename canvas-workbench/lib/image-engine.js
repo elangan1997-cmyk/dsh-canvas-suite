@@ -25,8 +25,18 @@ function normalizeApiBaseUrl(value, fallback = DEFAULT_API_BASE_URL) {
   return clean || fallback;
 }
 
+function normalizeExecutablePath(value) {
+  return String(value || '').trim().slice(0, 1024);
+}
+
 export async function readImageEngineSettings() {
-  const defaults = { engine: 'dsh-codex', apiBaseUrl: DEFAULT_API_BASE_URL, apiModel: DEFAULT_API_MODEL };
+  const defaults = {
+    engine: 'dsh-codex',
+    apiBaseUrl: DEFAULT_API_BASE_URL,
+    apiModel: DEFAULT_API_MODEL,
+    photoshopPath: '',
+    illustratorPath: ''
+  };
   try {
     const parsed = JSON.parse(await readFile(imageEngineSettingsPath(), 'utf8'));
     if (!parsed || typeof parsed !== 'object') return defaults;
@@ -36,6 +46,8 @@ export async function readImageEngineSettings() {
       engine: normalizeImageEngine(parsed.engine),
       apiBaseUrl: normalizeApiBaseUrl(parsed.apiBaseUrl, defaults.apiBaseUrl),
       apiModel: String(parsed.apiModel || defaults.apiModel).trim() || defaults.apiModel,
+      photoshopPath: normalizeExecutablePath(parsed.photoshopPath),
+      illustratorPath: normalizeExecutablePath(parsed.illustratorPath),
     };
   } catch {
     return defaults;
@@ -50,6 +62,8 @@ export async function writeImageEngineSettings(patch = {}) {
     engine: normalizeImageEngine(patch.engine ?? current.engine),
     apiBaseUrl: normalizeApiBaseUrl(patch.apiBaseUrl ?? current.apiBaseUrl),
     apiModel: String(patch.apiModel ?? current.apiModel).trim() || DEFAULT_API_MODEL,
+    photoshopPath: normalizeExecutablePath(patch.photoshopPath ?? current.photoshopPath),
+    illustratorPath: normalizeExecutablePath(patch.illustratorPath ?? current.illustratorPath),
   };
   const filename = imageEngineSettingsPath();
   await mkdir(dirname(filename), { recursive: true, mode: 0o700 });

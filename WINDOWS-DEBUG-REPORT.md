@@ -85,7 +85,7 @@ Secrets, chat contents, and user asset paths are intentionally omitted.
 - Actual: both endpoints used the Windows default file association, so raster images could open in Photos and SVG files could open in a browser while the canvas reported Adobe success
 - Root cause: the Windows branch delegated to the generic system opener instead of resolving the requested Adobe executable
 - Fix: discover installed Adobe product directories from Adobe registry keys and `.psd`/`.ai` file associations, verify the requested product exists, then use a PowerShell 5.1-safe non-blocking `Start-Process` launch; return an honest missing-product error when unavailable
-- Environment result: Illustrator 2022 is installed and launched successfully with a harmless SVG; Photoshop is not installed on this computer
+- Environment result: Photoshop 2022 and Illustrator 2022 are installed at non-default Windows paths and both launched successfully with harmless test files
 - Model image editing: `dsh-codex 0.2.5` is installed and OAuth-authenticated; the image engine health is `ready: true`. The fallback API is not configured. DSH/Node must inherit the active Clash proxy (`127.0.0.1:7890`) for token refresh and image requests.
 - Automatic check: JavaScript syntax, portability, and diff checks passed
 - Status: fixed, installed, and DSH restarted; PS endpoint and Illustrator endpoint both returned `ok: true` with responsive Adobe processes
@@ -119,3 +119,12 @@ Secrets, chat contents, and user asset paths are intentionally omitted.
 | Programmatic mutation persistence | passed | passed across reload |
 | Windows managed asset containment | passed | passed; no recursive growth after repair |
 | Cross-chat A→B→A shared state | partial | exposed WIN-005; post-fix confirmation pending after local-page refresh |
+
+## WIN-008 手动指定 Photoshop/Illustrator 可执行文件
+
+- Severity: compatibility enhancement
+- Expected: users with custom drives, multiple Adobe versions, or non-default install directories can choose the exact `Photoshop.exe` / `Illustrator.exe` used by the canvas
+- Fix: add a native Windows executable picker to 图像引擎设置; persist `photoshopPath` and `illustratorPath` in the per-user settings file; use the selected executable first and fall back to registry/file-association detection when a saved path is missing
+- Safety: the picker only accepts an existing file, settings are local to the user profile, and API/OAuth credentials remain separate
+- Verification: settings GET/POST round-trip passed; Photoshop 2022 and Illustrator 2022 launch endpoints returned `ok: true` after saving their explicit paths; invalid picker product is rejected with HTTP 400 and cross-origin requests with HTTP 403
+- Status: fixed and installed; DSH restarted with the active proxy environment

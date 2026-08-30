@@ -25,6 +25,10 @@ const host = await readFile(resolve(root, 'canvas-workbench/lib/index.js'), 'utf
 if (host.includes("if (!path.startsWith('/')) throw")) throw new Error('POSIX-only absolute path gate remains');
 if (host.includes("resolveExecutable('python3')")) throw new Error('unabstracted python3 lookup remains');
 if (!host.includes('platformCapabilities()')) throw new Error('health endpoint lacks platform capabilities');
+if (!host.includes("pathname === '/dsh-canvas/pick-adobe'")) throw new Error('host lacks native Adobe executable picker endpoint');
+if (!host.includes('photoshopPath') || !host.includes('illustratorPath')) throw new Error('host does not persist manual Adobe executable paths');
+const platform = await readFile(resolve(root, 'canvas-workbench/lib/platform.js'), 'utf8');
+if (!platform.includes('Start-Process -FilePath') || !platform.includes('-ArgumentList @(')) throw new Error('Windows Adobe launcher does not pass the selected executable explicitly');
 
 const client = await readFile(resolve(root, 'canvas-workbench/lib/client.js'), 'utf8');
 if (!client.includes('[A-Za-z]:[\\\\/]')) throw new Error('client lacks Windows drive path support');
@@ -40,6 +44,7 @@ if (!client.includes("replace(/\\\\/g, '/')") || !client.includes('normalizedPat
 if ((client.match(/publishCanvasChange\(nextElements/g) || []).length < 2) {
   throw new Error('add and duplicate mutations must publish their constructed target element arrays');
 }
+if (!client.includes('pickAdobeExecutable') || !client.includes('选择程序')) throw new Error('client lacks manual Adobe executable controls');
 
 const installer = await readFile(resolve(root, 'windows-installer/install.ps1'), 'utf8');
 for (const marker of ['profiles', 'node_modules\\@local', 'desktop\\node_modules\\@local', 'cordis.patch.yml']) {

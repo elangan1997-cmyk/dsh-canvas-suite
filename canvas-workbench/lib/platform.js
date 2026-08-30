@@ -73,6 +73,37 @@ export async function pickFolder(ctx, runProcess, prompt = '选择画布项目�
   throw new Error('当前系统暂不支持原生文件夹选择器，请粘贴项目路径');
 }
 
+/**
+ * Open a native executable picker.  The selected path is returned as-is and
+ * is persisted by the canvas settings endpoint; cancelling is represented by
+ * an empty string so the caller can keep the dialog open without an error.
+ */
+export async function pickExecutable(ctx, runProcess, product = '') {
+  if (!isWindows) throw new Error('当前系统暂不支持原生程序选择器，请粘贴可执行文件路径');
+  const powershell = await resolveFirst(ctx, ['powershell.exe', 'powershell']);
+  if (!powershell) throw new Error('未找到 Windows PowerShell，无法打开程序选择器');
+  const normalizedProduct = String(product || '').toLowerCase() === 'illustrator' ? 'illustrator' : 'photoshop';
+  const filter = normalizedProduct === 'illustrator'
+    ? 'Adobe Illustrator|Illustrator.exe|可执行文件|*.exe|所有文件|*.*'
+    : 'Adobe Photoshop|Photoshop.exe|可执行文件|*.exe|所有文件|*.*';
+  // The filter is a fixed internal value (not user input), so embedding it in
+  // the PowerShell script is safe and avoids the restricted child-process
+  // argument binding issue that affects Windows PowerShell 5.1.
+  const script = [
+    'Add-Type -AssemblyName System.Windows.Forms',
+    '$dialog = New-Object System.Windows.Forms.OpenFileDialog',
+    `$dialog.Filter = '${filter.replace(/'/g, "''")}'`,
+    '$dialog.Multiselect = $false',
+    '$dialog.CheckFileExists = $true',
+    'if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::OutputEncoding = [Text.UTF8Encoding]::UTF8; Write-Output $dialog.FileName; exit 0 }',
+    'exit 2'
+  ].join('; ');
+  const result = await runProcess(powershell, ['-NoLogo', '-NoProfile', '-STA', '-Command', script], userHome());
+  if (result.exitCode === 2 || !String(result.stdout || '').trim()) return '';
+  if (result.exitCode !== 0) throw new Error(String(result.stderr || '').trim() || '程序选择器打开失败');
+  return String(result.stdout || '').trim();
+}
+
 export async function openFolder(ctx, runProcess, path) {
   if (isWindows) {
     const explorer = await resolveFirst(ctx, ['explorer.exe', 'explorer']);
@@ -101,7 +132,7 @@ export async function revealFile(ctx, runProcess, path, cwd) {
   return openFolder(ctx, runProcess, cwd);
 }
 
-export async function openWithSystem(ctx, runProcess, path, cwd) {
+export async function openWithSystem(ctx, runProcess, path, cwd, executable = '') {
   if (isWindows) {
     const powershell = await resolveFirst(ctx, ['powershell.exe', 'powershell']);
     if (!powershell) throw new Error('未找到 Windows PowerShell');
@@ -109,14 +140,25 @@ export async function openWithSystem(ctx, runProcess, path, cwd) {
     // $args，表现为“文件已经打开但接口返回 FilePath 为 Null”。把路径
     // 作为字面量写入脚本，避免变量绑定和特殊字符解析竞态。
     const literal = "'" + String(path || '').replace(/'/g, "''") + "'";
+    const executableLiteral = String(executable || '').trim()
+      ? "'" + String(executable).replace(/'/g, "''") + "'"
+      : '';
     // Windows PowerShell 5.1 没有 Start-Process -LiteralPath 参数；
     // -FilePath 配合单引号字面量同样能安全处理空格、中文和盘符路径。
-    const script = 'Start-Process -FilePath ' + literal;
+    // When a manually selected Adobe executable is supplied, pass the source
+    // file explicitly so Windows file associations cannot route it to another
+    // installed version.  Without an executable we retain the normal system
+    // association behavior used by the other “open” actions.
+    const script = executableLiteral
+      ? 'Start-Process -FilePath ' + executableLiteral + ' -ArgumentList @(' + literal + ')'
+      : 'Start-Process -FilePath ' + literal;
     return runProcess(powershell, ['-NoLogo', '-NoProfile', '-Command', script], cwd);
   }
   if (isMac) {
     const opener = await resolveFirst(ctx, ['open']);
-    return runProcess(opener, [path], cwd);
+    // `open -a` accepts either an application name or an absolute .app path,
+    // allowing macOS users to pin a particular Adobe release as well.
+    return runProcess(opener, executable ? ['-a', executable, path] : [path], cwd);
   }
   const opener = await resolveFirst(ctx, ['xdg-open']);
   if (!opener) throw new Error('未找到系统打开程序');

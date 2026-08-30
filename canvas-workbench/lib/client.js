@@ -1889,7 +1889,14 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
         fetch('/dsh-canvas/image-settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ engine: imageSettings.engine, apiBaseUrl: imageSettings.apiBaseUrl, apiModel: imageSettings.apiModel, apiKey: imageSettings.apiKey || '' })
+          body: JSON.stringify({
+            engine: imageSettings.engine,
+            apiBaseUrl: imageSettings.apiBaseUrl,
+            apiModel: imageSettings.apiModel,
+            photoshopPath: imageSettings.photoshopPath || '',
+            illustratorPath: imageSettings.illustratorPath || '',
+            apiKey: imageSettings.apiKey || ''
+          })
         })
           .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
           .then((result) => {
@@ -1899,6 +1906,29 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
             setTimeout(() => setImageSettings(null), 500);
           })
           .catch((err) => setImageSettings((prev) => prev ? { ...prev, error: String((err && err.message) || err) } : prev))
+          .finally(() => setImageSettingsBusy(false));
+      };
+      const pickAdobeExecutable = (product) => {
+        if (imageSettingsBusy || !imageSettings) return;
+        const field = product === 'illustrator' ? 'illustratorPath' : 'photoshopPath';
+        const label = product === 'illustrator' ? 'Illustrator' : 'Photoshop';
+        setImageSettingsBusy(true);
+        setImageSettings((prev) => prev ? { ...prev, error: '', notice: '正在打开 ' + label + ' 程序选择器…' } : prev);
+        fetch('/dsh-canvas/pick-adobe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ product })
+        })
+          .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
+          .then((result) => {
+            if (!result.ok || !result.data || !result.data.ok) throw new Error(result.data && result.data.error || '程序选择器打开失败');
+            if (!result.data.path) {
+              setImageSettings((prev) => prev ? { ...prev, notice: '已取消选择；当前保存的路径未改变。', error: '' } : prev);
+              return;
+            }
+            setImageSettings((prev) => prev ? { ...prev, [field]: result.data.path, notice: '✓ 已选择 ' + label + '，点击“保存设置”后生效。', error: '' } : prev);
+          })
+          .catch((err) => setImageSettings((prev) => prev ? { ...prev, error: String((err && err.message) || err), notice: '' } : prev))
           .finally(() => setImageSettingsBusy(false));
       };
       const refreshImageSettings = (notice) => {
@@ -2945,6 +2975,26 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
                   React.createElement('button', { className: 'dsh-canvas-tb', disabled: imageSettingsBusy, onClick: () => askDshToConfigure('api') }, '让 DSH 帮我配置')
                 )
               ),
+              React.createElement('div', { className: 'dsh-canvas-adobe-setup' },
+                React.createElement('div', { className: 'dsh-canvas-adobe-heading' },
+                  React.createElement('strong', null, 'Adobe 编辑程序（可选）'),
+                  React.createElement('small', null, '自动检测失败或电脑装有多个版本时，可在这里指定 Photoshop/Illustrator.exe。保存后会优先使用指定版本。')
+                ),
+                React.createElement('div', { className: 'dsh-canvas-adobe-grid' },
+                  React.createElement('label', { className: 'dsh-canvas-engine-field' },
+                    React.createElement('span', null, 'Photoshop', React.createElement('small', null, '留空则自动检测')),
+                    React.createElement('input', { value: imageSettings.photoshopPath || '', onChange: (e) => setImageSettings({ ...imageSettings, photoshopPath: e.target.value }), placeholder: '例如 C:\\ps\\Adobe Photoshop 2022\\Photoshop.exe' }),
+                    React.createElement('button', { type: 'button', className: 'dsh-canvas-tb dsh-canvas-adobe-pick', disabled: imageSettingsBusy, onClick: () => pickAdobeExecutable('photoshop') }, '选择程序'),
+                    imageSettings.photoshopPath ? React.createElement('button', { type: 'button', className: 'dsh-canvas-adobe-clear', disabled: imageSettingsBusy, title: '清空后恢复自动检测', onClick: () => setImageSettings({ ...imageSettings, photoshopPath: '' }) }, '清空') : null
+                  ),
+                  React.createElement('label', { className: 'dsh-canvas-engine-field' },
+                    React.createElement('span', null, 'Illustrator', React.createElement('small', null, '留空则自动检测')),
+                    React.createElement('input', { value: imageSettings.illustratorPath || '', onChange: (e) => setImageSettings({ ...imageSettings, illustratorPath: e.target.value }), placeholder: '例如 C:\\Program Files\\Adobe\\...\\Illustrator.exe' }),
+                    React.createElement('button', { type: 'button', className: 'dsh-canvas-tb dsh-canvas-adobe-pick', disabled: imageSettingsBusy, onClick: () => pickAdobeExecutable('illustrator') }, '选择程序'),
+                    imageSettings.illustratorPath ? React.createElement('button', { type: 'button', className: 'dsh-canvas-adobe-clear', disabled: imageSettingsBusy, title: '清空后恢复自动检测', onClick: () => setImageSettings({ ...imageSettings, illustratorPath: '' }) }, '清空') : null
+                  )
+                )
+              ),
               imageSettings.error ? React.createElement('div', { className: 'dsh-canvas-engine-error' }, '⚠ ' + imageSettings.error) : null,
               imageSettings.notice ? React.createElement('div', { className: 'dsh-canvas-engine-notice' }, imageSettings.notice) : null,
               React.createElement('div', { className: 'dsh-canvas-engine-note' }, '安全说明：OAuth 与 API Key 分开保存，前端永远读不到完整凭据；不会写入画布项目、聊天消息或 Git 仓库。'),
@@ -3133,6 +3183,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
       '.dsh-canvas-engine-inline-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.dsh-canvas-engine-inline-actions .dsh-canvas-tb:last-child{margin-left:auto}',
       '.dsh-canvas-engine-api-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.dsh-canvas-engine-key{grid-column:1/-1}',
       '.dsh-canvas-engine-field{display:flex;align-items:center;gap:9px;color:#aab2c0;font-size:11px}.dsh-canvas-engine-field>span{display:flex;width:105px;flex:none;flex-direction:column;gap:2px;font-weight:650}.dsh-canvas-engine-field small{color:#7f8999;font-size:9px;line-height:1.3;font-weight:400}.dsh-canvas-engine-field input{flex:1;min-width:0;box-sizing:border-box;padding:8px 9px;border:1px solid rgba(255,255,255,.14);border-radius:7px;background:#11141a;color:#f8fafc;font:12px system-ui,sans-serif;outline:none}.dsh-canvas-engine-field input:focus{border-color:#3b82f6}',
+      '.dsh-canvas-adobe-setup{display:flex;flex-direction:column;gap:9px;padding:11px;border:1px solid rgba(255,255,255,.1);border-radius:10px;background:#171a20}.dsh-canvas-adobe-heading{display:flex;flex-direction:column;gap:3px}.dsh-canvas-adobe-heading strong{font-size:12px;color:#e5e7eb}.dsh-canvas-adobe-heading small{color:#8b95a7;font-size:10px;line-height:1.4}.dsh-canvas-adobe-grid{display:flex;flex-direction:column;gap:8px}.dsh-canvas-adobe-grid .dsh-canvas-engine-field{align-items:center}.dsh-canvas-adobe-grid .dsh-canvas-engine-field>span{width:82px}.dsh-canvas-adobe-pick{padding:6px 9px;font-size:11px}.dsh-canvas-adobe-clear{padding:4px 3px;border:0;background:transparent;color:#9ca3af;font:11px system-ui,sans-serif;cursor:pointer}.dsh-canvas-adobe-clear:hover:not(:disabled){color:#fca5a5}.dsh-canvas-adobe-clear:disabled{opacity:.45;cursor:not-allowed}',
       '.dsh-canvas-engine-note{color:#9ca3af;font-size:10px;line-height:1.45}.dsh-canvas-engine-error,.dsh-canvas-engine-notice{padding:8px 10px;border-radius:7px;font-size:11px;line-height:1.4}.dsh-canvas-engine-error{background:rgba(239,68,68,.12);color:#fca5a5}.dsh-canvas-engine-notice{background:rgba(34,197,94,.1);color:#86efac}',
       '.dsh-canvas-project-dialog{position:absolute;z-index:20;top:58px;left:50%;transform:translateX(-50%);width:min(580px,calc(100% - 40px));box-sizing:border-box;padding:16px;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:#1d2027;box-shadow:0 20px 56px rgba(0,0,0,.46);display:flex;flex-direction:column;gap:11px}',
       '.dsh-canvas-project-dialog-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}',
@@ -3174,7 +3225,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
       '.dsh-canvas-browser-path{padding:7px 9px;border-radius:7px;background:#11141a;color:#aab2c0;font:11px ui-monospace,SFMono-Regular,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
       '.dsh-canvas-frame-wrap{flex:1;min-height:0;position:relative}',
       '.dsh-canvas-frame{position:absolute;top:0;left:0;right:0;bottom:0;width:100%;height:100%;border:none;display:block}'
-      ,'@media (prefers-color-scheme:light){.dsh-canvas-overlay{color-scheme:light;background:#f4f5f7;border-left-color:rgba(15,23,42,.13);box-shadow:-12px 0 30px rgba(15,23,42,.12);color:#1f2937}.dsh-canvas-toolbar{background:#fff;color:#1f2937;border-bottom-color:rgba(15,23,42,.12)}.dsh-canvas-title{color:#111827}.dsh-canvas-project{background:#eef2ff;border-color:#dbeafe;color:#4338ca}.dsh-canvas-project:hover{background:#e0e7ff;color:#3730a3}.dsh-canvas-hint{color:#6b7280}.dsh-canvas-feedback{color:#15803d}.dsh-canvas-tb{background:#fff;border-color:rgba(15,23,42,.16);color:#1f2937}.dsh-canvas-tb:hover{background:#f3f4f6;border-color:rgba(15,23,42,.24);color:#111827}.dsh-canvas-more-menu{background:#fff;border-color:rgba(15,23,42,.14);box-shadow:0 16px 38px rgba(15,23,42,.18)}.dsh-canvas-more-menu button{color:#1f2937}.dsh-canvas-more-menu button:hover:not(:disabled){background:#f3f4f6;color:#111827}.dsh-canvas-more-menu .dsh-canvas-more-danger{color:#b91c1c}.dsh-canvas-engine-dialog{background:rgba(226,232,240,.52)}.dsh-canvas-engine-card{background:#fff;border-color:rgba(15,23,42,.14);color:#1f2937;box-shadow:0 18px 48px rgba(15,23,42,.2)}.dsh-canvas-engine-option{background:#f8fafc;border-color:#e5e7eb}.dsh-canvas-engine-option:has(input:checked){background:#eff6ff;border-color:#60a5fa}.dsh-canvas-engine-option small,.dsh-canvas-engine-note{color:#6b7280}.dsh-canvas-engine-field{color:#64748b}.dsh-canvas-engine-field input{background:#fff;border-color:#d1d5db;color:#111827}.dsh-canvas-engine-error{background:#fef2f2;color:#b91c1c}.dsh-canvas-project-dialog{background:#fff;border-color:rgba(15,23,42,.14);box-shadow:0 18px 48px rgba(15,23,42,.2)}.dsh-canvas-project-dialog-title{color:#111827}.dsh-canvas-project-subtitle{color:#6b7280}.dsh-canvas-project-dialog-close{background:#fff;border-color:rgba(15,23,42,.14);color:#64748b}.dsh-canvas-project-dialog-close:hover{background:#f3f4f6;color:#111827}.dsh-canvas-project-current{background:#eff6ff;border-color:#bfdbfe}.dsh-canvas-project-current-empty{background:transparent;color:#6b7280}.dsh-canvas-project-current-icon{background:#dbeafe;color:#2563eb}.dsh-canvas-project-current-main small{color:#15803d}.dsh-canvas-project-current-main code{color:#64748b}.dsh-canvas-project-section-title{color:#6b7280}.dsh-canvas-project-input{background:#fff;border-color:rgba(15,23,42,.2);color:#111827}.dsh-canvas-project-card,.dsh-canvas-folder-card{background:#fff;border-color:#e5e7eb;color:#1f2937}.dsh-canvas-project-card:hover,.dsh-canvas-folder-card:hover{background:#f8fbff;border-color:#93c5fd}.dsh-canvas-project-card-current{background:#eff6ff;border-color:#60a5fa;box-shadow:0 0 0 1px #bfdbfe}.dsh-canvas-project-card-open:hover{background:#f3f4f6}.dsh-canvas-project-card-main small,.dsh-canvas-project-card-open time{color:#6b7280}.dsh-canvas-project-card-actions button{color:#64748b}.dsh-canvas-project-card-actions button:hover{background:#f3f4f6;color:#111827}.dsh-canvas-project-card-actions .dsh-canvas-project-card-delete:hover{background:#fef2f2;color:#b91c1c}.dsh-canvas-browser-path{background:#f3f4f6;color:#4b5563}.dsh-canvas-project-empty{border-color:#d1d5db;color:#6b7280}.dsh-canvas-project-error{background:#fef2f2;color:#b91c1c}}'
+      ,'@media (prefers-color-scheme:light){.dsh-canvas-adobe-setup{background:#f8fafc;border-color:#e2e8f0}.dsh-canvas-adobe-heading strong{color:#1f2937}.dsh-canvas-adobe-heading small{color:#64748b}.dsh-canvas-adobe-clear{color:#64748b}.dsh-canvas-adobe-clear:hover:not(:disabled){color:#b91c1c}}'
       ,'@media (prefers-color-scheme:dark){.dsh-canvas-overlay{color-scheme:dark}}'
       ,'@media (prefers-color-scheme:light){.dsh-canvas-engine-badge{background:#fff7ed;color:#c2410c}.dsh-canvas-engine-badge.is-ready{background:#ecfdf5;color:#047857}.dsh-canvas-engine-setup{background:#f8fafc;border-color:#e2e8f0}.dsh-canvas-engine-steps>div{background:#fff;color:#334155;border:1px solid #e5e7eb}.dsh-canvas-engine-steps b{background:#e5e7eb;color:#475569}.dsh-canvas-engine-steps .is-done b{background:#dcfce7;color:#166534}.dsh-canvas-engine-steps small,.dsh-canvas-engine-field small{color:#64748b}.dsh-canvas-engine-notice{background:#ecfdf5;color:#047857}}'
       ,'@media (prefers-color-scheme:light){.dsh-text-rebuild-overlay{background:rgba(241,245,249,.58)}.dsh-text-rebuild-panel{background:#fff;color:#111827;border-color:rgba(15,23,42,.14);box-shadow:0 22px 60px rgba(15,23,42,.2)}.dsh-text-rebuild-head,.dsh-text-rebuild-foot{border-color:rgba(15,23,42,.1)}.dsh-text-rebuild-subtitle,.dsh-text-rebuild-note,.dsh-text-rebuild-empty,.dsh-text-rebuild-row-top,.dsh-text-rebuild-row-controls label{color:#64748b}.dsh-text-rebuild-close{background:#f8fafc;border-color:#e5e7eb;color:#334155}.dsh-text-rebuild-preview{background:#f1f5f9;border-color:#e2e8f0}.dsh-text-rebuild-row{background:#f8fafc;border-color:#e2e8f0}.dsh-text-rebuild-row textarea,.dsh-text-rebuild-row-controls input[type=number],.dsh-text-rebuild-row-controls input[type=color],.dsh-text-rebuild-row-controls select{background:#fff;border-color:#cbd5e1;color:#111827}.dsh-text-rebuild-row-controls button,.dsh-text-rebuild-add{background:#f1f5f9;border-color:#cbd5e1;color:#334155}.dsh-text-rebuild-cancel{background:#fff;border-color:#cbd5e1;color:#334155}}'

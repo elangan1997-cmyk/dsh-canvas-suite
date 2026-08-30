@@ -19,6 +19,7 @@ import {
   isWindows,
   openFolder,
   openWithSystem,
+  pickExecutable,
   pickFolder,
   platformCapabilities,
   revealFile,
@@ -57,8 +58,14 @@ function sourceKindOf(p) {
   if (ext === 'ai') return 'ai';
   return 'image';
 }
-async function findWindowsAdobeExecutable(product, ctx, runProcess) {
+async function findWindowsAdobeExecutable(product, ctx, runProcess, configuredPath = '') {
   if (!isWindows) return '';
+  const manualPath = expandUserPath(String(configuredPath || '').trim());
+  if (manualPath) {
+    try {
+      if ((await stat(manualPath)).isFile()) return manualPath;
+    } catch (err) {}
+  }
   const roots = [...new Set([process.env.ProgramFiles, process.env['ProgramFiles(x86)']].filter(Boolean).map((root) => join(root, 'Adobe')))];
   const prefix = product === 'photoshop' ? 'Adobe Photoshop' : 'Adobe Illustrator';
   const installLocations = [];
@@ -617,6 +624,8 @@ function apply(ctx) {
             engine: settings.engine,
             apiBaseUrl: settings.apiBaseUrl,
             apiModel: settings.apiModel,
+            photoshopPath: settings.photoshopPath || '',
+            illustratorPath: settings.illustratorPath || '',
             health
           }));
           return;
@@ -631,7 +640,9 @@ function apply(ctx) {
             const settings = await writeImageEngineSettings({
               engine: body.engine,
               apiBaseUrl: body.apiBaseUrl,
-              apiModel: body.apiModel
+              apiModel: body.apiModel,
+              photoshopPath: body.photoshopPath,
+              illustratorPath: body.illustratorPath
             });
             if (body.apiKey || body.clearApiKey === true) {
               await writeLegacyApiAuth({ apiKey: body.apiKey, baseUrl: settings.apiBaseUrl, clear: body.clearApiKey === true });
@@ -642,8 +653,26 @@ function apply(ctx) {
               engine: settings.engine,
               apiBaseUrl: settings.apiBaseUrl,
               apiModel: settings.apiModel,
+              photoshopPath: settings.photoshopPath || '',
+              illustratorPath: settings.illustratorPath || '',
               health
             }));
+          } catch (err) {
+            respond(res, 400, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: String((err && err.message) || err) }));
+          }
+          return;
+        }
+        if (pathname === '/dsh-canvas/pick-adobe' && req.method === 'POST') {
+          if (!sameOriginRequest()) {
+            respond(res, 403, { 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: '仅允许从当前 DSH 页面打开程序选择器' }));
+            return;
+          }
+          try {
+            const body = JSON.parse(await readBody(req) || '{}');
+            const product = String(body.product || '').toLowerCase();
+            if (!['photoshop', 'illustrator'].includes(product)) throw new Error('不支持的 Adobe 程序');
+            const path = await pickExecutable(ctx, runProcess, product);
+            respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true, product, path: path || '' }));
           } catch (err) {
             respond(res, 400, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: String((err && err.message) || err) }));
           }
@@ -1397,15 +1426,19 @@ function apply(ctx) {
             let opened = false;
             let lastError = '';
             if (isWindows) {
-              const executable = await findWindowsAdobeExecutable('photoshop', ctx, runProcess);
+              const settings = await readImageEngineSettings();
+              const executable = await findWindowsAdobeExecutable('photoshop', ctx, runProcess, settings.photoshopPath);
               if (!executable) throw new Error('未找到 Adobe Photoshop，请先安装 Photoshop');
               // GUI 进程不会自行退出；用系统非阻塞启动器打开已确认存在的文件。
-              const result = await openWithSystem(ctx, runProcess, path, dirname(path));
+              const result = await openWithSystem(ctx, runProcess, path, dirname(path), executable);
               opened = result.exitCode === 0;
               lastError = result.stderr.trim();
             } else {
               const opener = await ctx.subprocess.resolveExecutable('open');
-              const attempts = [['-b', 'com.adobe.Photoshop', path], ['-a', 'Adobe Photoshop 2026', path], ['-a', 'Adobe Photoshop 2025', path], ['-a', 'Adobe Photoshop', path]];
+              const settings = await readImageEngineSettings();
+              const attempts = [];
+              if (settings.photoshopPath) attempts.push(['-a', settings.photoshopPath, path]);
+              attempts.push(['-b', 'com.adobe.Photoshop', path], ['-a', 'Adobe Photoshop 2026', path], ['-a', 'Adobe Photoshop 2025', path], ['-a', 'Adobe Photoshop', path]);
               for (const args of attempts) {
                 const result = await runProcess(opener, args, dirname(path));
                 if (result.exitCode === 0) { opened = true; break; }
@@ -1489,15 +1522,19 @@ function apply(ctx) {
             let opened = false;
             let lastError = '';
             if (isWindows) {
-              const executable = await findWindowsAdobeExecutable('illustrator', ctx, runProcess);
+              const settings = await readImageEngineSettings();
+              const executable = await findWindowsAdobeExecutable('illustrator', ctx, runProcess, settings.illustratorPath);
               if (!executable) throw new Error('未找到 Adobe Illustrator，请先安装 Illustrator');
               // GUI 进程不会自行退出；用系统非阻塞启动器打开已确认存在的文件。
-              const result = await openWithSystem(ctx, runProcess, path, dirname(path));
+              const result = await openWithSystem(ctx, runProcess, path, dirname(path), executable);
               opened = result.exitCode === 0;
               lastError = result.stderr.trim();
             } else {
               const opener = await ctx.subprocess.resolveExecutable('open');
-              const attempts = [['-b', 'com.adobe.Illustrator', path], ['-a', 'Adobe Illustrator 2026', path], ['-a', 'Adobe Illustrator 2025', path], ['-a', 'Adobe Illustrator 2024', path], ['-a', 'Adobe Illustrator', path]];
+              const settings = await readImageEngineSettings();
+              const attempts = [];
+              if (settings.illustratorPath) attempts.push(['-a', settings.illustratorPath, path]);
+              attempts.push(['-b', 'com.adobe.Illustrator', path], ['-a', 'Adobe Illustrator 2026', path], ['-a', 'Adobe Illustrator 2025', path], ['-a', 'Adobe Illustrator 2024', path], ['-a', 'Adobe Illustrator', path]);
               for (const args of attempts) {
                 const result = await runProcess(opener, args, dirname(path));
                 if (result.exitCode === 0) { opened = true; break; }
