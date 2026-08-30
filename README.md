@@ -9,6 +9,8 @@
 
 ## Windows 快速安装
 
+如果希望由本地 Agent 全自动下载安装，请把 [AGENT-INSTALL-WINDOWS.md](AGENT-INSTALL-WINDOWS.md) 发给 Agent。
+
 1. 安装并启动一次 DSH Desktop，然后完全退出。
 2. 从 Releases 下载 `DSH-Canvas-Suite-*-Windows-preview.zip` 并完整解压。
 3. 双击 `windows-installer/install.cmd`。也可以在解压目录打开 PowerShell：
