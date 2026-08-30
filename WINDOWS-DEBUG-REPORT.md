@@ -66,6 +66,18 @@ Secrets, chat contents, and user asset paths are intentionally omitted.
 - Real UI regression: managed paths no longer recursively rematerialize; asset count remained stable except for one intentional copy per test action
 - Status: passed
 
+## WIN-005 Rename and project polling race removes the renamed element
+
+- Severity: critical data loss / stale cross-chat state
+- Minimal reproduction: duplicate a managed image, rename it, then open the same canvas project from a new chat
+- Expected: the renamed image remains live and every chat reads the same four-image project snapshot
+- Actual: the original chat temporarily keeps four images in memory, while `canvas.json` and a newly opened chat contain only three; the renamed element is marked `isDeleted`
+- Root cause: the host renames the managed file before the iframe publishes the updated `dshSourcePath`. A project-files poll already in flight can compare its fresh disk listing with the stale element path and misclassify the renamed image as externally deleted.
+- Fix: guard elements while their rename is in flight, update the known disk-path set, publish the rename-result scene explicitly, then release the guard and persist the new snapshot.
+- Automatic check: `node --check`, portability check, diff check, and source/web/desktop SHA-256 equality passed
+- Real UI regression: the fault was reproduced and diagnosed in the real UI; post-fix click regression awaits one manual local-page refresh because browser automation access to `127.0.0.1` was blocked after the DSH restart
+- Status: fixed in code and installed; final UI confirmation pending
+
 ## Test Matrix
 
 | Area | Static check | Real UI |
@@ -75,10 +87,11 @@ Secrets, chat contents, and user asset paths are intentionally omitted.
 | Project load and persistence | passed | copy and paste remained after reload |
 | Drag/drop and paste deduplication | partial | consecutive paste added exactly one element per paste; OS drag still pending |
 | Selection and send to chat | n/a | single selection and two-image selection attached to the current draft without sending |
-| Move, resize, duplicate, rename, delete | partial | duplicate and rename passed; destructive delete awaits explicit confirmation |
+| Move, resize, duplicate, rename, delete | partial | duplicate passed; rename race fixed and installed, final refresh confirmation pending; destructive delete awaits explicit confirmation |
 | PNG export | n/a | passed; generated PNG opened and contained all live elements |
 | PSD/AI/SVG/PDF fallback | pending | blocked by WIN-001 |
 | Image engine degradation and retry | pending | settings UI opens; behavior pending |
 | PowerShell 5.1 installer parsing | passed | passed |
 | Programmatic mutation persistence | passed | passed across reload |
 | Windows managed asset containment | passed | passed; no recursive growth after repair |
+| Cross-chat A→B→A shared state | partial | exposed WIN-005; post-fix confirmation pending after local-page refresh |

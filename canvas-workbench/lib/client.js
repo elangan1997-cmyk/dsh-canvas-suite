@@ -1504,7 +1504,7 @@ window.addEventListener("message",function(e){
   }
   if(d.type==="rename-result"){
     e.stopImmediatePropagation();
-    if(api&&d.id){var renamed=(api.getSceneElements()||[]).map(function(item){if(!item||item.id!==d.id)return item;return Object.assign({},item,{customData:Object.assign({},item.customData||{},{dshFileName:d.name||item.customData&&item.customData.dshFileName,dshSourcePath:d.sourcePath||item.customData&&item.customData.dshSourcePath}),version:Number(item.version||1)+1,versionNonce:Math.floor(Math.random()*1e9),updated:Date.now()});});api.updateScene({elements:renamed,appState:Object.assign({},api.getAppState()||empty),commitToHistory:false});}
+    if(api&&d.id){var renameState=Object.assign({},api.getAppState()||empty),renamed=(api.getSceneElements()||[]).map(function(item){if(!item||item.id!==d.id)return item;return Object.assign({},item,{customData:Object.assign({},item.customData||{},{dshFileName:d.name||item.customData&&item.customData.dshFileName,dshSourcePath:d.sourcePath||item.customData&&item.customData.dshSourcePath}),version:Number(item.version||1)+1,versionNonce:Math.floor(Math.random()*1e9),updated:Date.now()});});api.updateScene({elements:renamed,appState:renameState,commitToHistory:false});publishCanvasChange(renamed,renameState,api.getFiles?api.getFiles():{});}
     return;
   }
   if(d.type==="bind-managed"){
@@ -1639,6 +1639,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
       const photoshopWatch = React.useRef(null);
       const materializingImages = React.useRef(new Set());
       const finderRemovingIds = React.useRef(new Set());
+      const renamingImageIds = React.useRef(new Set());
       const archivedImages = React.useRef(new Map());
       const restoringImages = React.useRef(new Set());
       const pendingArchiveTimers = React.useRef(new Map());
@@ -2267,15 +2268,27 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
           setFeedback('✓ 已加入画布' + (d.name ? '：' + d.name : ''));
         } else if (d.type === 'rename-image') {
           const current = projectRef.current;
+          renamingImageIds.current.add(d.id);
           fetch('/dsh-canvas/rename-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...current, fileId: d.fileId, oldName: d.oldName, newName: d.newName, sourcePath: d.sourcePath || '' }) })
             .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
             .then((result) => {
               if (!result.ok || !result.data || !result.data.ok) throw new Error(result.data && result.data.error || '重命名失败');
               setFeedback('✓ 图片已重命名：' + result.data.name);
               post({ type: 'rename-result', id: d.id, name: result.data.name, sourcePath: result.data.sourcePath || d.sourcePath || '' });
-              saveNow();
+              if (knownDiskPaths.current) {
+                knownDiskPaths.current.delete(d.sourcePath || '');
+                if (result.data.sourcePath) knownDiskPaths.current.add(result.data.sourcePath);
+              }
+              // 让 iframe 先发布包含新路径的快照，再解除文件轮询保护并保存。
+              setTimeout(() => {
+                renamingImageIds.current.delete(d.id);
+                saveNow();
+              }, 250);
             })
-            .catch((err) => setFeedback('⚠ 图片重命名失败：' + String((err && err.message) || err)));
+            .catch((err) => {
+              renamingImageIds.current.delete(d.id);
+              setFeedback('⚠ 图片重命名失败：' + String((err && err.message) || err));
+            });
         } else if (d.type === 'source-refreshed') {
           setFeedback('✓ 已同步源文件更新：' + String(d.name || '图片'));
         } else if (d.type === 'aspect-ratio-repaired') {
@@ -2732,6 +2745,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
               const updates = new Map();
               const missingIds = [];
               for (const element of sourceElements) {
+                if (renamingImageIds.current.has(element.id)) continue;
                 const source = element.customData || {};
                 const disk = filesByPath.get(source.dshSourcePath);
                 if (!disk) {
