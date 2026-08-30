@@ -84,6 +84,26 @@ def runtime_python() -> Path:
     return VTRACER_RUNTIME / "bin" / "python"
 
 
+def activate_runtime(python: Path) -> None:
+    """在当前进程加载隔离 venv，避免 Windows 子进程 os.execv 的 Errno 22。"""
+    site_packages = python.parent.parent / "Lib" / "site-packages" if os.name == "nt" else python.parent.parent / "lib"
+    if os.name != "nt":
+        candidates = list(site_packages.glob("python*/site-packages")) if site_packages.exists() else []
+        if candidates:
+            site_packages = candidates[0]
+    if site_packages.exists() and str(site_packages) not in sys.path:
+        sys.path.insert(0, str(site_packages))
+    if os.name == "nt":
+        os.environ["VIRTUAL_ENV"] = str(python.parent.parent)
+        os.environ["PATH"] = str(python.parent) + os.pathsep + os.environ.get("PATH", "")
+        dll_dir = site_packages / "vtracer" if site_packages.exists() else None
+        if hasattr(os, "add_dll_directory") and dll_dir and dll_dir.exists():
+            try:
+                os.add_dll_directory(str(dll_dir))
+            except OSError:
+                pass
+
+
 def imagetracer_cli() -> Path:
     return IMAGETRACER_RUNTIME / "node_modules" / "imagetracerjs" / "nodecli" / "nodecli.js"
 
@@ -143,8 +163,9 @@ def ensure_vtracer_runtime(skip_if_vecto: bool = True) -> None:
             timeout=300,
         )
         VTRACER_MARKER.write_text(VTRACER_VERSION + "\n", encoding="utf-8")
-    # 让后续 import 与依赖都在隔离环境中运行。
-    os.execv(str(python), [str(python), *sys.argv])
+    # 让后续 import 与依赖都在隔离环境中运行。Windows DSH 子进程里
+    # os.execv 可能报 [Errno 22]，因此改为原地激活 site-packages。
+    activate_runtime(python)
 
 
 def image_complexity(path: Path) -> dict[str, Any]:

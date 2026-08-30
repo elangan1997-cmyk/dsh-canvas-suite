@@ -53,6 +53,27 @@ def runtime_python() -> Path:
     return RUNTIME_ROOT / "bin" / "python"
 
 
+def activate_runtime(python: Path) -> None:
+    """在当前进程加载隔离 venv，避免 Windows 子进程 os.execv 的 Errno 22。"""
+    site_packages = python.parent.parent / "Lib" / "site-packages" if os.name == "nt" else python.parent.parent / "lib"
+    if os.name != "nt":
+        candidates = list(site_packages.glob("python*/site-packages")) if site_packages.exists() else []
+        if candidates:
+            site_packages = candidates[0]
+    if site_packages.exists() and str(site_packages) not in sys.path:
+        sys.path.insert(0, str(site_packages))
+    if os.name == "nt":
+        scripts = str(python.parent)
+        os.environ["VIRTUAL_ENV"] = str(python.parent.parent)
+        os.environ["PATH"] = scripts + os.pathsep + os.environ.get("PATH", "")
+        dll_dir = site_packages / "onnxruntime" / "capi"
+        if hasattr(os, "add_dll_directory") and dll_dir.exists():
+            try:
+                os.add_dll_directory(str(dll_dir))
+            except OSError:
+                pass
+
+
 def run_checked(argv: list[str], label: str) -> None:
     try:
         subprocess.run(argv, check=True, timeout=900)
@@ -109,14 +130,10 @@ def ensure_runtime() -> None:
         python = install_runtime()
     else:
         emit_progress("environment", "已复用本地 rembg 运行环境", 45)
-    # 重新进入 venv，避免系统 Python 与 rembg 依赖混用。
-    # 不要用 Path.resolve() 比较：macOS venv 的 bin/python 通常是指向
-    # 系统解释器的符号链接，resolve 后会和当前解释器看起来完全相同，
-    # 但实际启动路径仍决定了 Python 是否加载 venv 的 site-packages。
-    current_executable = os.path.normpath(os.path.abspath(sys.executable))
-    runtime_executable = os.path.normpath(os.path.abspath(str(python)))
-    if current_executable != runtime_executable:
-        os.execv(str(python), [str(python), *sys.argv])
+    # DSH 在 Windows 上通过受限子进程启动脚本，os.execv 可能抛出
+    # [Errno 22] Invalid argument。直接把 venv 的 site-packages 加入当前
+    # 进程，既保持隔离依赖，又不会让前端进度卡在环境准备阶段。
+    activate_runtime(python)
 
 
 class ModelDownloadProgress:

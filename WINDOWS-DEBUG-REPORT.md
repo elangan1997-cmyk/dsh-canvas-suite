@@ -84,11 +84,22 @@ Secrets, chat contents, and user asset paths are intentionally omitted.
 - Expected: `Ps 编辑` always starts Photoshop and `AI 编辑` always starts Illustrator
 - Actual: both endpoints used the Windows default file association, so raster images could open in Photos and SVG files could open in a browser while the canvas reported Adobe success
 - Root cause: the Windows branch delegated to the generic system opener instead of resolving the requested Adobe executable
-- Fix: discover installed Adobe product directories under both Program Files roots and launch the matching executable directly; return an honest missing-product error when unavailable
+- Fix: discover installed Adobe product directories from Adobe registry keys and `.psd`/`.ai` file associations, verify the requested product exists, then use a PowerShell 5.1-safe non-blocking `Start-Process` launch; return an honest missing-product error when unavailable
 - Environment result: Illustrator 2022 is installed and launched successfully with a harmless SVG; Photoshop is not installed on this computer
 - Model image editing: `dsh-codex 0.2.5` is installed and OAuth-authenticated; the image engine health is `ready: true`. The fallback API is not configured. DSH/Node must inherit the active Clash proxy (`127.0.0.1:7890`) for token refresh and image requests.
 - Automatic check: JavaScript syntax, portability, and diff checks passed
-- Status: fixed, installed, and DSH restarted; runtime health passed; final button click confirmation pending
+- Status: fixed, installed, and DSH restarted; PS endpoint and Illustrator endpoint both returned `ok: true` with responsive Adobe processes
+
+## WIN-007 Windows 本地去背景/转矢量在 venv 切换阶段报 Errno 22
+
+- Severity: serious functional failure / apparent hang
+- Minimal reproduction: first click “去除背景” or “转矢量” on a raster image while the isolated Python runtime is not yet active
+- Expected: prepare the isolated dependency environment, show progress, and complete the operation
+- Actual: progress stopped after environment preparation and the request failed with `[Errno 22] Invalid argument`
+- Root cause: both Python helpers called `os.execv` to replace the DSH-managed child process after creating their Windows virtual environment; this launch mode is rejected by the DSH subprocess host
+- Fix: activate the venv’s `site-packages`, `PATH`, and Windows DLL directory in the current process instead of self-restarting
+- Real script regression: rembg `isnet-general-use` downloaded/loaded and produced a transparent PNG; ImageTracerJS produced a valid SVG from the same test image
+- Status: fixed, installed, and DSH restarted; direct rembg and ImageTracerJS regression passed
 
 ## Test Matrix
 
@@ -101,8 +112,9 @@ Secrets, chat contents, and user asset paths are intentionally omitted.
 | Selection and send to chat | n/a | single selection and two-image selection attached to the current draft without sending |
 | Move, resize, duplicate, rename, delete | partial | duplicate passed; rename race fixed and installed, final refresh confirmation pending; destructive delete awaits explicit confirmation |
 | PNG export | n/a | passed; generated PNG opened and contained all live elements |
-| PSD/AI/SVG/PDF fallback | partial | Illustrator 2022 executable launch passed; Photoshop unavailable on this host; endpoint targeting fixed |
+| PSD/AI/SVG/PDF fallback | passed | Photoshop 2022 and Illustrator 2022 endpoint launches returned `ok: true`; source-file fallback remains safe |
 | Image engine degradation and retry | partial | no engine is currently ready; static fallback path is intact, UI confirmation pending |
+| 去背景 / 转矢量 | passed | rembg generated transparent PNG; ImageTracerJS generated valid SVG; Windows venv transition fixed |
 | PowerShell 5.1 installer parsing | passed | passed |
 | Programmatic mutation persistence | passed | passed across reload |
 | Windows managed asset containment | passed | passed; no recursive growth after repair |

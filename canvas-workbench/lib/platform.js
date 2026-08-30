@@ -105,8 +105,14 @@ export async function openWithSystem(ctx, runProcess, path, cwd) {
   if (isWindows) {
     const powershell = await resolveFirst(ctx, ['powershell.exe', 'powershell']);
     if (!powershell) throw new Error('未找到 Windows PowerShell');
-    const script = 'Start-Process -FilePath $args[0]';
-    return runProcess(powershell, ['-NoLogo', '-NoProfile', '-Command', script, path], cwd);
+    // PowerShell -Command 后追加的 argv 在受限子进程中不会稳定进入
+    // $args，表现为“文件已经打开但接口返回 FilePath 为 Null”。把路径
+    // 作为字面量写入脚本，避免变量绑定和特殊字符解析竞态。
+    const literal = "'" + String(path || '').replace(/'/g, "''") + "'";
+    // Windows PowerShell 5.1 没有 Start-Process -LiteralPath 参数；
+    // -FilePath 配合单引号字面量同样能安全处理空格、中文和盘符路径。
+    const script = 'Start-Process -FilePath ' + literal;
+    return runProcess(powershell, ['-NoLogo', '-NoProfile', '-Command', script], cwd);
   }
   if (isMac) {
     const opener = await resolveFirst(ctx, ['open']);

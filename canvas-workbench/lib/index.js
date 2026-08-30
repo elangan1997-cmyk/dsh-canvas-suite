@@ -57,13 +57,56 @@ function sourceKindOf(p) {
   if (ext === 'ai') return 'ai';
   return 'image';
 }
-async function findWindowsAdobeExecutable(product) {
+async function findWindowsAdobeExecutable(product, ctx, runProcess) {
   if (!isWindows) return '';
   const roots = [...new Set([process.env.ProgramFiles, process.env['ProgramFiles(x86)']].filter(Boolean).map((root) => join(root, 'Adobe')))];
   const prefix = product === 'photoshop' ? 'Adobe Photoshop' : 'Adobe Illustrator';
+  const installLocations = [];
+  const associatedExecutables = [];
+  // Adobe 允许安装到任意盘符（例如 C:\\ps）；查询卸载登记以覆盖自定义路径。
+  try {
+    let reg = '';
+    try { reg = await ctx.subprocess.resolveExecutable('reg.exe'); } catch (err) {}
+    if (!reg) reg = join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'reg.exe');
+    const registryKeys = product === 'photoshop'
+      ? ['HKLM\\SOFTWARE\\Adobe\\Photoshop', 'HKLM\\SOFTWARE\\WOW6432Node\\Adobe\\Photoshop']
+      : ['HKLM\\SOFTWARE\\Adobe\\Illustrator', 'HKLM\\SOFTWARE\\WOW6432Node\\Adobe\\Illustrator'];
+    registryKeys.push('HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall', 'HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall', 'HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall');
+    for (const key of registryKeys) {
+      const result = await runProcess(reg, ['query', key, '/s', '/v', 'InstallLocation'], process.cwd());
+      const extra = product === 'photoshop' || product === 'illustrator'
+        ? await runProcess(reg, ['query', key, '/s', '/v', 'ApplicationPath'], process.cwd())
+        : { stdout: '' };
+      for (const line of (String(result.stdout || '') + '\n' + String(extra.stdout || '')).split(/\r?\n/)) {
+        const match = line.match(/(?:InstallLocation|ApplicationPath)\s+REG_(?:SZ|EXPAND_SZ)\s+(.+)$/i);
+        if (match) {
+          const location = String(match[1] || '').trim();
+          if (location) installLocations.push(location);
+        }
+      }
+    }
+  } catch (err) {}
+  // 若安装程序没有写 Uninstall 项，读取 .psd/.ai 的 Windows 文件关联作为兜底。
+  try {
+    const cmd = await ctx.subprocess.resolveExecutable('cmd.exe');
+    const extension = product === 'photoshop' ? '.psd' : '.ai';
+    const assoc = await runProcess(cmd, ['/d', '/c', 'assoc', extension], process.cwd());
+    const type = String(assoc.stdout || '').match(/=([^\r\n]+)/)?.[1]?.trim();
+    if (type) {
+      const ftype = await runProcess(cmd, ['/d', '/c', 'ftype', type], process.cwd());
+      const executable = String(ftype.stdout || '').match(/=\s*"([^"]+\.exe)"/i)?.[1];
+      if (executable) associatedExecutables.push(executable);
+    }
+  } catch (err) {}
+  for (const location of installLocations) {
+    if (location.toLowerCase().includes(prefix.toLowerCase())) roots.push(location);
+  }
   for (const root of roots) {
     let folders = [];
-    try { folders = (await readdir(root, { withFileTypes: true })).filter((entry) => entry.isDirectory() && entry.name.toLowerCase().startsWith(prefix.toLowerCase())).map((entry) => entry.name).sort().reverse(); } catch (err) {}
+    if (root.toLowerCase().includes(prefix.toLowerCase()) && !root.toLowerCase().endsWith('\\adobe')) folders = [root];
+    else {
+      try { folders = (await readdir(root, { withFileTypes: true })).filter((entry) => entry.isDirectory() && entry.name.toLowerCase().startsWith(prefix.toLowerCase())).map((entry) => entry.name).sort().reverse(); } catch (err) {}
+    }
     for (const folder of folders) {
       const base = join(root, folder);
       const candidates = product === 'photoshop'
@@ -73,6 +116,9 @@ async function findWindowsAdobeExecutable(product) {
         try { if ((await stat(executable)).isFile()) return executable; } catch (err) {}
       }
     }
+  }
+  for (const executable of associatedExecutables) {
+    try { if ((await stat(executable)).isFile()) return executable; } catch (err) {}
   }
   return '';
 }
@@ -1351,9 +1397,10 @@ function apply(ctx) {
             let opened = false;
             let lastError = '';
             if (isWindows) {
-              const executable = await findWindowsAdobeExecutable('photoshop');
+              const executable = await findWindowsAdobeExecutable('photoshop', ctx, runProcess);
               if (!executable) throw new Error('未找到 Adobe Photoshop，请先安装 Photoshop');
-              const result = await runProcess(executable, [path], dirname(path));
+              // GUI 进程不会自行退出；用系统非阻塞启动器打开已确认存在的文件。
+              const result = await openWithSystem(ctx, runProcess, path, dirname(path));
               opened = result.exitCode === 0;
               lastError = result.stderr.trim();
             } else {
@@ -1442,9 +1489,10 @@ function apply(ctx) {
             let opened = false;
             let lastError = '';
             if (isWindows) {
-              const executable = await findWindowsAdobeExecutable('illustrator');
+              const executable = await findWindowsAdobeExecutable('illustrator', ctx, runProcess);
               if (!executable) throw new Error('未找到 Adobe Illustrator，请先安装 Illustrator');
-              const result = await runProcess(executable, [path], dirname(path));
+              // GUI 进程不会自行退出；用系统非阻塞启动器打开已确认存在的文件。
+              const result = await openWithSystem(ctx, runProcess, path, dirname(path));
               opened = result.exitCode === 0;
               lastError = result.stderr.trim();
             } else {
