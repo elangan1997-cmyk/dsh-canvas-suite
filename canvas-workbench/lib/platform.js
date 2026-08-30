@@ -1,4 +1,6 @@
 import { homedir, platform } from 'node:os';
+import { tmpdir } from 'node:os';
+import { readFile, unlink } from 'node:fs/promises';
 import { isAbsolute, join, win32 } from 'node:path';
 
 export const platformName = platform();
@@ -89,19 +91,42 @@ export async function pickExecutable(ctx, runProcess, product = '') {
   // The filter is a fixed internal value (not user input), so embedding it in
   // the PowerShell script is safe and avoids the restricted child-process
   // argument binding issue that affects Windows PowerShell 5.1.
-  const script = [
+  const resultFile = join(tmpdir(), `dsh-canvas-adobe-picker-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`);
+  const resultLiteral = "'" + resultFile.replace(/'/g, "''") + "'";
+  const pickerScript = [
     'Add-Type -AssemblyName System.Windows.Forms',
     '$dialog = New-Object System.Windows.Forms.OpenFileDialog',
     `$dialog.Filter = '${filter.replace(/'/g, "''")}'`,
     '$dialog.Multiselect = $false',
     '$dialog.CheckFileExists = $true',
-    'if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::OutputEncoding = [Text.UTF8Encoding]::UTF8; Write-Output $dialog.FileName; exit 0 }',
+    `if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [IO.File]::WriteAllText(${resultLiteral}, $dialog.FileName, [Text.UTF8Encoding]::new($false)); exit 0 }`,
     'exit 2'
   ].join('; ');
-  const result = await runProcess(powershell, ['-NoLogo', '-NoProfile', '-STA', '-Command', script], userHome());
-  if (result.exitCode === 2 || !String(result.stdout || '').trim()) return '';
-  if (result.exitCode !== 0) throw new Error(String(result.stderr || '').trim() || '程序选择器打开失败');
-  return String(result.stdout || '').trim();
+  // DSH subprocesses intentionally run headless.  Calling WinForms directly
+  // from that process creates a modal dialog on a non-interactive window
+  // station, which looks like a permanent “正在打开选择器”.  ShellExecute a
+  // second PowerShell process onto the user's desktop, wait for it, then read
+  // the selected path from a short-lived file.
+  const encoded = Buffer.from(pickerScript, 'utf16le').toString('base64');
+  const childArgs = `@('-NoLogo','-NoProfile','-STA','-WindowStyle','Normal','-EncodedCommand','${encoded}')`;
+  const powershellLiteral = "'" + String(powershell).replace(/'/g, "''") + "'";
+  const launcherScript = [
+    `Start-Process -FilePath ${powershellLiteral} -Verb Open -ArgumentList ${childArgs} -WindowStyle Normal -Wait | Out-Null`,
+    `if (Test-Path -LiteralPath ${resultLiteral}) { Get-Content -LiteralPath ${resultLiteral} -Raw; Remove-Item -LiteralPath ${resultLiteral} -Force }`
+  ].join('; ');
+  let result;
+  let selected = '';
+  try {
+    result = await runProcess(powershell, ['-NoLogo', '-NoProfile', '-STA', '-Command', launcherScript], userHome());
+    try { selected = String(await readFile(resultFile, 'utf8')).trim(); } catch {}
+  } finally {
+    await unlink(resultFile).catch(() => {});
+  }
+  const stdout = String(result.stdout || '').trim();
+  if (result.exitCode !== 0 && !selected && !stdout) {
+    throw new Error(String(result.stderr || '').trim() || '程序选择器打开失败');
+  }
+  return selected || stdout;
 }
 
 export async function openFolder(ctx, runProcess, path) {

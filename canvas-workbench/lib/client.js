@@ -1908,28 +1908,53 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
           .catch((err) => setImageSettings((prev) => prev ? { ...prev, error: String((err && err.message) || err) } : prev))
           .finally(() => setImageSettingsBusy(false));
       };
-      const pickAdobeExecutable = (product) => {
+      const pickAdobeExecutable = async (product) => {
         if (imageSettingsBusy || !imageSettings) return;
         const field = product === 'illustrator' ? 'illustratorPath' : 'photoshopPath';
         const label = product === 'illustrator' ? 'Illustrator' : 'Photoshop';
         setImageSettingsBusy(true);
         setImageSettings((prev) => prev ? { ...prev, error: '', notice: '正在打开 ' + label + ' 程序选择器…' } : prev);
-        fetch('/dsh-canvas/pick-adobe', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ product })
-        })
-          .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
-          .then((result) => {
-            if (!result.ok || !result.data || !result.data.ok) throw new Error(result.data && result.data.error || '程序选择器打开失败');
-            if (!result.data.path) {
-              setImageSettings((prev) => prev ? { ...prev, notice: '已取消选择；当前保存的路径未改变。', error: '' } : prev);
-              return;
-            }
-            setImageSettings((prev) => prev ? { ...prev, [field]: result.data.path, notice: '✓ 已选择 ' + label + '，点击“保存设置”后生效。', error: '' } : prev);
-          })
-          .catch((err) => setImageSettings((prev) => prev ? { ...prev, error: String((err && err.message) || err), notice: '' } : prev))
-          .finally(() => setImageSettingsBusy(false));
+        try {
+          // DSH's host subprocess is intentionally headless, so a WinForms
+          // dialog launched there can never receive input.  Use the renderer's
+          // native file chooser instead; Electron exposes the absolute path as
+          // `File.path`, while ordinary browsers fall back to a pasteable path.
+          const selected = await new Promise((resolve) => {
+            const input = document.createElement('input');
+            let settled = false;
+            const finish = (value) => {
+              if (settled) return;
+              settled = true;
+              input.remove();
+              resolve(value || '');
+            };
+            input.type = 'file';
+            input.accept = '.exe,.app,application/x-msdownload,application/octet-stream';
+            input.tabIndex = -1;
+            input.style.position = 'fixed';
+            input.style.left = '-10000px';
+            input.style.top = '0';
+            input.addEventListener('change', () => {
+              const file = input.files && input.files[0];
+              const candidate = file && (file.path || file.webkitRelativePath || '');
+              finish(String(candidate || '').trim());
+            }, { once: true });
+            input.addEventListener('cancel', () => finish(''), { once: true });
+            document.body.appendChild(input);
+            input.click();
+          });
+          if (!selected) {
+            setImageSettings((prev) => prev ? { ...prev, notice: '已取消选择；也可以直接粘贴完整程序路径。', error: '' } : prev);
+          } else if (!/\.(?:exe|app)$/i.test(selected)) {
+            throw new Error('请选择 Photoshop.exe、Illustrator.exe 或 macOS 的 .app 程序');
+          } else {
+            setImageSettings((prev) => prev ? { ...prev, [field]: selected, notice: '✓ 已选择 ' + label + '，点击“保存设置”后生效。', error: '' } : prev);
+          }
+        } catch (err) {
+          setImageSettings((prev) => prev ? { ...prev, error: String((err && err.message) || err), notice: '' } : prev);
+        } finally {
+          setImageSettingsBusy(false);
+        }
       };
       const refreshImageSettings = (notice) => {
         fetch('/dsh-canvas/image-settings')

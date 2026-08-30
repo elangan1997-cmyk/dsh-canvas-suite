@@ -124,7 +124,7 @@ Secrets, chat contents, and user asset paths are intentionally omitted.
 
 - Severity: compatibility enhancement
 - Expected: users with custom drives, multiple Adobe versions, or non-default install directories can choose the exact `Photoshop.exe` / `Illustrator.exe` used by the canvas
-- Fix: add a native Windows executable picker to 图像引擎设置; persist `photoshopPath` and `illustratorPath` in the per-user settings file; use the selected executable first and fall back to registry/file-association detection when a saved path is missing
+- Fix: add a renderer-native executable picker to 图像引擎设置 (the DSH host subprocess is headless, so WinForms is not used); persist `photoshopPath` and `illustratorPath` in the per-user settings file; use the selected executable first and fall back to registry/file-association detection when a saved path is missing
 - Safety: the picker only accepts an existing file, settings are local to the user profile, and API/OAuth credentials remain separate
-- Verification: settings GET/POST round-trip passed; Photoshop 2022 and Illustrator 2022 launch endpoints returned `ok: true` after saving their explicit paths; invalid picker product is rejected with HTTP 400 and cross-origin requests with HTTP 403
+- Verification: settings GET/POST round-trip passed; Photoshop 2022 and Illustrator 2022 launch endpoints returned `ok: true` after saving their explicit paths; the old headless picker path was reproduced as stuck and removed from the UI; the page picker now returns Electron's absolute `File.path` (with a paste-path fallback in ordinary browsers)
 - Status: fixed and installed; DSH restarted with the active proxy environment
