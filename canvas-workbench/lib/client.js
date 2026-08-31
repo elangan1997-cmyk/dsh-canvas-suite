@@ -291,8 +291,34 @@ window.__ModuleLoader__.load({
       return fetch(stateEndpoint(cwd, project), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
         .catch(() => {});
     }
+    async function readCanvasJson(response, label) {
+      const text = await response.text();
+      const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+      if (contentType.includes('text/html') || /^\s*<!doctype\s+html/i.test(text) || /^\s*<html/i.test(text)) {
+        const error = new Error((label || '画布接口') + '暂未加载，请刷新页面后重试');
+        error.code = 'DSH_CANVAS_HTML_FALLBACK';
+        throw error;
+      }
+      let value;
+      try { value = JSON.parse(text); }
+      catch (err) { throw new Error((label || '画布接口') + '返回了无效数据（HTTP ' + response.status + '）'); }
+      if (!response.ok) throw new Error(value && value.error || ((label || '画布接口') + '请求失败 HTTP ' + response.status));
+      return value;
+    }
+    async function fetchCanvasJson(url, init, label) {
+      let lastError;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try { return await readCanvasJson(await fetch(url, init), label); }
+        catch (err) {
+          lastError = err;
+          if (!err || err.code !== 'DSH_CANVAS_HTML_FALLBACK' || attempt > 0) throw err;
+          await new Promise((resolve) => setTimeout(resolve, 600));
+        }
+      }
+      throw lastError;
+    }
     function listProjects(cwd) {
-      return fetch('/dsh-canvas/projects?cwd=' + encodeURIComponent(cwd), { cache: 'no-store' }).then((r) => r.json());
+      return fetchCanvasJson('/dsh-canvas/projects?cwd=' + encodeURIComponent(cwd), { cache: 'no-store' }, '最近项目');
     }
 
     function basename(p) {
