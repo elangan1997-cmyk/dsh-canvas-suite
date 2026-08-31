@@ -476,7 +476,14 @@ window.__ModuleLoader__.load({
       }
       const candidate = value.trim();
       if (!candidate) return;
-      if (isDirectImageSource(candidate)) { out.push(candidate); return; }
+      // JSON 的通用 `url` 字段经常指向工具结果网页（HTML），不能仅凭
+      // http(s) 就当成图片。无扩展名的签名图片 URL 仍可由 Markdown 图片
+      // 或会话 attachment 分支进入。
+      if (/^(?:data:image\/|blob:)/i.test(candidate)) { out.push(candidate); return; }
+      if (/^https?:\/\//i.test(candidate)) {
+        if (IMAGE_EXT_RE.test(candidate)) out.push(candidate);
+        return;
+      }
       // Codex image_generation_call.result 常直接返回无 MIME 的 Base64；补成可直接预览的 PNG data URL。
       if (looksLikeBase64(candidate)) { out.push('data:image/png;base64,' + compactBase64(candidate)); return; }
       pushIfImage(candidate, out, cwdOverride);
@@ -1881,9 +1888,36 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
           persistOnLeave();
         };
       }, []);
-      const post = (msg) => {
+      const rawPost = (msg) => {
         const w = frameRef.current && frameRef.current.contentWindow;
         if (w) w.postMessage(msg, '*');
+      };
+      const post = (msg) => {
+        const type = String(msg && msg.type || '');
+        const source = String(msg && msg.url || '');
+        if ((type === 'add-image' || type === 'refresh-source') && /^https?:\/\//i.test(source)) {
+          fetch(source, { cache: 'no-store' })
+            .then((response) => {
+              const mime = String(response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+              if (!response.ok || !mime.startsWith('image/')) throw new Error('返回内容不是图片（' + (mime || '未知格式') + '）');
+              return response.blob();
+            })
+            .then((blob) => new Promise((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(String(reader.result || ''));
+              reader.onerror = () => reject(new Error('读取图片失败'));
+              reader.readAsDataURL(blob);
+            }))
+            .then((dataURL) => {
+              if (!/^data:image\//i.test(dataURL)) throw new Error('图片数据无效');
+              rawPost({ ...msg, url: dataURL });
+            })
+            .catch((error) => {
+              setFeedback('⚠ 图片加载失败，已阻止网页内容写入画布：' + String(error && error.message || error));
+            });
+          return;
+        }
+        rawPost(msg);
       };
       // tldraw 的 onChange 经过短暂防抖，切换瞬间 latestSnapshot 可能还没收到
       // 最后一次删除/移动。切换前主动向 iframe 索取内存中的当前快照。
