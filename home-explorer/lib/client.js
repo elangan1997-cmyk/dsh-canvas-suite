@@ -298,8 +298,8 @@ window.__ModuleLoader__.load({
       });
       effect(() => () => styleTag.remove());
 
-      slot('conversation.session.header.actions', { name: 'conversation.session.header.actions', id: 'home-explorer-toggle', order: 30, label: '文件' }, () => el(Toggle));
-      slot('shell.overlay', { name: 'shell.overlay', id: 'home-explorer', order: 90, label: '文件浏览器' }, (props) => el(Explorer, props));
+      // 桌面端不再注册文件浏览器图标和右侧覆盖面板。Host 路由继续保留，
+      // 供画布的项目目录浏览、图片读取与“在文件夹中显示”功能使用。
     }
 
     exports.apply = apply;
