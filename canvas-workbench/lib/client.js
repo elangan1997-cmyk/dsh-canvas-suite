@@ -557,7 +557,21 @@ window.__ModuleLoader__.load({
         data.step && data.step.cwd,
         data.context && data.context.cwd
       ];
-      return candidates.find((value) => typeof value === 'string' && value.trim()) || activeChatCwd;
+      const cwd = candidates.find((value) => typeof value === 'string' && value.trim()) || '';
+      if (cwd) {
+        const sessionId = [
+          data.sessionId,
+          data.session && (data.session.id || data.session.sessionId),
+          data.conversation && (data.conversation.id || data.conversation.sessionId),
+          data.message && data.message.sessionId,
+          data.context && data.context.sessionId
+        ].find((value) => value != null && String(value).trim());
+        const nextSessionId = sessionId == null ? activeChatSessionId : String(sessionId);
+        if (!activeChatSessionId || !nextSessionId || nextSessionId === activeChatSessionId) {
+          setActiveChatContext(cwd, nextSessionId);
+        }
+      }
+      return cwd || activeChatCwd;
     }
     function extractImagePaths(event) {
       const out = [];
@@ -1191,9 +1205,10 @@ window.__ModuleLoader__.load({
       }, [props.sessionId, modelCapabilityRevision]);
       React.useEffect(() => subscribeMode(setOn), []);
       React.useEffect(() => {
-        if (sessionSummary && sessionSummary.cwd) {
-          setActiveChatContext(sessionSummary.cwd, props.sessionId || '');
-        }
+        // Desktop builds may omit `cwd` from the lightweight session summary.
+        // Still publish the current session id so a later conversation event can
+        // safely fill its cwd without inheriting the previous chat's directory.
+        setActiveChatContext(sessionSummary && sessionSummary.cwd || '', props.sessionId || '');
       }, [sessionSummary && sessionSummary.cwd, props.sessionId]);
       React.useEffect(() => {
         const receive = async (event) => {
@@ -1885,12 +1900,29 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
           setFeedback('⚠ 加载项目失败，当前画布未改变：' + String((err && err.message) || err));
         });
       };
+      const visibleChatCwd = () => {
+        const text = String(document.body && document.body.innerText || '');
+        const matches = text.match(/[A-Za-z]:[\\/][^\r\n<>|"?*]+/g) || [];
+        for (let index = matches.length - 1; index >= 0; index -= 1) {
+          const value = matches[index].trim().replace(/[)\]}'，。；：、]+$/, '');
+          const cut = Math.max(value.lastIndexOf('\\'), value.lastIndexOf('/'));
+          if (cut > 2) return value.slice(0, cut);
+        }
+        return '';
+      };
       const openProjectList = () => {
-        if (!projectInfo.cwd) { setFeedback('⚠ 当前聊天没有工作目录'); return; }
+        const cwd = projectInfo.cwd || visibleChatCwd();
+        if (!cwd) { setFeedback('⚠ 当前聊天没有工作目录，也未找到可恢复的文件路径'); return; }
+        if (!projectInfo.cwd) {
+          const recovered = { cwd, sessionId: projectInfo.sessionId || activeChatSessionId, project: chosenProject(cwd, projectInfo.sessionId || activeChatSessionId) };
+          projectRef.current = recovered;
+          setProjectInfo(recovered);
+          setFeedback('✓ 已从当前聊天恢复工作目录');
+        }
         setMoreMenuOpen(false);
         setProjectDialog({ mode: 'list' });
         setProjectList({ loading: true, items: [], error: '' });
-        listProjects(projectInfo.cwd).then((result) => {
+        listProjects(cwd).then((result) => {
           setProjectList({ loading: false, items: Array.isArray(result.projects) ? result.projects : [], error: result.error || '' });
         }).catch((err) => setProjectList({ loading: false, items: [], error: String((err && err.message) || err) }));
       };
