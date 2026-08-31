@@ -205,6 +205,46 @@ window.__ModuleLoader__.load({
       return '';
     }
     function installLocalMarkdownImageFallback() {
+      const fallbackCards = new Map();
+      const pathFromLink = (link) => {
+        const values = [link && link.textContent, link && link.getAttribute && link.getAttribute('href')];
+        for (const rawValue of values) {
+          let value = String(rawValue || '').trim();
+          try { value = decodeURIComponent(value); } catch (e) {}
+          const match = value.match(/(?:[A-Za-z]:[\\/]|\\\\|\/Volumes\/|\/Users\/|\/private\/|\/var\/)[^\r\n<>|"?*]+\.(?:png|jpe?g|webp|gif|bmp|svg)/i);
+          if (match) return match[0].replace(/[)\]}'，。；：、]+$/, '');
+        }
+        return '';
+      };
+      const addFallbackCard = (link) => {
+        const path = pathFromLink(link);
+        if (!path || fallbackCards.has(path) || document.querySelector('[data-dsh-canvas-fallback-path="' + CSS.escape(path) + '"]')) return;
+        const host = link.parentElement;
+        if (!host || host.closest('.dsh-canvas-tool-output')) return;
+        const card = document.createElement('div');
+        card.className = 'dsh-canvas-tool-output dsh-canvas-dom-fallback';
+        card.dataset.dshCanvasFallbackPath = path;
+        const bar = document.createElement('div');
+        bar.className = 'dsh-canvas-tool-bar';
+        const title = document.createElement('span');
+        title.className = 'dsh-canvas-tool-title';
+        title.textContent = '图片输出';
+        const name = document.createElement('span');
+        name.className = 'dsh-canvas-tool-count';
+        name.textContent = imageName(path);
+        const reveal = document.createElement('button');
+        reveal.className = 'dsh-canvas-tool-btn';
+        reveal.textContent = '在文件夹中显示';
+        reveal.onclick = () => revealImageInFinder(path);
+        const add = document.createElement('button');
+        add.className = 'dsh-canvas-tool-btn';
+        add.textContent = '加入画布';
+        add.onclick = () => dispatchResolvedImage(path);
+        bar.append(title, name, reveal, add);
+        card.appendChild(bar);
+        host.insertAdjacentElement('afterend', card);
+        fallbackCards.set(path, card);
+      };
       const rewrite = (img) => {
         const path = localPathFromMarkdownImage(img);
         if (!path || !IMAGE_EXT_RE.test(path)) return;
@@ -217,8 +257,11 @@ window.__ModuleLoader__.load({
         if (!root || root.nodeType !== 1) return;
         if (root.tagName === 'IMG') rewrite(root);
         if (root.querySelectorAll) root.querySelectorAll('img').forEach(rewrite);
+        if (root.tagName === 'A') addFallbackCard(root);
+        if (root.querySelectorAll) root.querySelectorAll('a').forEach(addFallbackCard);
       };
       document.querySelectorAll('img').forEach(rewrite);
+      document.querySelectorAll('a').forEach(addFallbackCard);
       const observer = new MutationObserver((records) => {
         for (const record of records) for (const node of record.addedNodes || []) scan(node);
       });
@@ -231,6 +274,8 @@ window.__ModuleLoader__.load({
       return () => {
         observer.disconnect();
         window.removeEventListener('error', onError, true);
+        fallbackCards.forEach((card) => card.remove());
+        fallbackCards.clear();
       };
     }
     function stateEndpoint(cwd, project) {
