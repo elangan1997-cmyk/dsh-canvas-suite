@@ -177,3 +177,15 @@ Secrets, chat contents, and user asset paths are intentionally omitted.
 - Automatic check: `node --check`、可移植性检查、diff 检查通过；web/desktop 运行副本哈希一致。
 - Real UI regression: 在实际 `TEST/assets` 复制 `__windows-realtime-probe.png` 后，约 10 秒内页面反馈显示“检测到项目目录新增文件…”，画布元素数量保持 5（没有未经用户确认的自动导入）；测试副本已清理。
 - Status: fixed, installed, and real UI regression passed
+
+## WIN-013 Windows 助手输出的 PSD/SVG 等文档没有进入图片输出卡片
+
+- Severity: serious functional visibility issue
+- Minimal reproduction: 让助手或工具输出 `D:\\…\\文件.psd`、`.svg`、`.pdf` 或 `.ai` 路径，观察消息下方的图片输出区域。
+- Expected: 本地文档路径被识别为可预览的输出，显示缩略图，并可“加入画布”。
+- Actual: PSD 路径完全未被前端路径提取器识别；盘符/UNC 纯文本路径也不符合旧版仅 POSIX 的正则，消息中只剩普通文字。
+- Root cause: `IMAGE_EXT_RE` 及代码块/XML/纯文本路径表达式漏掉 `psd`，绝对路径表达式只接受 `/…` 或 `~/…`。
+- Fix: 所有文档路径表达式加入 `psd`；新增 Windows 盘符/UNC 路径提取，保留路径中的空格；预览显示继续统一走 `/dsh-canvas/preview`，不把 PSD 原始二进制直接交给浏览器。
+- Automatic check: `node --check`、可移植性检查、diff 检查通过；web/desktop 运行副本 SHA-256 一致。
+- Real API regression: 实际 PSD 与 SVG 文件的预览接口均返回 HTTP 200、`image/svg+xml` 且内容非空；项目扫描返回 `kind: psd/svg` 和可用预览 URL。
+- Status: fixed, installed, and preview regression passed

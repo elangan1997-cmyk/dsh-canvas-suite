@@ -363,7 +363,7 @@ window.__ModuleLoader__.load({
       if (drive) return drive[1] + '/' + normalized.slice(normalized[0] === drive[1] ? 1 : 0).join('/');
       return '/' + normalized.join('/');
     }
-    const IMAGE_EXT_RE = /\.(?:png|jpe?g|webp|gif|avif|bmp|svg|pdf|ai)(?:[?#].*)?$/i;
+    const IMAGE_EXT_RE = /\.(?:png|jpe?g|webp|gif|avif|bmp|svg|pdf|ai|psd)(?:[?#].*)?$/i;
     const IMAGE_MIME_RE = /^image\/(?:png|jpe?g|jpeg|webp|gif|avif|bmp|svg\+xml)(?:[;]|$)/i;
     function isDirectImageSource(value) {
       return typeof value === 'string' && /^(?:data:image\/|https?:\/\/|blob:)/i.test(value.trim());
@@ -423,7 +423,7 @@ window.__ModuleLoader__.load({
       } catch (e) {}
       const jsonRe = /"(?:image|image_url|imageUrl|file|file_path|filePath|path|url|result|b64_json|base64)"\s*:\s*(?:"([^"]+)"|\{[^}]*\})/gi;
       while ((m = jsonRe.exec(source))) pushImageCandidate(m[1], out, cwdOverride);
-      const codePathRe = /`([^`\r\n]+\.(?:png|jpe?g|webp|gif|avif|bmp|svg|pdf|ai)(?:[?#][^`\r\n]*)?)`/gi;
+      const codePathRe = /`([^`\r\n]+\.(?:png|jpe?g|webp|gif|avif|bmp|svg|pdf|ai|psd)(?:[?#][^`\r\n]*)?)`/gi;
       while ((m = codePathRe.exec(source))) pushIfImage(m[1], out, cwdOverride);
       const plainText = source.replace(/`[^`\r\n]*`/g, ' ');
       // Markdown 图片路径经常是 macOS 绝对路径，中间包含空格。
@@ -438,13 +438,19 @@ window.__ModuleLoader__.load({
         else pushIfImage(markdownTarget, out, cwdOverride);
       }
       // read_image 等工具会以 <path>/tmp/a.png</path> 返回，允许 XML 标签后的路径。
-      const tagPathRe = /<(?:path|file|image-path|output)\s*>\s*([^<\r\n]+?\.(?:png|jpe?g|webp|gif|avif|bmp|svg|pdf|ai)(?:[?#][^<\r\n]*)?)\s*<\//gi;
+      const tagPathRe = /<(?:path|file|image-path|output)\s*>\s*([^<\r\n]+?\.(?:png|jpe?g|webp|gif|avif|bmp|svg|pdf|ai|psd)(?:[?#][^<\r\n]*)?)\s*<\//gi;
       while ((m = tagPathRe.exec(source))) pushIfImage(m[1], out, cwdOverride);
-      const absRe = /(?:^|[\s"'`=(\[>])((?:\/|~\/)[^\s"'`<>()\[\]]+?\.(?:png|jpe?g|webp|gif|avif|bmp|svg|pdf|ai)(?:[?#][^\s"'`<>()\[\]]*)?)(?=[\s"'`=)\],.;:]|$)/gi;
+      const absRe = /(?:^|[\s"'`=(\[>])((?:\/|~\/)[^\s"'`<>()\[\]]+?\.(?:png|jpe?g|webp|gif|avif|bmp|svg|pdf|ai|psd)(?:[?#][^\s"'`<>()\[\]]*)?)(?=[\s"'`=)\],.;:]|$)/gi;
       while ((m = absRe.exec(plainText))) pushIfImage(m[1], out, cwdOverride);
-      const relativeRe = /(?:^|[\s"'`=(\[>])((?![a-z][a-z0-9+.-]*:\/\/)(?:\.?\.?\/)?[^\s"'`<>()\[\]]*\/[^\s"'`<>()\[\]]+?\.(?:png|jpe?g|webp|gif|avif|bmp|svg|pdf|ai)(?:[?#][^\s"'`<>()\[\]]*)?)(?=[\s"'`=)\],.;:，。]|$)/gi;
+      // Windows assistant/tool output commonly contains a drive or UNC path
+      // in plain text.  Keep spaces inside the path and stop only at message
+      // punctuation; the old POSIX-only expression silently dropped these
+      // PSD/SVG/PDF/AI results before they reached the output card.
+      const windowsAbsRe = /(?:^|[\s"'`=(\[>])((?:[A-Za-z]:[\\/]|\\\\)[^"'`<>()\[\]\r\n]+?\.(?:png|jpe?g|webp|gif|avif|bmp|svg|pdf|ai|psd)(?:[?#][^"'`<>()\[\]\r\n]*)?)(?=[\s"'`=)\],.;:，。]|$)/gi;
+      while ((m = windowsAbsRe.exec(plainText))) pushIfImage(m[1], out, cwdOverride);
+      const relativeRe = /(?:^|[\s"'`=(\[>])((?![a-z][a-z0-9+.-]*:\/\/)(?:\.?\.?\/)?[^\s"'`<>()\[\]]*\/[^\s"'`<>()\[\]]+?\.(?:png|jpe?g|webp|gif|avif|bmp|svg|pdf|ai|psd)(?:[?#][^\s"'`<>()\[\]]*)?)(?=[\s"'`=)\],.;:，。]|$)/gi;
       while ((m = relativeRe.exec(plainText))) pushIfImage(m[1], out, cwdOverride);
-      const bareFileRe = /(?:^|[\s"'`=(\[>：])([^\s\/"'`<>()\[\]：]+?\.(?:png|jpe?g|webp|gif|avif|bmp|svg|pdf|ai)(?:[?#][^\s"'`<>()\[\]]*)?)(?=[\s"'`=)\],.;:，。<]|$)/gi;
+      const bareFileRe = /(?:^|[\s"'`=(\[>：])([^\s\/"'`<>()\[\]：]+?\.(?:png|jpe?g|webp|gif|avif|bmp|svg|pdf|ai|psd)(?:[?#][^\s"'`<>()\[\]]*)?)(?=[\s"'`=)\],.;:，。<]|$)/gi;
       while ((m = bareFileRe.exec(plainText))) pushIfImage(m[1], out, cwdOverride);
       // 修复旧正则没有捕获组导致 m[1] 为 undefined；同时支持 avif/bmp 与换行空白。
       const dataRe = /data:image\/(?:png|jpe?g|webp|gif|avif|bmp|svg\+xml);base64,[A-Za-z0-9+/=\s]+/gi;

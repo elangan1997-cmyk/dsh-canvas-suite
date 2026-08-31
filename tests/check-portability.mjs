@@ -57,6 +57,9 @@ if (!client.includes('projectFileNotice') || !client.includes('检测到项目�
 if (!client.includes('projectPrefixLower') || !client.includes('normalizeProjectPath')) {
   throw new Error('project polling lacks Windows separator/case normalization');
 }
+if (!client.includes('windowsAbsRe') || !client.includes('svg|pdf|ai|psd')) {
+  throw new Error('assistant image-path extraction lacks Windows document formats');
+}
 
 const installer = await readFile(resolve(root, 'windows-installer/install.ps1'), 'utf8');
 for (const marker of ['profiles', 'node_modules\\@local', 'desktop\\node_modules\\@local', 'cordis.patch.yml']) {
