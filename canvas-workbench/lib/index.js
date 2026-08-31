@@ -193,10 +193,10 @@ function respond(res, status, headers, body) {
 const name = 'canvas-workbench';
 const inject = ['webServer', 'subprocess', 'llm', 'attachments'];
 
-const TEXT_VISION_SYSTEM = `你是平面设计稿的局部文字结构分析器。只分析用户明确框选区域内需要移除并重建为可编辑图层的文字；框外文字和包装文字不要输出。
-只返回 JSON，不要 Markdown 代码块。格式为 {"blocks":[...],"erasePrompt":"..."} 。每个 block 必须包含：text,x,y,width,height,fontSize,fontFamily,fontWeight,color,textAlign,rotation,confidence,backgroundHint。
+const TEXT_VISION_SYSTEM = `你是平面设计稿的文字理解与局部背景修复规划器。优先理解文字语义和版面关系，不要像传统 OCR 一样仅按单个字符猜测。
+只返回严格 JSON，不要解释、前后缀或 Markdown 代码块。格式为 {"schemaVersion":1,"blocks":[...],"erasePrompt":"..."} 。每个 block 必须包含：text,x,y,width,height,fontSize,fontFamily,fontWeight,color,textAlign,rotation,confidence,backgroundHint。
 x/y/width/height 是 0-1000 的整图归一化坐标；fontSize 是相对整图高度 0-1000 的估算值；color 用 #RRGGBB；confidence 用 0-100。
-按视觉上的一行或一个连续文字对象输出，不要把同一行无故拆分。text 必须忠实抄录，看不清时降低 confidence，不要猜成无意义字符。backgroundHint 简述该文字下方应恢复的局部背景。erasePrompt 用中文简述如何仅擦除框选文字并恢复背景，不得要求改变框外内容。fontFamily 只用 sans-serif/serif/rounded/display/monospace/handwriting，fontWeight 只用 normal/medium/bold，textAlign 只用 left/center/right。`;
+按视觉上的一行或一个连续文字对象输出，不要把同一行无故拆分。结合品牌名、品类、规格和上下文纠正易混字符，但不得臆造图中不存在的文字；不确定时保留最可信原文并降低 confidence。backgroundHint 必须描述文字下方的真实底色、渐变、纹理、光照、边缘和附近结构。erasePrompt 必须根据所有 backgroundHint 动态生成可直接用于局部修复模型的中文提示词：逐区域说明要删除的文字及应如何延展邻近背景，强调保持框外像素、产品结构、排版、颜色和光照不变，禁止生成新文字、符号或装饰。fontFamily 只用 sans-serif/serif/rounded/display/monospace/handwriting，fontWeight 只用 normal/medium/bold，textAlign 只用 left/center/right。`;
 
 function parseModelJson(text) {
   let raw = String(text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
@@ -255,8 +255,10 @@ async function analyzeTextWithCurrentModel(ctx, uploaded, body) {
     y: Math.round(Math.max(0, Number(item.y || 0)) * 1000 / Math.max(1, attachment.height)),
     width: Math.round(Math.max(0, Number(item.width || 0)) * 1000 / Math.max(1, attachment.width)),
     height: Math.round(Math.max(0, Number(item.height || 0)) * 1000 / Math.max(1, attachment.height)) }));
-  const instruction = '用户框选区域（0-1000 整图归一化坐标）为：' + JSON.stringify(normalized)
-    + '。只识别这些矩形内用户准备移除的文字。框外内容即使清晰可见也不要输出。请同时返回局部背景特征和 erasePrompt。';
+  const instruction = normalized.length
+    ? '用户框选区域（0-1000 整图归一化坐标）为：' + JSON.stringify(normalized)
+      + '。只输出这些矩形内准备移除并重建为图层的文字；框外文字仅可作为语义校对依据，不得输出。请结合完整图片理解品牌、品类和规格，返回严格 JSON、每个文字块下方的背景特征，以及可直接用于局部修复的动态 erasePrompt。'
+    : '分析整张设计图中的可编辑文字。请结合完整图片理解品牌、品类和规格，返回严格 JSON、每个文字块下方的背景特征，以及可直接用于局部修复的动态 erasePrompt。';
   const message = createUserMessage({ source: { kind: 'plugin', plugin: name }, content: [{ type: 'text', text: instruction }, { type: 'image', attachment }] });
   const assembler = new BlockAssembler();
   const signal = AbortSignal.timeout(180000);
@@ -973,7 +975,7 @@ function apply(ctx) {
             const validCrop = (item) => item && typeof item === 'object' && Number(item.width || 0) >= 6 && Number(item.height || 0) >= 6;
             const requestedCrops = Array.isArray(body.crops) ? body.crops.filter(validCrop).slice(0, 24) : (validCrop(body.crop) ? [body.crop] : []);
             // 用户先框选，再由聊天输入框当前模型理解选区内文字与背景。
-            if (requestedCrops.length && body.provider && body.model) {
+            if (body.provider && body.model) {
               try {
                 const analyzed = await analyzeTextWithCurrentModel(ctx, uploaded, body);
                 const intersects = (block, region) => {
@@ -987,11 +989,18 @@ function apply(ctx) {
                     || (centerX >= Number(region.x || 0) && centerX <= Number(region.x || 0) + Number(region.width || 0)
                       && centerY >= Number(region.y || 0) && centerY <= Number(region.y || 0) + Number(region.height || 0));
                 };
-                const blocks = visionBlocks(analyzed.value, analyzed.width, analyzed.height).filter((block) => requestedCrops.some((region) => intersects(block, region)));
+                const understood = visionBlocks(analyzed.value, analyzed.width, analyzed.height);
+                const blocks = requestedCrops.length
+                  ? understood.filter((block) => requestedCrops.some((region) => intersects(block, region)))
+                  : understood;
                 if (!blocks.length) throw new Error('模型未识别到可用文字');
+                const hints = Array.from(new Set(blocks.map((block) => String(block.backgroundHint || '').trim()).filter(Boolean))).slice(0, 12);
+                const modelErasePrompt = String(analyzed.value.erasePrompt || '').trim();
+                const erasePrompt = (modelErasePrompt || ('仅擦除所选文字并按邻近真实背景连续补全。局部背景特征：' + hints.join('；')))
+                  .slice(0, 2400);
                 respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({
                   ok: true, width: analyzed.width, height: analyzed.height, blocks, crops: requestedCrops,
-                  erasePrompt: String(analyzed.value.erasePrompt || '').slice(0, 1200),
+                  schemaVersion: 1, erasePrompt,
                   engine: 'current-chat-model', provider: analyzed.provider, model: analyzed.model, styleEngine: 'current-chat-model'
                 }));
                 return;

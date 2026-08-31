@@ -28,6 +28,9 @@ if (host.includes("if (!path.startsWith('/')) throw")) throw new Error('POSIX-on
 if (host.includes("resolveExecutable('python3')")) throw new Error('unabstracted python3 lookup remains');
 if (!host.includes('platformCapabilities()')) throw new Error('health endpoint lacks platform capabilities');
 if (!host.includes('recognizeWithTesseractJs')) throw new Error('OCR route lacks self-contained Tesseract.js fallback');
+if (!host.includes('schemaVersion: 1, erasePrompt') || !host.includes('body.provider && body.model')) {
+  throw new Error('text recognition must prefer the current chat model and return structured dynamic cleanup JSON');
+}
 if (!host.includes("'--blocks-file'")) throw new Error('text tools must pass CJK JSON through UTF-8 files on Windows');
 if (!host.includes("pathname === '/dsh-canvas/pick-adobe'")) throw new Error('host lacks native Adobe executable picker endpoint');
 if (!host.includes('photoshopPath') || !host.includes('illustratorPath')) throw new Error('host does not persist manual Adobe executable paths');
