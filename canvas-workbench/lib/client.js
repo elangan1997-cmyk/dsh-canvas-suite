@@ -218,8 +218,8 @@ window.__ModuleLoader__.load({
       };
       const addFallbackCard = (link) => {
         const path = pathFromLink(link);
-        if (!path || fallbackCards.has(path) || document.querySelector('[data-dsh-canvas-fallback-path="' + CSS.escape(path) + '"]')) return;
-        const host = link.parentElement;
+        if (!path || fallbackCards.has(path)) return;
+        const host = link.matches && link.matches('p,pre,code,li,div,[role="link"],a') ? link : link.parentElement;
         if (!host || host.closest('.dsh-canvas-tool-output')) return;
         const card = document.createElement('div');
         card.className = 'dsh-canvas-tool-output dsh-canvas-dom-fallback';
@@ -259,13 +259,34 @@ window.__ModuleLoader__.load({
         if (root.querySelectorAll) root.querySelectorAll('img').forEach(rewrite);
         if (root.tagName === 'A') addFallbackCard(root);
         if (root.querySelectorAll) root.querySelectorAll('a').forEach(addFallbackCard);
+        const textCandidates = [];
+        if (root.matches && root.matches('code,pre,p,li,[role="link"]')) textCandidates.push(root);
+        if (root.querySelectorAll) root.querySelectorAll('code,pre,p,li,[role="link"]').forEach((item) => textCandidates.push(item));
+        textCandidates.forEach((item) => {
+          try { addFallbackCard(item); } catch (e) {}
+        });
+        if (String(root.textContent || '').match(/(?:[A-Za-z]:[\\/]|\\\\|\/Volumes\/|\/Users\/|\/private\/|\/var\/)/)) {
+          const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+          let textNode;
+          while ((textNode = walker.nextNode())) {
+            if (!/\.(?:png|jpe?g|webp|gif|bmp|svg)/i.test(String(textNode.nodeValue || ''))) continue;
+            const element = textNode.parentElement;
+            if (!element || element.closest('.dsh-canvas-tool-output')) continue;
+            try { addFallbackCard(element.closest('p,pre,li,div,[role="link"],a') || element); } catch (e) {}
+          }
+        }
       };
       document.querySelectorAll('img').forEach(rewrite);
       document.querySelectorAll('a').forEach(addFallbackCard);
+      scan(document.body);
       const observer = new MutationObserver((records) => {
-        for (const record of records) for (const node of record.addedNodes || []) scan(node);
+        for (const record of records) {
+          if (record.type === 'characterData') scan(record.target && record.target.parentElement);
+          for (const node of record.addedNodes || []) scan(node);
+        }
       });
-      observer.observe(document.documentElement, { childList: true, subtree: true });
+      observer.observe(document.documentElement, { childList: true, characterData: true, subtree: true });
+      const scanTimer = setInterval(() => scan(document.body), 1500);
       const onError = (event) => {
         const target = event.target;
         if (target && target.tagName === 'IMG') rewrite(target);
@@ -273,6 +294,7 @@ window.__ModuleLoader__.load({
       window.addEventListener('error', onError, true);
       return () => {
         observer.disconnect();
+        clearInterval(scanTimer);
         window.removeEventListener('error', onError, true);
         fallbackCards.forEach((card) => card.remove());
         fallbackCards.clear();
