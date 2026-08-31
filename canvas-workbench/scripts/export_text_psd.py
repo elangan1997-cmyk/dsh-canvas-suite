@@ -8,9 +8,66 @@ available the host subsequently adds native text layers with JSX.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
+import os
 import re
 from pathlib import Path
+import subprocess
+import sys
+
+
+PSD_TOOLS_VERSION = "1.18.0"
+RUNTIME_ROOT = Path.home() / ".dsh" / "canvas-workbench" / "psd-runtime"
+MARKER = RUNTIME_ROOT / ("psd-tools-" + PSD_TOOLS_VERSION + ".ready")
+
+
+def runtime_python() -> Path:
+    if os.name == "nt":
+        return RUNTIME_ROOT / "Scripts" / "python.exe"
+    return RUNTIME_ROOT / "bin" / "python"
+
+
+def activate_runtime(python: Path) -> None:
+    """Load the isolated venv in-place; os.execv is rejected by DSH on Windows."""
+    if os.name == "nt":
+        site_packages = python.parent.parent / "Lib" / "site-packages"
+        os.environ["VIRTUAL_ENV"] = str(python.parent.parent)
+        os.environ["PATH"] = str(python.parent) + os.pathsep + os.environ.get("PATH", "")
+    else:
+        candidates = list((python.parent.parent / "lib").glob("python*/site-packages"))
+        site_packages = candidates[0] if candidates else python.parent.parent / "lib"
+    if site_packages.exists() and str(site_packages) not in sys.path:
+        sys.path.insert(0, str(site_packages))
+
+
+def install_runtime() -> Path:
+    python = runtime_python()
+    RUNTIME_ROOT.mkdir(parents=True, exist_ok=True)
+    if not python.exists():
+        subprocess.run([sys.executable, "-m", "venv", str(RUNTIME_ROOT)], check=True, timeout=120)
+    subprocess.run([
+        str(python), "-m", "pip", "install", "--disable-pip-version-check",
+        "--prefer-binary", "--timeout", "120", "psd-tools==" + PSD_TOOLS_VERSION,
+    ], check=True, timeout=300)
+    MARKER.write_text(PSD_TOOLS_VERSION + "\n", encoding="utf-8")
+    return python
+
+
+def ensure_runtime() -> None:
+    if importlib.util.find_spec("psd_tools") is not None:
+        return
+    python = runtime_python()
+    ready = False
+    if MARKER.exists() and python.exists():
+        probe = subprocess.run([
+            str(python), "-c",
+            "import importlib.util; raise SystemExit(0 if importlib.util.find_spec('psd_tools') else 1)",
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20)
+        ready = probe.returncode == 0
+    if not ready:
+        python = install_runtime()
+    activate_runtime(python)
 
 
 def parse_color(value: object) -> tuple[int, int, int]:
@@ -44,10 +101,12 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True)
     parser.add_argument("--output", required=True)
-    parser.add_argument("--blocks", required=True, help="JSON array of OCR blocks")
+    parser.add_argument("--blocks", default="", help="JSON array of OCR blocks")
+    parser.add_argument("--blocks-file", default="", type=Path, help="UTF-8 JSON file of OCR blocks")
     parser.add_argument("--clean-input", default="", help="optional image2 clean-plate with OCR text removed")
     args = parser.parse_args()
     try:
+        ensure_runtime()
         from PIL import Image, ImageDraw, ImageFont
         from psd_tools import PSDImage
         from psd_tools.api.layers import PixelLayer
@@ -78,8 +137,9 @@ def main() -> int:
             clean_layer.visible = True
 
         try:
-            blocks = json.loads(args.blocks)
-        except json.JSONDecodeError:
+            source = args.blocks_file.read_text(encoding="utf-8") if args.blocks_file else args.blocks
+            blocks = json.loads(source)
+        except (OSError, json.JSONDecodeError):
             blocks = []
         if not isinstance(blocks, list):
             blocks = []

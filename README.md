@@ -30,7 +30,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 稳定目标：画布、项目、拖入/粘贴、聊天图片明确加入画布、多选发送聊天、PNG 导出、资源管理器打开/定位。
 
-渐进增强：本地 OCR、去背景、转矢量、PSD/AI/PDF 预览依赖 Python 或外部转换器；缺少环境时不会阻断基础画布。Windows Adobe 第一版通过系统文件关联打开，Photoshop 原生文字层自动化仍是 macOS 专属。
+渐进增强：本地 OCR 首次按需安装用户目录隔离的 Tesseract.js；去背景、转矢量、PSD/AI/PDF 预览依赖 Python 或外部转换器。缺少环境时不会阻断基础画布。Windows Adobe 第一版通过系统文件关联打开，Photoshop 原生文字层自动化仍是 macOS 专属。
 
 ## macOS
 

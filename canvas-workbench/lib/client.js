@@ -808,7 +808,11 @@ window.__ModuleLoader__.load({
         const area = iw * ih;
         const blockArea = Math.max(1, aw * ah);
         const centerX = ax + aw / 2, centerY = ay + ah / 2;
-        return area >= blockArea * 0.15 || (centerX >= bx && centerX <= bx + bw && centerY >= by && centerY <= by + bh);
+        // Do not enable a candidate because of a one-pixel edge crossing. A
+        // line is eligible when most of its box is inside the selection, or
+        // when its center is inside the selection (useful for a deliberately
+        // tight box around a large glyph).
+        return area >= blockArea * 0.35 || (centerX >= bx && centerX <= bx + bw && centerY >= by && centerY <= by + bh);
       };
       const blockInSelections = (block, regions) => Array.isArray(regions) && regions.length > 0 && regions.some((region) => rectsIntersect(block, region));
       const normalizeBlocks = (value, regions) => (Array.isArray(value) ? value : []).map((item) => ({

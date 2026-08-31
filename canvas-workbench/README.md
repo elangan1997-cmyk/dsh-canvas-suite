@@ -37,7 +37,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\windows-installer\install.ps1
 ```
 
-初级版优先保证无限画布、项目持久化、外部拖入、剪贴板粘贴、聊天图片明确加入画布、多选发送聊天、PNG 导出以及资源管理器打开/定位。Python、rembg、VTracer、Photoshop 和 Illustrator 均为渐进增强：缺少环境时只关闭对应能力，不得阻断画布渲染。
+初级版优先保证无限画布、项目持久化、外部拖入、剪贴板粘贴、聊天图片明确加入画布、多选发送聊天、PNG 导出以及资源管理器打开/定位。文字识别首次按需在用户目录安装隔离的 Tesseract.js（不需要系统 tesseract.exe）；Python、rembg、VTracer、Photoshop 和 Illustrator 均为渐进增强：缺少环境时只关闭对应能力，不得阻断画布渲染。
 
 Windows PSD/AI 编辑通过系统文件关联打开；Photoshop 原生文字层自动化第一版仍只在 macOS 提供。详细说明见 `windows-installer/安装说明.md`。
 

@@ -115,6 +115,7 @@ Secrets, chat contents, and user asset paths are intentionally omitted.
 | PSD/AI/SVG/PDF fallback | passed | Photoshop 2022 and Illustrator 2022 endpoint launches returned `ok: true`; source-file fallback remains safe |
 | Image engine degradation and retry | partial | dsh-codex is installed/authenticated/ready; fallback API remains unconfigured and retry path is covered by static checks |
 | 去背景 / 转矢量 | passed | rembg generated transparent PNG; ImageTracerJS generated valid SVG; Windows venv transition fixed |
+| 编辑图片文字 OCR | passed | Tesseract.js runtime installed on first use; selected and full-image WebP OCR returned HTTP 200 with CJK/English text and unique multi-region IDs |
 | PowerShell 5.1 installer parsing | passed | passed |
 | Programmatic mutation persistence | passed | passed across reload |
 | Windows managed asset containment | passed | passed; no recursive growth after repair |
@@ -128,3 +129,25 @@ Secrets, chat contents, and user asset paths are intentionally omitted.
 - Safety: the picker only accepts an existing file, settings are local to the user profile, and API/OAuth credentials remain separate
 - Verification: settings GET/POST round-trip passed; Photoshop 2022 and Illustrator 2022 launch endpoints returned `ok: true` after saving their explicit paths; the old headless picker path was reproduced as stuck and removed from the UI; the page picker now returns Electron's absolute `File.path` (with a paste-path fallback in ordinary browsers)
 - Status: fixed and installed; DSH restarted with the active proxy environment
+
+## WIN-009 编辑图片文字 OCR 缺依赖、选区串入相邻文字
+
+- Severity: serious functional failure / precision issue
+- Minimal reproduction: 打开“编辑图片文字”，框选包装标题并点击“识别选区”
+- Expected: 识别成功，只返回框选区域内的文字候选，候选可以逐条校正
+- Actual: UI 显示 `OCR 失败：No module named 'pytesseract'`；旧版本地路径还依赖系统 `tesseract.exe`，未安装时无法启动。选区边缘轻微相交时也可能把相邻文字带入。
+- Root cause: Windows 仅检测到了 Python 3.12，但系统没有 pytesseract 和 Tesseract 可执行文件；旧 OCR 路径没有自包含运行时。模型/本地结果的命中判断只要有任意面积相交，导致紧邻行被误选。
+- Fix: 增加用户目录隔离的 Tesseract.js 5.1.1 运行时和训练数据缓存，首次识别按需安装，不需要管理员权限；npm 通过真实 node.exe 调用，避开 DSH 子进程直接启动 `.cmd` 的 EINVAL。选区识别增加少量上下文但按原始选区以 35% 覆盖率或文字框中心过滤；Python 样式推测改用 UTF-8 临时 JSON 文件，避免 Windows argv/代码页损坏中文；多选结果重新编号，避免重复 React key。
+- Modified files: `canvas-workbench/lib/ocr-engine.js`, `canvas-workbench/lib/index.js`, `canvas-workbench/lib/client.js`, `canvas-workbench/scripts/infer_text_style.py`, `canvas-workbench/scripts/ocr_image.py`
+- Automatic check: `node --check` (index/client/ocr-engine), `node tests/check-portability.mjs` passed
+- Real API regression: DSH restarted on port 3080; 2048×2048 WebP with Chinese+English title returned HTTP 200, `engine: tesseract.js`, two in-selection candidates, Chinese text preserved (no `���`); full-image and two-region requests also returned HTTP 200 with unique IDs. First-run runtime and `chi_sim`/`eng` traineddata were cached under the user DSH directory.
+- Status: fixed, installed, and service regression passed; please refresh the DSH page once before UI click verification
+
+## WIN-010 文字编辑 PSD 草稿依赖缺失/API 版本不兼容
+
+- Severity: serious functional failure
+- Minimal reproduction: OCR 成功后点击“清理背景并生成 PSD”（关闭背景清理时也可复现）
+- Actual: 原路径直接报 `No module named 'psd_tools'`；首次加入依赖时旧版 1.10.8 又不提供当前脚本使用的 `create_pixel_layer` API。
+- Fix: `export_text_psd.py` 现在按需创建用户目录隔离的 `psd-runtime`，安装并校验 `psd-tools 1.18.0`，原地激活 site-packages 避免 Windows `os.execv`/EINVAL；PSD blocks 改用 UTF-8 临时 JSON 文件传递，避免中文文字层乱码。
+- Verification: 在实际 Windows Python 3.12 上生成 15.8MB PSD 草稿成功；DSH 重启后 OCR→PSD 连续请求均返回 HTTP 200，测试项目写入 `金鱼缓沉型鱼食-500g-文字编辑.psd`，未调用 Photoshop 时保留原图与候选预览层。
+- Status: fixed, installed, and end-to-end service regression passed

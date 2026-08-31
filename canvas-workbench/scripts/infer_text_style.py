@@ -102,20 +102,25 @@ def infer_block(image, raw: dict) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True, type=Path)
-    parser.add_argument("--blocks", required=True)
+    parser.add_argument("--blocks", default="")
+    parser.add_argument("--blocks-file", default="", type=Path)
     args = parser.parse_args()
     try:
         from PIL import Image
 
         image = Image.open(args.input).convert("RGB")
         try:
-            blocks = json.loads(args.blocks)
-        except json.JSONDecodeError:
+            source = args.blocks_file.read_text(encoding="utf-8") if args.blocks_file else args.blocks
+            blocks = json.loads(source)
+        except (OSError, json.JSONDecodeError):
             blocks = []
         if not isinstance(blocks, list):
             blocks = []
         inferred = [infer_block(image, raw) for raw in blocks[:200] if isinstance(raw, dict)]
-        print(json.dumps({"success": True, "width": image.width, "height": image.height, "blocks": inferred, "engine": "local-font-heuristic", "note": "字体/字号/颜色为视觉推测，生成前可逐行修改"}, ensure_ascii=False))
+        # Emit ASCII JSON escapes: some Windows DSH subprocess hosts decode
+        # stdout using the active code page, which would otherwise turn CJK
+        # OCR text into U+FFFD before the host parses it.
+        print(json.dumps({"success": True, "width": image.width, "height": image.height, "blocks": inferred, "engine": "local-font-heuristic", "note": "字体/字号/颜色为视觉推测，生成前可逐行修改"}))
         return 0
     except Exception as exc:  # pragma: no cover
         print(json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False))

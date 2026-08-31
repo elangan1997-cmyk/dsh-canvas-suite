@@ -181,10 +181,12 @@ def main() -> int:
         result = {"success": True, "width": original_width, "height": original_height, "blocks": blocks[:200]}
         if crop_info:
             result["crop"] = crop_info
-        print(json.dumps(result, ensure_ascii=False))
+        # Keep stdout ASCII-only so Windows DSH subprocess decoding cannot
+        # replace Chinese OCR text before the host parses the JSON.
+        print(json.dumps(result))
         return 0
     except Exception as exc:  # pragma: no cover - surfaced to host/UI
-        print(json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False))
+        print(json.dumps({"success": False, "error": str(exc)}))
         return 1
 
 

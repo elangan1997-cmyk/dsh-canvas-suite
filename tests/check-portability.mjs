@@ -6,6 +6,7 @@ const required = [
   'canvas-workbench/package.json',
   'canvas-workbench/lib/index.js',
   'canvas-workbench/lib/client.js',
+  'canvas-workbench/lib/ocr-engine.js',
   'canvas-workbench/lib/image-engine.js',
   'canvas-workbench/lib/platform.js',
   'home-explorer/package.json',
@@ -25,6 +26,8 @@ const host = await readFile(resolve(root, 'canvas-workbench/lib/index.js'), 'utf
 if (host.includes("if (!path.startsWith('/')) throw")) throw new Error('POSIX-only absolute path gate remains');
 if (host.includes("resolveExecutable('python3')")) throw new Error('unabstracted python3 lookup remains');
 if (!host.includes('platformCapabilities()')) throw new Error('health endpoint lacks platform capabilities');
+if (!host.includes('recognizeWithTesseractJs')) throw new Error('OCR route lacks self-contained Tesseract.js fallback');
+if (!host.includes("'--blocks-file'")) throw new Error('text tools must pass CJK JSON through UTF-8 files on Windows');
 if (!host.includes("pathname === '/dsh-canvas/pick-adobe'")) throw new Error('host lacks native Adobe executable picker endpoint');
 if (!host.includes('photoshopPath') || !host.includes('illustratorPath')) throw new Error('host does not persist manual Adobe executable paths');
 const platform = await readFile(resolve(root, 'canvas-workbench/lib/platform.js'), 'utf8');

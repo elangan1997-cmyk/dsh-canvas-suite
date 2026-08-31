@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm';
+import { recognizeWithTesseractJs } from './ocr-engine.js';
 import {
   generateImage,
   imageEngineHealth,
@@ -950,6 +951,7 @@ function apply(ctx) {
 
         if (pathname === '/dsh-canvas/ocr-image' && req.method === 'POST') {
           let tempInput = '';
+          let tempBlocks = '';
           try {
             const body = JSON.parse(await readBody(req) || '{}');
             const uploaded = decodeImageData(body.imageData);
@@ -961,8 +963,17 @@ function apply(ctx) {
             if (requestedCrops.length && body.provider && body.model) {
               try {
                 const analyzed = await analyzeTextWithCurrentModel(ctx, uploaded, body);
-                const intersects = (block, region) => Math.max(0, Math.min(block.x + block.width, region.x + region.width) - Math.max(block.x, region.x))
-                  * Math.max(0, Math.min(block.y + block.height, region.y + region.height) - Math.max(block.y, region.y)) > 0;
+                const intersects = (block, region) => {
+                  const iw = Math.max(0, Math.min(block.x + block.width, region.x + region.width) - Math.max(block.x, region.x));
+                  const ih = Math.max(0, Math.min(block.y + block.height, region.y + region.height) - Math.max(block.y, region.y));
+                  if (iw <= 0 || ih <= 0) return false;
+                  const blockArea = Math.max(1, Number(block.width || 0) * Number(block.height || 0));
+                  const centerX = Number(block.x || 0) + Number(block.width || 0) / 2;
+                  const centerY = Number(block.y || 0) + Number(block.height || 0) / 2;
+                  return (iw * ih) >= blockArea * 0.35
+                    || (centerX >= Number(region.x || 0) && centerX <= Number(region.x || 0) + Number(region.width || 0)
+                      && centerY >= Number(region.y || 0) && centerY <= Number(region.y || 0) + Number(region.height || 0));
+                };
                 const blocks = visionBlocks(analyzed.value, analyzed.width, analyzed.height).filter((block) => requestedCrops.some((region) => intersects(block, region)));
                 if (!blocks.length) throw new Error('模型未识别到可用文字');
                 respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({
@@ -984,21 +995,42 @@ function apply(ctx) {
             const pluginRoot = dirname(dirname(fileURLToPath(import.meta.url)));
             const script = join(pluginRoot, 'scripts', 'ocr_image.py');
             await access(script);
-            const python = await resolvePython(ctx);
+            // OCR no longer depends on a machine-wide tesseract.exe or on a
+            // pre-installed pytesseract package.  The primary local engine is
+            // a user-scoped Tesseract.js runtime; retain Python as a fallback
+            // for installations that already provide the older stack.
+            let python = null;
+            try { python = await resolvePython(ctx); } catch (err) {}
             const runOcr = async (crop) => {
-              // Sparse-text mode is more reliable for a selected artwork area:
-              // psm 6 treats the whole crop as one uniform paragraph and can
-              // turn a Chinese line into Latin-looking noise (for example
-              // “STL”).  Keep an explicit caller override, but default both
-              // full-image and crop OCR to the sparse layout detector.
-              const ocrArgs = [script, '--input', tempInput, '--lang', String(body.lang || 'chi_sim+eng'), '--psm', String(body.psm || '11')];
-              if (crop) ocrArgs.push('--crop', JSON.stringify(crop));
-              const result = await runProcessWithTimeout(python.executable, [...python.prefixArgs, ...ocrArgs], pluginRoot, 120000);
-              const lines = String(result.stdout || '').trim().split(/\r?\n/).filter(Boolean);
-              let payload = null;
-              try { payload = lines.length ? JSON.parse(lines[lines.length - 1]) : null; } catch (err) { payload = null; }
-              if (result.exitCode !== 0 || !payload || payload.success !== true) throw new Error((payload && payload.error) || result.stderr.trim() || (result.timedOut ? 'OCR 识别超时' : 'OCR 识别失败'));
-              return payload;
+              try {
+                return await recognizeWithTesseractJs({
+                  ctx,
+                  runProcessWithTimeout,
+                  cwd: pluginRoot,
+                  inputPath: tempInput,
+                  width: Number(body.width || 0),
+                  height: Number(body.height || 0),
+                  lang: String(body.lang || 'chi_sim+eng'),
+                  psm: String(body.psm || '11'),
+                  crop,
+                });
+              } catch (jsError) {
+                if (!python) throw jsError;
+                // Sparse-text mode is more reliable for a selected artwork
+                // area. Keep the Python path for older installations that
+                // already have pytesseract and a native Tesseract binary.
+                const ocrArgs = [script, '--input', tempInput, '--lang', String(body.lang || 'chi_sim+eng'), '--psm', String(body.psm || '11')];
+                if (crop) ocrArgs.push('--crop', JSON.stringify(crop));
+                const result = await runProcessWithTimeout(python.executable, [...python.prefixArgs, ...ocrArgs], pluginRoot, 120000);
+                const lines = String(result.stdout || '').trim().split(/\r?\n/).filter(Boolean);
+                let payload = null;
+                try { payload = lines.length ? JSON.parse(lines[lines.length - 1]) : null; } catch (err) { payload = null; }
+                if (result.exitCode !== 0 || !payload || payload.success !== true) {
+                  const fallbackMessage = (payload && payload.error) || result.stderr.trim() || (result.timedOut ? 'OCR 识别超时' : 'OCR 识别失败');
+                  throw new Error('本地 OCR 不可用：' + fallbackMessage + '；Tesseract.js 兜底也失败：' + String((jsError && jsError.message) || jsError));
+                }
+                return { ...payload, engine: 'tesseract' };
+              }
             };
             const payloads = requestedCrops.length ? [] : [await runOcr(null)];
             for (const crop of requestedCrops) payloads.push(await runOcr(crop));
@@ -1010,6 +1042,10 @@ function apply(ctx) {
               if (!seenBlocks.has(key)) { seenBlocks.add(key); blocks.push(item); }
             }
             blocks.sort((a, b) => Number(a.y || 0) - Number(b.y || 0) || Number(a.x || 0) - Number(b.x || 0));
+            // Each crop engine starts numbering at ocr-1. Reassign after
+            // flattening so multiple selections never create duplicate React
+            // keys or make a row update the wrong candidate.
+            blocks.forEach((item, index) => { if (item && typeof item === 'object') item.id = 'ocr-' + (index + 1); });
             // OCR only returns geometry.  Add a conservative, local visual
             // estimate for font family/weight/size/color so the review panel
             // starts with usable values instead of an unavailable font name.
@@ -1017,7 +1053,13 @@ function apply(ctx) {
             try {
               const styleScript = join(pluginRoot, 'scripts', 'infer_text_style.py');
               await access(styleScript);
-              const styled = await runProcessWithTimeout(python.executable, [...python.prefixArgs, styleScript, '--input', tempInput, '--blocks', JSON.stringify(blocks)], pluginRoot, 120000);
+              if (!python) throw new Error('未检测到 Python，跳过文字样式推测');
+              // Passing Chinese OCR text as a Windows argv is not reliable in
+              // every DSH subprocess host (it can become U+FFFD). Use a UTF-8
+              // temporary JSON file so style inference never changes text.
+              tempBlocks = join(outputDir, '.ocr-blocks-' + Date.now() + '-' + Math.random().toString(16).slice(2) + '.json');
+              await writeFile(tempBlocks, JSON.stringify(blocks), 'utf8');
+              const styled = await runProcessWithTimeout(python.executable, [...python.prefixArgs, styleScript, '--input', tempInput, '--blocks-file', tempBlocks], pluginRoot, 120000);
               const styleLines = String(styled.stdout || '').trim().split(/\r?\n/).filter(Boolean);
               let stylePayload = null;
               try { stylePayload = styleLines.length ? JSON.parse(styleLines[styleLines.length - 1]) : null; } catch (err) { stylePayload = null; }
@@ -1026,17 +1068,21 @@ function apply(ctx) {
                 styleEngine = stylePayload.engine || 'local-font-heuristic';
               }
             } catch (err) {}
-            respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true, width: payload.width, height: payload.height, blocks, crops: requestedCrops, engine: 'tesseract', styleEngine, warning: visionWarning }));
+            blocks.forEach((item, index) => { if (item && typeof item === 'object') item.id = 'ocr-' + (index + 1); });
+            const localEngine = payloads.some((entry) => entry && entry.engine === 'tesseract') ? 'tesseract' : 'tesseract.js';
+            respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true, width: payload.width, height: payload.height, blocks, crops: requestedCrops, engine: localEngine, styleEngine, warning: visionWarning }));
           } catch (err) {
             respond(res, 500, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: String((err && err.message) || err) }));
           } finally {
             if (tempInput) await unlink(tempInput).catch(() => {});
+            if (tempBlocks) await unlink(tempBlocks).catch(() => {});
           }
           return;
         }
 
         if (pathname === '/dsh-canvas/export-text-psd' && req.method === 'POST') {
           let tempInput = '';
+          let tempBlocks = '';
           let tempMask = '';
           let tempGenerated = '';
           let tempClean = '';
@@ -1069,7 +1115,7 @@ function apply(ctx) {
               const area = iw * ih;
               const blockArea = Math.max(1, bw * bh);
               const centerX = bx + bw / 2, centerY = by + bh / 2;
-              return area >= blockArea * 0.15 || (centerX >= rx && centerX <= rx + rw && centerY >= ry && centerY <= ry + rh);
+              return area >= blockArea * 0.35 || (centerX >= rx && centerX <= rx + rw && centerY >= ry && centerY <= ry + rh);
             };
             // A full-image OCR pass provides the candidate list.  Only rows
             // inside user-drawn regions are eligible for removal; without a
@@ -1157,7 +1203,9 @@ function apply(ctx) {
             } else if (body.cleanBackground !== false && !selections.length) {
               cleanupWarning = '没有框选文字区域，跳过 image2 背景清理';
             }
-            const generatedArgs = [script, '--input', tempInput, '--output', draftPsd, '--blocks', JSON.stringify(exportBlocks)];
+            tempBlocks = join(outputDir, 'text-psd-blocks-' + token + '.json');
+            await writeFile(tempBlocks, JSON.stringify(exportBlocks), 'utf8');
+            const generatedArgs = [script, '--input', tempInput, '--output', draftPsd, '--blocks-file', tempBlocks];
             if (cleanInput) generatedArgs.push('--clean-input', cleanInput);
             const generated = await runProcessWithTimeout(python.executable, [...python.prefixArgs, ...generatedArgs], pluginRoot, 180000);
             const generatedLines = String(generated.stdout || '').trim().split(/\r?\n/).filter(Boolean);
@@ -1219,7 +1267,7 @@ function apply(ctx) {
           } catch (err) {
             respond(res, 500, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: String((err && err.message) || err) }));
           } finally {
-            for (const path of [tempInput, tempMask, tempGenerated, tempClean, draftPsd, finalPsd, jsxPath, appleScriptPath]) if (path) await unlink(path).catch(() => {});
+            for (const path of [tempInput, tempBlocks, tempMask, tempGenerated, tempClean, draftPsd, finalPsd, jsxPath, appleScriptPath]) if (path) await unlink(path).catch(() => {});
           }
           return;
         }
