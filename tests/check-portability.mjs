@@ -59,7 +59,7 @@ if (!client.includes('pickAdobeExecutable') || !client.includes('选择程序'))
 if (!client.includes('folderSyncEnabled') || !client.includes('打开并同步项目文件夹')) {
   throw new Error('project folder synchronization lacks an explicit user-controlled entry point');
 }
-if (!client.includes('DSH_CANVAS_HTML_FALLBACK') || !client.includes("fetchCanvasJson('/dsh-canvas/projects")) {
+if (!client.includes('DSH_CANVAS_HTML_FALLBACK') || !client.includes("fetchCanvasJson('/api/dsh-canvas/projects")) {
   throw new Error('recent projects does not guard against the DSH HTML fallback during plugin restart');
 }
 if (!client.includes('photoshopWheel') || !client.includes('Alt + 滚轮缩放 · 空格拖动画布')) {

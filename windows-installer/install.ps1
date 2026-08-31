@@ -34,7 +34,9 @@ function Copy-PluginAtomic([string]$Name) {
   $source = Join-Path $SuiteRoot $Name
   $targets = @(
     (Join-Path $ProfilesRoot "node_modules\@local\$Name"),
-    (Join-Path $ProfilesRoot "desktop\node_modules\@local\$Name")
+    (Join-Path $ProfilesRoot "desktop\node_modules\@local\$Name"),
+    (Join-Path $ProfilesRoot "web\node_modules\@local\$Name"),
+    (Join-Path $DshRoot "electron\node_modules\@local\$Name")
   )
   foreach ($target in $targets) {
     $parent = Split-Path -Parent $target
@@ -88,7 +90,9 @@ function Test-Install {
   foreach ($name in @('canvas-workbench', 'home-explorer')) {
     foreach ($target in @(
       (Join-Path $ProfilesRoot "node_modules\@local\$name"),
-      (Join-Path $ProfilesRoot "desktop\node_modules\@local\$name")
+      (Join-Path $ProfilesRoot "desktop\node_modules\@local\$name"),
+      (Join-Path $ProfilesRoot "web\node_modules\@local\$name"),
+      (Join-Path $DshRoot "electron\node_modules\@local\$name")
     )) {
       foreach ($relative in @('package.json', 'lib\index.js', 'lib\client.js')) {
         if (-not (Test-Path -LiteralPath (Join-Path $target $relative))) { throw "健康检查失败：$target\$relative" }

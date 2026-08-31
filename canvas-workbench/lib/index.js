@@ -272,7 +272,7 @@ async function analyzeTextWithCurrentModel(ctx, uploaded, body) {
 function sourcePathFromImageUrl(value) {
   try {
     const parsed = new URL(String(value), 'http://canvas-workbench.local');
-    if (parsed.pathname !== '/dsh-canvas/image') return '';
+    if (parsed.pathname !== '/dsh-canvas/image' && parsed.pathname !== '/api/dsh-canvas/image') return '';
     return parsed.searchParams.get('path') || '';
   } catch (err) {
     return '';
@@ -358,7 +358,7 @@ function apply(ctx) {
   // 按项目路径串行处理，并在串行队列内比较客户端快照时间戳，防止迟到的
   // 旧快照覆盖刚保存的新快照（典型表现就是删除后切聊天又恢复）。
   const stateWriteChains = new Map();
-  const previewUrl = (path, mtimeMs) => '/dsh-canvas/preview?path=' + encodeURIComponent(path) + '&v=' + encodeURIComponent(String(Math.round(mtimeMs || 0)));
+  const previewUrl = (path, mtimeMs) => '/api/dsh-canvas/preview?path=' + encodeURIComponent(path) + '&v=' + encodeURIComponent(String(Math.round(mtimeMs || 0)));
   const progressPathFor = (projectDir, jobId) => join(projectDir, 'outputs', '.图片编辑临时', '.rembg-progress-' + cleanJobId(jobId) + '.json');
   const writeProgressFile = async (path, payload) => {
     if (!path) return;
@@ -607,10 +607,7 @@ function apply(ctx) {
     return moved;
   };
 
-  const dispose = ctx.webServer.register({
-    kind: 'prefix',
-    path: '/dsh-canvas',
-    handler: async (req, res) => {
+  const canvasHandler = async (req, res) => {
       const CORS = {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
@@ -620,7 +617,8 @@ function apply(ctx) {
       try {
         const raw = String(req.url || '/');
         const qi = raw.indexOf('?');
-        const pathname = qi === -1 ? raw : raw.slice(0, qi);
+        const requestPathname = qi === -1 ? raw : raw.slice(0, qi);
+        const pathname = requestPathname.startsWith('/api/dsh-canvas') ? requestPathname.slice(4) : requestPathname;
         const query = qi === -1 ? '' : raw.slice(qi + 1);
         const sameOriginRequest = () => {
           const origin = String(req.headers && req.headers.origin || '').trim();
@@ -1933,11 +1931,20 @@ function apply(ctx) {
       } catch (err) {
         respond(res, 500, { ...CORS, 'content-type': 'text/plain' }, 'internal error');
       }
-    }
+    };
+  const dispose = ctx.webServer.register({
+    kind: 'prefix',
+    path: '/dsh-canvas',
+    handler: canvasHandler
+  });
+  const disposeApi = ctx.webServer.register({
+    kind: 'prefix',
+    path: '/api/dsh-canvas',
+    handler: canvasHandler
   });
   // 注意：ctx.effect 会立即执行回调，返回的 disposer 才是清理函数。
   // 这里回调只返回 dispose（不执行），fiber 卸载时才真正销毁路由。
-  ctx.effect(() => dispose);
+  ctx.effect(() => () => { disposeApi(); dispose(); });
 }
 
 export { apply, inject, name };
