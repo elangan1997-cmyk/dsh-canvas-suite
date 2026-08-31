@@ -80,14 +80,14 @@ export async function pickFolder(ctx, runProcess, prompt = '选择画布项目�
  */
 export async function openFolder(ctx, runProcess, path) {
   if (isWindows) {
-    // Explorer is a shell process, not a normal foreground CLI.  Launching it
-    // directly through the DSH subprocess host can return a non-zero status
-    // even though the same folder opens from the Windows shell.  Start it via
-    // PowerShell so the host only waits for the short-lived launcher.
+    // Invoke-Item passes the path to the Windows shell as one literal value.
+    // Start-Process -ArgumentList rebuilds a command line and can split paths
+    // containing spaces/non-ASCII characters, which makes Explorer fall back
+    // to the user's Documents folder.
     const powershell = await resolveFirst(ctx, ['powershell.exe', 'powershell']);
     const literalPath = "'" + String(path || '').replace(/'/g, "''") + "'";
     if (powershell) {
-      const script = 'Start-Process -FilePath \'explorer.exe\' -ArgumentList @(' + literalPath + ')';
+      const script = 'Invoke-Item -LiteralPath ' + literalPath;
       return runProcess(powershell, ['-NoLogo', '-NoProfile', '-Command', script], path);
     }
     const explorer = await resolveFirst(ctx, ['explorer.exe', 'explorer']);

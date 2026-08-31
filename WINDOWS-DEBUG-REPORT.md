@@ -189,3 +189,13 @@ Secrets, chat contents, and user asset paths are intentionally omitted.
 - Automatic check: `node --check`、可移植性检查、diff 检查通过；web/desktop 运行副本 SHA-256 一致。
 - Real API regression: 实际 PSD 与 SVG 文件的预览接口均返回 HTTP 200、`image/svg+xml` 且内容非空；项目扫描返回 `kind: psd/svg` 和可用预览 URL。
 - Status: fixed, installed, and preview regression passed
+
+## WIN-014 精确打开目录、用户授权同步与真实 PSD 预览
+
+- Severity: serious functional regression
+- Actual: “打开项目文件夹”会落到“我的文档”；项目目录中的现有/新增文件没有进入画布；Windows PSD 只显示占位 SVG。
+- Root cause: PowerShell `Start-Process -ArgumentList` 会重新拼接 Explorer 命令行并拆坏含空格/中文的路径；目录轮询只有提示逻辑；PSD 预览代码在非 macOS 平台明确直接返回占位图。
+- Fix: 用 `Invoke-Item -LiteralPath` 精确交给 Windows Shell；将“打开并同步项目文件夹”作为本次项目会话的明确同步授权，立即补齐未关联文件并持续同步新增文件，同时强制刷新旧 PSD/SVG 占位；新增隔离 Python 运行时的 PSD 合成预览器。
+- Automatic check: JavaScript 语法、可移植性检查和实际 PSD 合成脚本均通过。
+- Real regression: 实际 `TEST` 项目扫描识别 11 个支持文件；两个 PSD 预览均返回 HTTP 200、`image/jpeg`、185811 bytes；网页点击同步后，缺失的 PSD、SVG、WebP 均出现在画布元素列表。
+- Status: fixed, installed, and real UI/API regression passed

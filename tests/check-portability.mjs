@@ -9,6 +9,7 @@ const required = [
   'canvas-workbench/lib/ocr-engine.js',
   'canvas-workbench/lib/image-engine.js',
   'canvas-workbench/lib/platform.js',
+  'canvas-workbench/scripts/render_psd_preview.py',
   'home-explorer/package.json',
   'home-explorer/lib/index.js',
   'home-explorer/lib/client.js',
@@ -32,6 +33,7 @@ if (!host.includes("pathname === '/dsh-canvas/pick-adobe'")) throw new Error('ho
 if (!host.includes('photoshopPath') || !host.includes('illustratorPath')) throw new Error('host does not persist manual Adobe executable paths');
 const platform = await readFile(resolve(root, 'canvas-workbench/lib/platform.js'), 'utf8');
 if (!platform.includes('Start-Process -FilePath') || !platform.includes('-ArgumentList @(')) throw new Error('Windows Adobe launcher does not pass the selected executable explicitly');
+if (!platform.includes("Invoke-Item -LiteralPath")) throw new Error('Windows project folder opener does not preserve the exact literal path');
 if (!platform.includes("return runProcess(explorer, ['/select,' + path], cwd);") || !platform.includes("const literalPath = \"'/select,\" + String(path || '').replace")) {
   throw new Error('Windows Explorer reveal must use a single /select,<path> argument');
 }
@@ -51,8 +53,8 @@ if ((client.match(/publishCanvasChange\(nextElements/g) || []).length < 2) {
   throw new Error('add and duplicate mutations must publish their constructed target element arrays');
 }
 if (!client.includes('pickAdobeExecutable') || !client.includes('选择程序')) throw new Error('client lacks manual Adobe executable controls');
-if (!client.includes('projectFileNotice') || !client.includes('检测到项目目录新增文件')) {
-  throw new Error('project polling must surface newly detected files without auto-importing them');
+if (!client.includes('folderSyncEnabled') || !client.includes('打开并同步项目文件夹')) {
+  throw new Error('project folder synchronization lacks an explicit user-controlled entry point');
 }
 if (!client.includes('projectPrefixLower') || !client.includes('normalizeProjectPath')) {
   throw new Error('project polling lacks Windows separator/case normalization');
@@ -60,6 +62,7 @@ if (!client.includes('projectPrefixLower') || !client.includes('normalizeProject
 if (!client.includes('windowsAbsRe') || !client.includes('svg|pdf|ai|psd')) {
   throw new Error('assistant image-path extraction lacks Windows document formats');
 }
+if (!host.includes('render_psd_preview.py')) throw new Error('Windows PSD preview lacks a real composite renderer');
 
 const installer = await readFile(resolve(root, 'windows-installer/install.ps1'), 'utf8');
 for (const marker of ['profiles', 'node_modules\\@local', 'desktop\\node_modules\\@local', 'cordis.patch.yml']) {

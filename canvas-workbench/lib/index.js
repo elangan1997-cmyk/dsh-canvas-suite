@@ -400,6 +400,19 @@ function apply(ctx) {
     const key = createHash('sha1').update(path + ':' + String(Math.round(mtimeMs || 0))).digest('hex');
     const target = join(previewCache, key + '.jpg');
     try { await access(target); return { path: target, mime: 'image/jpeg' }; } catch (err) {}
+    if (isWindows) {
+      try {
+        const python = await resolvePython(ctx);
+        const pluginRoot = dirname(dirname(fileURLToPath(import.meta.url)));
+        const script = join(pluginRoot, 'scripts', 'render_psd_preview.py');
+        const result = await runProcessWithTimeout(python.executable, [...python.prefixArgs, script, '--input', path, '--output', target, '--max-side', '2400'], pluginRoot, 180000);
+        if (result.exitCode === 0) {
+          await access(target);
+          return { path: target, mime: 'image/jpeg' };
+        }
+      } catch (err) {}
+      return { path: await documentFallbackPreviewPath(path, mtimeMs, 'psd'), mime: 'image/svg+xml' };
+    }
     if (!isMac) return { path: await documentFallbackPreviewPath(path, mtimeMs, 'psd'), mime: 'image/svg+xml' };
     const sips = await ctx.subprocess.resolveExecutable('sips');
     const result = await runProcess(sips, ['-s', 'format', 'jpeg', '-s', 'formatOptions', '88', '-Z', '2400', path, '--out', target], dirname(path));

@@ -1647,6 +1647,8 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
       const knownDiskPaths = React.useRef(null);
       const projectFileNotice = React.useRef(new Set());
       const queuedDiskPaths = React.useRef(new Set());
+      const folderSyncEnabled = React.useRef(false);
+      const canonicalProjectPath = (value) => String(value || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
       const photoshopWatch = React.useRef(null);
       const materializingImages = React.useRef(new Set());
       const finderRemovingIds = React.useRef(new Set());
@@ -1836,6 +1838,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
             archivedImages.current.clear();
             queuedDiskPaths.current.clear();
             knownDiskPaths.current = null;
+            folderSyncEnabled.current = false;
             switchingProject.current = true;
             projectRef.current = next;
             rememberProject(next.cwd, next.project, next.sessionId);
@@ -1874,12 +1877,41 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
       };
       const openProjectFolder = () => {
         const current = projectRef.current;
-        setFeedback('正在系统文件管理器中打开项目目录…');
+        setFeedback('正在打开项目目录并同步其中的文件…');
         fetch('/dsh-canvas/open-project', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(current) })
           .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
           .then((result) => {
             if (!result.ok || !result.data || !result.data.ok) throw new Error(result.data && result.data.error || '打开失败');
-            setFeedback('✓ 已在系统文件管理器中打开项目目录');
+            folderSyncEnabled.current = true;
+            return fetch('/dsh-canvas/project-files', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(current) });
+          })
+          .then((r) => r.json())
+          .then((files) => {
+            const snapshotElements = (latestSnapshot.current && latestSnapshot.current.elements || []);
+            const linked = new Set(snapshotElements
+              .map((item) => item && item.customData && item.customData.dshSourcePath)
+              .filter(Boolean).map(canonicalProjectPath));
+            const filesByCanonicalPath = new Map(((files && files.images) || [])
+              .filter((image) => image && image.path)
+              .map((image) => [canonicalProjectPath(image.path), image]));
+            snapshotElements.forEach((element) => {
+              const sourcePath = element && element.customData && element.customData.dshSourcePath;
+              const disk = sourcePath && filesByCanonicalPath.get(canonicalProjectPath(sourcePath));
+              if (disk && /^(psd|svg|pdf|ai)$/i.test(String(disk.kind || ''))) {
+                post({ type: 'refresh-source', elementId: element.id, ...disk });
+              }
+            });
+            const additions = ((files && files.images) || []).filter((image) => image && image.path
+              && !linked.has(canonicalProjectPath(image.path))
+              && !queuedDiskPaths.current.has(image.path));
+            additions.forEach((image) => {
+              queuedDiskPaths.current.add(image.path);
+              pendingRef.current.push({ ...image, explicit: true });
+            });
+            if (additions.length) flushPending();
+            setFeedback(additions.length
+              ? '✓ 已打开项目目录，并同步 ' + additions.length + ' 个文件到画布'
+              : '✓ 已打开项目目录，画布内容已同步');
           })
           .catch((err) => setFeedback('⚠ 无法打开项目目录：' + String((err && err.message) || err)));
       };
@@ -2829,11 +2861,8 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
                 filesByPath.set(normalizeProjectPath(item.path).toLowerCase(), item);
               }
               const diskPaths = new Set(result.images.filter((item) => item && item.path).map((item) => item.path));
-              // The first scan establishes a baseline.  Later scans surface
-              // files added in the project folder without importing them into
-              // the canvas (auto-import is intentionally forbidden by the
-              // product contract); the user can then drag them in or use a
-              // chat card's explicit “加入画布” action.
+              // Clicking “open and sync” is explicit user consent for this
+              // project session.  Until then scans remain notification-only.
               if (previousCanonical) {
                 const newImages = result.images.filter((item) => item && item.path && !previousCanonical.has(normalizeProjectPath(item.path).toLowerCase()));
                 const unseen = newImages.filter((item) => !projectFileNotice.current.has(normalizeProjectPath(item.path).toLowerCase()));
@@ -2841,7 +2870,18 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
                   unseen.forEach((item) => projectFileNotice.current.add(normalizeProjectPath(item.path).toLowerCase()));
                   const names = unseen.slice(0, 3).map((item) => item.name || basename(item.path)).join('、');
                   const suffix = unseen.length > 3 ? ' 等 ' + unseen.length + ' 个文件' : '';
-                  setFeedback('检测到项目目录新增文件：' + names + suffix + '；按规则不会自动加入画布，请拖入画布或从聊天输出点击“加入画布”');
+                  if (folderSyncEnabled.current) {
+                    const linkedCanonical = new Set(sourceElements.map((item) => normalizeProjectPath(item.customData.dshSourcePath).toLowerCase()));
+                    const additions = unseen.filter((image) => !linkedCanonical.has(normalizeProjectPath(image.path).toLowerCase()) && !queuedDiskPaths.current.has(image.path));
+                    additions.forEach((image) => {
+                      queuedDiskPaths.current.add(image.path);
+                      pendingRef.current.push({ ...image, explicit: true });
+                    });
+                    if (additions.length) flushPending();
+                    setFeedback('✓ 已同步项目目录新增文件：' + names + suffix);
+                  } else {
+                    setFeedback('检测到项目目录新增文件：' + names + suffix + '；点击“打开并同步项目文件夹”后可持续同步');
+                  }
                 }
               }
               for (const path of [...queuedDiskPaths.current]) if (!diskPaths.has(path)) queuedDiskPaths.current.delete(path);
@@ -2915,6 +2955,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
           projectSyncBusy.current = false;
           knownDiskPaths.current = null;
           queuedDiskPaths.current.clear();
+          folderSyncEnabled.current = false;
         };
       }, [on, projectInfo.cwd, projectInfo.project]);
 
@@ -2993,7 +3034,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
             onClick: () => { saveNow(); clearTimeout(saveTimer.current); setMode(false); }
           }, '收起画布'),
           moreMenuOpen ? React.createElement('div', { className: 'dsh-canvas-more-menu' },
-            React.createElement('button', { onClick: () => { setMoreMenuOpen(false); openProjectFolder(); }, disabled: !projectInfo.project }, '📁 打开项目文件夹'),
+            React.createElement('button', { onClick: () => { setMoreMenuOpen(false); openProjectFolder(); }, disabled: !projectInfo.project }, '📁 打开并同步项目文件夹'),
             React.createElement('button', { onClick: openImageSettings }, '⚙ 图像引擎设置'),
             React.createElement('button', { onClick: () => { setMoreMenuOpen(false); saveNow(); setFeedback('✓ 已保存当前画布'); }, disabled: !projectInfo.project }, '保存当前画布'),
             React.createElement('button', { className: 'dsh-canvas-more-danger', title: '先备份画布，再把项目图片移入画布回收站', onClick: () => { setMoreMenuOpen(false); backupAndClear(); }, disabled: !projectInfo.project }, '清空当前画布')
@@ -3110,7 +3151,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
                 React.createElement('strong', null, basename(projectInfo.project)),
                 React.createElement('code', { title: projectInfo.project }, projectInfo.project)
               ),
-            React.createElement('button', { className: 'dsh-canvas-tb dsh-canvas-open-folder', onClick: openProjectFolder }, '打开项目文件夹')
+            React.createElement('button', { className: 'dsh-canvas-tb dsh-canvas-open-folder', onClick: openProjectFolder }, '打开并同步项目文件夹')
             ) : React.createElement('div', { className: 'dsh-canvas-project-current dsh-canvas-project-current-empty' }, '尚未选择项目，可新建或从文件夹导入。'),
             React.createElement('div', { className: 'dsh-canvas-project-section-title' }, '最近项目'),
             React.createElement('div', { className: 'dsh-canvas-project-list' },
