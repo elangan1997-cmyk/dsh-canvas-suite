@@ -3021,7 +3021,14 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
                   missingIds.push(element.id);
                   continue;
                 }
-                if (Math.abs(Number(disk.mtime || 0) - Number(source.dshSourceMtime || 0)) > 1 || (Number(source.dshSourceSize || 0) > 0 && Number(disk.size || 0) !== Number(source.dshSourceSize || 0))) {
+                const cachedFile = snapshot.files && snapshot.files[element.fileId];
+                const cachedDataURL = String(cachedFile && cachedFile.dataURL || '');
+                const cachedMime = String(cachedFile && cachedFile.mimeType || '');
+                const cacheInvalid = element.status === 'error'
+                  || !cachedFile
+                  || cachedDataURL.indexOf('data:text/html') === 0
+                  || (cachedMime && !cachedMime.startsWith('image/'));
+                if (cacheInvalid || Math.abs(Number(disk.mtime || 0) - Number(source.dshSourceMtime || 0)) > 1 || (Number(source.dshSourceSize || 0) > 0 && Number(disk.size || 0) !== Number(source.dshSourceSize || 0))) {
                   updates.set(element.id, disk.mtime);
                   post({ type: 'refresh-source', elementId: element.id, ...disk });
                 }
