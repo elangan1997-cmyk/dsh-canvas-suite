@@ -32,6 +32,9 @@ if (!host.includes("pathname === '/dsh-canvas/pick-adobe'")) throw new Error('ho
 if (!host.includes('photoshopPath') || !host.includes('illustratorPath')) throw new Error('host does not persist manual Adobe executable paths');
 const platform = await readFile(resolve(root, 'canvas-workbench/lib/platform.js'), 'utf8');
 if (!platform.includes('Start-Process -FilePath') || !platform.includes('-ArgumentList @(')) throw new Error('Windows Adobe launcher does not pass the selected executable explicitly');
+if (!platform.includes("return runProcess(explorer, ['/select,' + path], cwd);") || !platform.includes("const literalPath = \"'/select,\" + String(path || '').replace")) {
+  throw new Error('Windows Explorer reveal must use a single /select,<path> argument');
+}
 
 const client = await readFile(resolve(root, 'canvas-workbench/lib/client.js'), 'utf8');
 if (!client.includes('[A-Za-z]:[\\\\/]')) throw new Error('client lacks Windows drive path support');
@@ -48,6 +51,12 @@ if ((client.match(/publishCanvasChange\(nextElements/g) || []).length < 2) {
   throw new Error('add and duplicate mutations must publish their constructed target element arrays');
 }
 if (!client.includes('pickAdobeExecutable') || !client.includes('选择程序')) throw new Error('client lacks manual Adobe executable controls');
+if (!client.includes('projectFileNotice') || !client.includes('检测到项目目录新增文件')) {
+  throw new Error('project polling must surface newly detected files without auto-importing them');
+}
+if (!client.includes('projectPrefixLower') || !client.includes('normalizeProjectPath')) {
+  throw new Error('project polling lacks Windows separator/case normalization');
+}
 
 const installer = await readFile(resolve(root, 'windows-installer/install.ps1'), 'utf8');
 for (const marker of ['profiles', 'node_modules\\@local', 'desktop\\node_modules\\@local', 'cordis.patch.yml']) {

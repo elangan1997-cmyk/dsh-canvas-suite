@@ -120,6 +120,8 @@ Secrets, chat contents, and user asset paths are intentionally omitted.
 | Programmatic mutation persistence | passed | passed across reload |
 | Windows managed asset containment | passed | passed; no recursive growth after repair |
 | Cross-chat A→B→A shared state | partial | exposed WIN-005; post-fix confirmation pending after local-page refresh |
+| Windows Explorer open/reveal | passed | project open and file reveal both returned HTTP 200 in the real local page |
+| Project-folder new-file sync | passed | new file surfaced in about 10 seconds without auto-importing into the canvas |
 
 ## WIN-008 手动指定 Photoshop/Illustrator 可执行文件
 
@@ -151,3 +153,27 @@ Secrets, chat contents, and user asset paths are intentionally omitted.
 - Fix: `export_text_psd.py` 现在按需创建用户目录隔离的 `psd-runtime`，安装并校验 `psd-tools 1.18.0`，原地激活 site-packages 避免 Windows `os.execv`/EINVAL；PSD blocks 改用 UTF-8 临时 JSON 文件传递，避免中文文字层乱码。
 - Verification: 在实际 Windows Python 3.12 上生成 15.8MB PSD 草稿成功；DSH 重启后 OCR→PSD 连续请求均返回 HTTP 200，测试项目写入 `金鱼缓沉型鱼食-500g-文字编辑.psd`，未调用 Photoshop 时保留原图与候选预览层。
 - Status: fixed, installed, and end-to-end service regression passed
+
+## WIN-011 Windows 打开项目文件夹/定位文件返回失败
+
+- Severity: serious functional failure
+- Minimal reproduction: 在“项目管理”中点击“打开项目文件夹”，或对项目图片点击“在文件夹中显示”
+- Expected: Windows 资源管理器打开项目目录，或选中指定文件
+- Actual: 两个接口均返回 HTTP 500（“资源管理器打开失败/定位失败”），即使目标路径存在
+- Root cause: `explorer.exe` 是 Shell 进程，直接交给 DSH 同步子进程宿主时会返回非零状态；定位文件还使用了拆开的 `'/select,'`、`path` 两个参数，Explorer 在 Windows 上不会稳定解析这种形式。
+- Fix: Windows 分支改用 PowerShell 5.1-safe 的 `Start-Process explorer.exe` 异步启动；路径以字面量传入，定位参数合并为单个 `/select,<完整路径>`；无 PowerShell 时保留修正后的 Explorer 直接启动回退。
+- Automatic check: `node --check`、可移植性检查、diff 检查通过；web/desktop 运行副本哈希一致。
+- Real UI regression: 本地 DSH 页面打开 `TEST` 项目后点击“打开项目文件夹”，反馈变为“已在系统文件管理器中打开项目目录”；项目图片定位接口返回 HTTP 200。
+- Status: fixed, installed, and real UI regression passed
+
+## WIN-012 项目目录新增文件没有可见的实时反馈
+
+- Severity: normal functional clarity / Windows path compatibility
+- Minimal reproduction: 保持画布处于设计模式并打开项目目录，在 `<project>\\assets` 放入一张新图片，等待一次目录同步轮询。
+- Expected: 画布在不误导入的前提下及时反映目录变化；已链接源文件仍能刷新。
+- Actual: 旧实现只更新内部文件集合，不向用户提示新文件；Windows 反斜杠与 `/assets/` 前缀混用时，项目内源文件还可能被误判为外部源。
+- Root cause: 目录同步只对已在画布中的源元素做刷新，新增文件没有 UI 状态；项目归属判断使用大小写/分隔符敏感的 `startsWith`。
+- Fix: 用统一的 Windows 路径归一化（分隔符和大小写）识别项目内源；轮询在首轮建立基线，后续检测到新增图片时显示文件名和“不会自动加入画布”的明确提示，同时保留产品契约（只有用户拖入、粘贴或点击聊天卡片“加入画布”才上板）。
+- Automatic check: `node --check`、可移植性检查、diff 检查通过；web/desktop 运行副本哈希一致。
+- Real UI regression: 在实际 `TEST/assets` 复制 `__windows-realtime-probe.png` 后，约 10 秒内页面反馈显示“检测到项目目录新增文件…”，画布元素数量保持 5（没有未经用户确认的自动导入）；测试副本已清理。
+- Status: fixed, installed, and real UI regression passed

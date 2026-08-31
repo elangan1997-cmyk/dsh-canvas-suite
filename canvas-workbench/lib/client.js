@@ -1639,6 +1639,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
       const projectSyncBusy = React.useRef(false);
       const missingSources = React.useRef(new Set());
       const knownDiskPaths = React.useRef(null);
+      const projectFileNotice = React.useRef(new Set());
       const queuedDiskPaths = React.useRef(new Set());
       const photoshopWatch = React.useRef(null);
       const materializingImages = React.useRef(new Set());
@@ -2722,6 +2723,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
         let pollTimer = 0;
         let activeController = null;
         knownDiskPaths.current = null;
+        projectFileNotice.current.clear();
         queuedDiskPaths.current.clear();
         const scheduleNext = () => {
           clearTimeout(pollTimer);
@@ -2741,9 +2743,17 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
           if (!currentProjectPath()) return;
           const snapshot = latestSnapshot.current || {};
           const liveImages = (snapshot.elements || []).filter((item) => item && item.type === 'image' && !item.isDeleted);
-          const projectPrefix = currentProjectPath().replace(/[\\/]+$/, '') + '/';
-          const sourceElements = liveImages.filter((item) => item.customData && String(item.customData.dshSourcePath || '').startsWith(projectPrefix));
-          const externalSourceElements = liveImages.filter((item) => item.customData && item.customData.dshSourcePath && !String(item.customData.dshSourcePath).startsWith(projectPrefix));
+          // Persisted Windows paths can mix `\\` and `/` after a project was
+          // opened from a browser or restored from an older canvas.json.  Use
+          // one canonical form for project-bound classification; otherwise all
+          // Windows sources are incorrectly treated as external files and the
+          // project scan cannot refresh them consistently.
+          const normalizeProjectPath = (value) => String(value || '').replace(/\\/g, '/').replace(/\/+$/, '');
+          const projectPrefix = normalizeProjectPath(currentProjectPath()) + '/';
+          const projectPrefixLower = projectPrefix.toLowerCase();
+          const isProjectPath = (value) => normalizeProjectPath(value).toLowerCase().startsWith(projectPrefixLower);
+          const sourceElements = liveImages.filter((item) => item.customData && isProjectPath(item.customData.dshSourcePath));
+          const externalSourceElements = liveImages.filter((item) => item.customData && item.customData.dshSourcePath && !isProjectPath(item.customData.dshSourcePath));
           const sourcePaths = new Set(sourceElements.map((item) => item.customData.dshSourcePath));
           for (const path of sourcePaths) queuedDiskPaths.current.delete(path);
           projectSyncBusy.current = true;
@@ -2773,9 +2783,10 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
                 if (previous) { previous.mtime = output.mtime; previous.size = output.size; }
                 else baseline.push({ path: output.path, mtime: output.mtime, size: output.size });
                 watch.baseline = baseline;
-                if (String(output.path).startsWith(projectPrefix)) {
+                if (isProjectPath(output.path)) {
                   pendingRef.current.push({ ...output, explicit: true });
                   flushPending();
+                  if (knownDiskPaths.current) knownDiskPaths.current.add(output.path);
                   setFeedback('✓ Photoshop 新建/保存的 PSD 已加入画布：' + output.name);
                   return;
                 }
@@ -2801,15 +2812,39 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
             .then((r) => r.json())
             .then((result) => {
               if (disposed || !result || !result.ok || !Array.isArray(result.images)) return;
-              const filesByPath = new Map(result.images.map((item) => [item.path, item]));
-              const diskPaths = new Set(filesByPath.keys());
+              const previousDiskPaths = knownDiskPaths.current;
+              const previousCanonical = previousDiskPaths
+                ? new Set([...previousDiskPaths].map((path) => normalizeProjectPath(path).toLowerCase()))
+                : null;
+              const filesByPath = new Map();
+              for (const item of result.images) {
+                if (!item || !item.path) continue;
+                filesByPath.set(item.path, item);
+                filesByPath.set(normalizeProjectPath(item.path).toLowerCase(), item);
+              }
+              const diskPaths = new Set(result.images.filter((item) => item && item.path).map((item) => item.path));
+              // The first scan establishes a baseline.  Later scans surface
+              // files added in the project folder without importing them into
+              // the canvas (auto-import is intentionally forbidden by the
+              // product contract); the user can then drag them in or use a
+              // chat card's explicit “加入画布” action.
+              if (previousCanonical) {
+                const newImages = result.images.filter((item) => item && item.path && !previousCanonical.has(normalizeProjectPath(item.path).toLowerCase()));
+                const unseen = newImages.filter((item) => !projectFileNotice.current.has(normalizeProjectPath(item.path).toLowerCase()));
+                if (unseen.length) {
+                  unseen.forEach((item) => projectFileNotice.current.add(normalizeProjectPath(item.path).toLowerCase()));
+                  const names = unseen.slice(0, 3).map((item) => item.name || basename(item.path)).join('、');
+                  const suffix = unseen.length > 3 ? ' 等 ' + unseen.length + ' 个文件' : '';
+                  setFeedback('检测到项目目录新增文件：' + names + suffix + '；按规则不会自动加入画布，请拖入画布或从聊天输出点击“加入画布”');
+                }
+              }
               for (const path of [...queuedDiskPaths.current]) if (!diskPaths.has(path)) queuedDiskPaths.current.delete(path);
               const updates = new Map();
               const missingIds = [];
               for (const element of sourceElements) {
                 if (renamingImageIds.current.has(element.id)) continue;
                 const source = element.customData || {};
-                const disk = filesByPath.get(source.dshSourcePath);
+                const disk = filesByPath.get(source.dshSourcePath) || filesByPath.get(normalizeProjectPath(source.dshSourcePath).toLowerCase());
                 if (!disk) {
                   finderRemovingIds.current.add(element.id);
                   missingIds.push(element.id);

@@ -80,6 +80,16 @@ export async function pickFolder(ctx, runProcess, prompt = '选择画布项目�
  */
 export async function openFolder(ctx, runProcess, path) {
   if (isWindows) {
+    // Explorer is a shell process, not a normal foreground CLI.  Launching it
+    // directly through the DSH subprocess host can return a non-zero status
+    // even though the same folder opens from the Windows shell.  Start it via
+    // PowerShell so the host only waits for the short-lived launcher.
+    const powershell = await resolveFirst(ctx, ['powershell.exe', 'powershell']);
+    const literalPath = "'" + String(path || '').replace(/'/g, "''") + "'";
+    if (powershell) {
+      const script = 'Start-Process -FilePath \'explorer.exe\' -ArgumentList @(' + literalPath + ')';
+      return runProcess(powershell, ['-NoLogo', '-NoProfile', '-Command', script], path);
+    }
     const explorer = await resolveFirst(ctx, ['explorer.exe', 'explorer']);
     if (!explorer) throw new Error('未找到 Windows 资源管理器');
     return runProcess(explorer, [path], path);
@@ -95,9 +105,17 @@ export async function openFolder(ctx, runProcess, path) {
 
 export async function revealFile(ctx, runProcess, path, cwd) {
   if (isWindows) {
+    const powershell = await resolveFirst(ctx, ['powershell.exe', 'powershell']);
+    const literalPath = "'/select," + String(path || '').replace(/'/g, "''") + "'";
+    if (powershell) {
+      const script = 'Start-Process -FilePath \'explorer.exe\' -ArgumentList @(' + literalPath + ')';
+      return runProcess(powershell, ['-NoLogo', '-NoProfile', '-Command', script], cwd);
+    }
     const explorer = await resolveFirst(ctx, ['explorer.exe', 'explorer']);
     if (!explorer) throw new Error('未找到 Windows 资源管理器');
-    return runProcess(explorer, ['/select,', path], cwd);
+    // `/select,` and the target must remain one argv item; Explorer does not
+    // parse the two-item form reliably on Windows.
+    return runProcess(explorer, ['/select,' + path], cwd);
   }
   if (isMac) {
     const opener = await resolveFirst(ctx, ['open']);
