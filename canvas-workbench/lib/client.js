@@ -1749,6 +1749,9 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
       const frameRef = React.useRef(null);
       const frameReady = React.useRef(false);
       const stateLoaded = React.useRef(false);
+      // 只有 iframe 明确回传 loaded 后才允许保存。启动时 Excalidraw 会先
+      // 发出一次空白 onChange；若把它当成用户编辑，会覆盖已有 canvas.json。
+      const projectHydrated = React.useRef(false);
       const pendingRef = React.useRef([]);
       const latestSnapshot = React.useRef(null);
       const saveTimer = React.useRef(null);
@@ -1809,7 +1812,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
       };
       const saveNow = () => {
         const current = projectRef.current;
-        if (!latestSnapshot.current || !current.project) return;
+        if (!projectHydrated.current || !latestSnapshot.current || !current.project) return;
         // 同一项目只允许一个完整 canvas.json 写入进行中；图片较多时，
         // 连续拖拽/缩放不会并发触发多次大文件序列化和磁盘写入。
         if (saveInFlight.current) {
@@ -1841,7 +1844,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
         clearTimeout(saveTimer.current);
         saveTimer.current = null;
         const current = projectRef.current;
-        if (!latestSnapshot.current || !current.project) return Promise.resolve();
+        if (!projectHydrated.current || !latestSnapshot.current || !current.project) return Promise.resolve();
         const liveSnapshot = requestLiveSnapshot();
         const waiting = saveInFlight.current || Promise.resolve();
         saveQueued.current = false;
@@ -1982,6 +1985,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
             knownDiskPaths.current = null;
             folderSyncEnabled.current = false;
             switchingProject.current = true;
+            projectHydrated.current = false;
             projectRef.current = next;
             rememberProject(next.cwd, next.project, next.sessionId);
             setProjectInfo(next);
@@ -2481,6 +2485,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
             const current = projectRef.current;
             if (current.project) {
               switchingProject.current = true;
+              projectHydrated.current = false;
               loadState(current.cwd, current.project).then((snap) => {
                 if (snap) {
                   latestSnapshot.current = snap;
@@ -2512,6 +2517,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
           }
         } else if (d.type === 'loaded') {
           switchingProject.current = false;
+          projectHydrated.current = true;
           if (d.snapshot) {
             // loaded 只是“已恢复”的确认，不是一次用户编辑；保留从
             // canvas.json 读出的版本标记，避免把旧加载快照重新盖回项目。
@@ -2791,7 +2797,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
           setFeedback('⚠ ' + (d.message || 'iframe 错误'));
           console.error('canvas iframe error:', d.message);
         } else if (d.type === 'changed') {
-          if (switchingProject.current) return;
+          if (switchingProject.current || !projectHydrated.current) return;
           const previous = latestSnapshot.current || {};
           const snap = markCanvasChanged(d.snapshot || {}, previous);
           const previousLive = (previous.elements || []).filter((item) => item && item.type === 'image' && !item.isDeleted);
@@ -2892,6 +2898,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
             setProjectInfo({ cwd, sessionId, project: '' });
             latestSnapshot.current = emptySnapshot;
             switchingProject.current = true;
+            projectHydrated.current = false;
             post({ type: 'load', snapshot: JSON.stringify(emptySnapshot) });
             setTimeout(() => { switchingProject.current = false; }, 1000);
             setFeedback('已切换聊天；请选择、新建或导入画布项目');
