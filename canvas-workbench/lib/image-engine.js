@@ -214,7 +214,9 @@ async function generateWithApi({ image, mask, prompt, settings, signal }) {
   if (!auth.configured) throw new Error(`未配置 image2 API 密钥：${auth.filename}`);
   // 保留旧版 auth.json 中的自定义网关；只有设置文件明确改过默认地址时才覆盖它。
   const base = effectiveApiBase(settings, auth);
-  const maxAttempts = 4;
+  // 图片网关失败时不要让用户等待多轮长重试；一次重试足以覆盖短暂的
+  // 502/429，同时把真实错误尽快展示在画布状态栏。
+  const maxAttempts = 2;
   let lastFailure = '';
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const form = new FormData();
@@ -227,7 +229,7 @@ async function generateWithApi({ image, mask, prompt, settings, signal }) {
     try {
       // 图片网关在高峰期可能需要 3-5 分钟；单次调用必须小于外层任务总预算，
       // 但不能沿用旧的 180 秒，否则请求会在网关受理前/生成中途被本机主动切断。
-      const timeoutSignal = AbortSignal.timeout(360000);
+      const timeoutSignal = AbortSignal.timeout(180000);
       response = await fetch(`${base}/v1/images/edits`, {
         method: 'POST',
         headers: {
@@ -247,8 +249,11 @@ async function generateWithApi({ image, mask, prompt, settings, signal }) {
     let payload = null;
     try { payload = await response.json(); } catch {}
     if (response.ok) {
-      if (!payload) throw new Error(`image2 API 返回无效响应（HTTP ${response.status}）`);
-      return await parseImagePayload(payload);
+      if (!payload) throw new Error(`image2 API 返回无效响应（HTTP ${response.status}，响应为空或不是 JSON）`);
+      const bytes = Buffer.from(await parseImagePayload(payload));
+      if (!bytes.length || !imageMediaType(bytes).startsWith('image/')) throw new Error('image2 API 返回了空数据或不可识别的图片格式');
+      if (bytes.byteLength > 32 * 1024 * 1024) throw new Error('image2 API 返回图片超过 32MB，已拒绝写入');
+      return bytes;
     }
     const detail = payload && payload.error && typeof payload.error.message === 'string' ? payload.error.message : '';
     lastFailure = `HTTP ${response.status}${detail ? `：${detail}` : ''}`;

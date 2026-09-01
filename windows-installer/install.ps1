@@ -71,6 +71,18 @@ function Add-ProfileEntry([string]$Profile, [string]$Id, [string]$PackageName) {
   Write-Status "已注入 Profile：$Profile / $PackageName"
 }
 
+function Add-ElectronEcosystemEntry([string]$Id, [string]$PackageName) {
+  $patch = Join-Path $DshRoot 'electron\plugins.cordis.yml'
+  if (-not (Test-Path -LiteralPath $patch)) { return }
+  $content = Get-Content -LiteralPath $patch -Raw -Encoding UTF8
+  if ($content.Contains("name: '$PackageName'")) { return }
+  $entry = "- id: $Id`r`n  name: '$PackageName'`r`n"
+  $temporary = "$patch.tmp"
+  [IO.File]::WriteAllText($temporary, ($content.TrimEnd() + "`r`n" + $entry), [Text.UTF8Encoding]::new($false))
+  Move-Item -LiteralPath $temporary -Destination $patch -Force
+  Write-Status "已注入 Electron：$PackageName"
+}
+
 function Get-ActiveProfile {
   $candidates = @(
     (Join-Path $env:APPDATA 'DSH Desktop\profile-selection\state.json'),
@@ -128,6 +140,10 @@ if (-not $CheckOnly) {
   foreach ($profile in @('web', 'desktop')) {
     Add-ProfileEntry $profile 'home-explorer' '@local/home-explorer'
   }
+  # Electron Desktop 不读取 web/desktop profile 的 patch；它通过
+  # plugins.cordis.yml 的 ecosystem include 单独装载本地插件。
+  Add-ElectronEcosystemEntry 'canvas-workbench' '@local/canvas-workbench'
+  Add-ElectronEcosystemEntry 'home-explorer' '@local/home-explorer'
   # 保存一份与 DSH 分离的恢复源，用户删除下载目录后计划任务仍能工作。
   if ([IO.Path]::GetFullPath($SuiteRoot) -ne [IO.Path]::GetFullPath($ManagedRoot)) {
     if (Test-Path -LiteralPath $ManagedRoot) { Remove-Item -LiteralPath $ManagedRoot -Recurse -Force }

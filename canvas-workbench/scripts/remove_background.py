@@ -216,9 +216,14 @@ def main() -> int:
     session = new_session_with_progress(new_session, args.model)
     emit_progress("processing", "模型已就绪，正在移除背景", 88)
     with Image.open(args.input) as image:
+        original_size = image.size
         # isnet-general-use 已提供软 alpha；保留 alpha matting 关闭时的
         # 原始边缘，避免产品边缘被过度侵蚀。
         result = remove(image.convert("RGBA"), session=session)
+        # 某些 rembg/onnxruntime 组合会按模型步长返回略不同的尺寸；
+        # 背景移除是透明度处理，不应改变画布几何比例。
+        if result.size != original_size:
+            result = result.resize(original_size, Image.Resampling.LANCZOS)
         result.save(args.output, format="PNG", optimize=True)
     emit_progress("complete", "去背景完成", 100)
     print('{"success":true,"model":"isnet-general-use","image":"' + str(args.output).replace('\\', '\\\\').replace('"', '\\"') + '"}')

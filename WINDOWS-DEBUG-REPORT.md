@@ -199,3 +199,15 @@ Secrets, chat contents, and user asset paths are intentionally omitted.
 - Automatic check: JavaScript 语法、可移植性检查和实际 PSD 合成脚本均通过。
 - Real regression: 实际 `TEST` 项目扫描识别 11 个支持文件；两个 PSD 预览均返回 HTTP 200、`image/jpeg`、185811 bytes；网页点击同步后，缺失的 PSD、SVG、WebP 均出现在画布元素列表。
 - Status: fixed, installed, and real UI/API regression passed
+
+## WIN-015 聊天 imagegen 路由与删除源文件未进画布回收站
+
+- Severity: serious functional mismatch / data-safety regression
+- Root cause (chat route): DSH 自带 `dsh-codex` 的 `imagegen` 工具独立于画布图像引擎设置；聊天工具固定调用 Codex 图像端点和 `gpt-image-2`，当前聊天模型只负责判断是否支持图像输入。画布中选择的 `api` 仅影响画布编辑、去背景和文字清理，不能改变聊天模型路由。
+- Root cause (delete): `deleted-selection` 消息先更新了“删除后”快照，常规变更处理随后无法找出被删图片；Windows 端归档接口还用 POSIX `/` 连接符比较路径，盘符路径因此被跳过。
+- Fix: 删除事件现在使用删除前快照立即归档源文件；服务端统一盘符/UNC 路径的分隔符、大小写和项目目录边界判断。聊天图片输出继续支持 `dsh-attachment` 持久附件，并保留当前聊天 provider/model 作为文字识别上下文；未把画布 API 设置错误地耦合到 DSH 核心 imagegen。
+- Automatic check: `node --check`（client/index/image-engine）、`node tests/check-portability.mjs`、四个已安装运行副本 SHA-256 一致。
+- Route regression: API 引擎模拟 HTML、空 data、有效 PNG 三种响应，分别得到可读失败、空图失败和成功返回；聊天 dsh-codex 源码确认 `imagegen` 使用 `gpt-image-2`、`/images/generations|edits`，且非 Codex 模型受 `imagegen-other-models` 开关及图像输入能力检查约束。
+- Archive regression: 通过真实 host 路由处理测试项目，Windows 反斜杠和 `/` 混合路径均成功把 PNG 移入“画布回收站”。
+- Real Desktop UI: 待完全退出并重新打开 DSH Desktop 后验证；当前进程早于最新插件安装启动，且无有效窗口/监听端口，不能把静态/接口结果冒充真实 UI 通过。
+- Status: 修复已安装，待重启后的真实 UI 回归

@@ -165,6 +165,16 @@ function normalizeLocalPath(value) {
   }
   return expandHome(path);
 }
+// Windows 请求体里的源路径可能使用反斜杠，而 URL/项目路径比较使用正斜杠。
+// 统一成不区分大小写的绝对键，避免“删除画布图片”因分隔符不同而跳过归档。
+function pathKey(value) {
+  return resolve(normalizeLocalPath(value)).replace(/[\\/]+/g, '/').replace(/\/$/, '').toLowerCase();
+}
+function isPathInside(child, parent) {
+  const c = pathKey(child);
+  const p = pathKey(parent);
+  return c === p || c.startsWith(p + '/');
+}
 function parseQuery(qs) {
   const out = {};
   if (!qs) return out;
@@ -249,12 +259,14 @@ async function analyzeTextWithCurrentModel(ctx, uploaded, body) {
   const info = await ctx.llm.resolveModelInfo(provider, model, AbortSignal.timeout(15000));
   if (info && info.capabilities && info.capabilities.imageInput === false) throw new Error('当前聊天模型不支持图片输入');
   const prepared = await ctx.llm.prepareCall({ provider, model, maxTokens: 6000, ...(body.reasoningEffort ? { reasoningEffort: String(body.reasoningEffort) } : {}) }, AbortSignal.timeout(180000));
+  const imageWidth = Math.max(1, Number(attachment.width || body.width || 1));
+  const imageHeight = Math.max(1, Number(attachment.height || body.height || 1));
   const crops = Array.isArray(body.crops) ? body.crops : [];
   const normalized = crops.map((item, index) => ({ id: index + 1,
-    x: Math.round(Math.max(0, Number(item.x || 0)) * 1000 / Math.max(1, attachment.width)),
-    y: Math.round(Math.max(0, Number(item.y || 0)) * 1000 / Math.max(1, attachment.height)),
-    width: Math.round(Math.max(0, Number(item.width || 0)) * 1000 / Math.max(1, attachment.width)),
-    height: Math.round(Math.max(0, Number(item.height || 0)) * 1000 / Math.max(1, attachment.height)) }));
+    x: Math.round(Math.max(0, Number(item.x || 0)) * 1000 / imageWidth),
+    y: Math.round(Math.max(0, Number(item.y || 0)) * 1000 / imageHeight),
+    width: Math.round(Math.max(0, Number(item.width || 0)) * 1000 / imageWidth),
+    height: Math.round(Math.max(0, Number(item.height || 0)) * 1000 / imageHeight) }));
   const instruction = normalized.length
     ? '用户框选区域（0-1000 整图归一化坐标）为：' + JSON.stringify(normalized)
       + '。只输出这些矩形内准备移除并重建为图层的文字；框外文字仅可作为语义校对依据，不得输出。请结合完整图片理解品牌、品类和规格，返回严格 JSON、每个文字块下方的背景特征，以及可直接用于局部修复的动态 erasePrompt。'
@@ -266,7 +278,7 @@ async function analyzeTextWithCurrentModel(ctx, uploaded, body) {
   const finish = assembler.finish;
   if (finish.kind !== 'stop') throw new Error('当前聊天模型识别未正常完成：' + finish.kind);
   const text = assembler.blocks().flatMap((block) => block.type === 'text' ? [block.text] : []).join('').trim();
-  return { value: parseModelJson(text), width: attachment.width, height: attachment.height, provider, model };
+  return { value: parseModelJson(text), width: imageWidth, height: imageHeight, provider, model };
 }
 
 function sourcePathFromImageUrl(value) {
@@ -333,6 +345,11 @@ function normalizeTextLayerText(value) {
 
 function apply(ctx) {
   const fs = ctx.get('fs');
+  const operationLog = [];
+  const logOperation = (message, level = 'info') => {
+    operationLog.unshift({ time: new Date().toISOString(), level, message: String(message || '').slice(0, 500) });
+    if (operationLog.length > 200) operationLog.length = 200;
+  };
   const sp = ctx.get('sandboxPolicy');
   const statePath = () => {
     const root = sp && typeof sp.workspaceRoot === 'string' && sp.workspaceRoot ? sp.workspaceRoot : null;
@@ -620,6 +637,11 @@ function apply(ctx) {
         const requestPathname = qi === -1 ? raw : raw.slice(0, qi);
         const pathname = requestPathname.startsWith('/api/dsh-canvas') ? requestPathname.slice(4) : requestPathname;
         const query = qi === -1 ? '' : raw.slice(qi + 1);
+        if (pathname !== '/dsh-canvas/log') logOperation(req.method + ' ' + pathname);
+        if (pathname === '/dsh-canvas/log' && req.method === 'GET') {
+          respond(res, 200, { ...CORS, 'content-type': 'application/json', 'cache-control': 'no-store' }, JSON.stringify({ ok: true, entries: operationLog.slice(0, 200) }));
+          return;
+        }
         const sameOriginRequest = () => {
           const origin = String(req.headers && req.headers.origin || '').trim();
           if (!origin) return true;
@@ -1303,7 +1325,7 @@ function apply(ctx) {
             const recycleDir = join(projectDir, '画布回收站');
             const records = [];
             for (const source of paths) {
-              if (!source || !source.startsWith(projectDir + '/') || !isSourceImagePath(source) || source.includes('/画布回收站/')) continue;
+              if (!source || !isPathInside(source, projectDir) || !isSourceImagePath(source) || isPathInside(source, recycleDir)) continue;
               try {
                 await access(source);
                 await mkdir(recycleDir, { recursive: true });
@@ -1330,7 +1352,7 @@ function apply(ctx) {
             const projectDir = projectDirectory(body.cwd, body.project);
             const archived = expandHome(String(body.archived || ''));
             const original = expandHome(String(body.original || ''));
-            if (!projectDir || !archived.startsWith(join(projectDir, '画布回收站') + '/') || !original.startsWith(projectDir + '/')) throw new Error('恢复路径无效');
+            if (!projectDir || !isPathInside(archived, join(projectDir, '画布回收站')) || !isPathInside(original, projectDir)) throw new Error('恢复路径无效');
             await mkdir(dirname(original), { recursive: true });
             try { await access(original); throw new Error('原位置已有同名文件'); } catch (err) { if (err && err.message === '原位置已有同名文件') throw err; }
             await rename(archived, original);
@@ -1563,7 +1585,7 @@ function apply(ctx) {
               const previous = baseline.get(path);
               const changed = !previous || Math.abs(Number(previous.mtime || 0) - info.mtimeMs) > 1 || Number(previous.size || 0) !== info.size;
               if (!changed) continue;
-              outputs.push({ path, name: entry.name, mtime: info.mtimeMs, size: info.size, kind: 'psd', managed: path.startsWith(join(projectDir, 'assets') + '/'), url: previewUrl(path, info.mtimeMs) });
+              outputs.push({ path, name: entry.name, mtime: info.mtimeMs, size: info.size, kind: 'psd', managed: isPathInside(path, join(projectDir, 'assets')), url: previewUrl(path, info.mtimeMs) });
             }
             respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true, outputs }));
           } catch (err) {
@@ -1929,6 +1951,7 @@ function apply(ctx) {
 
         respond(res, 404, { ...CORS, 'content-type': 'text/plain' }, 'not found');
       } catch (err) {
+        logOperation('请求失败：' + String((err && err.message) || err), 'error');
         respond(res, 500, { ...CORS, 'content-type': 'text/plain' }, 'internal error');
       }
     };
