@@ -233,3 +233,17 @@ Secrets, chat contents, and user asset paths are intentionally omitted.
 - Installation: 已重新同步 profiles/node_modules、profiles/desktop、profiles/web 和 electron 四个插件副本。
 - Real Desktop UI: 必须完全退出（含托盘）并重新打开 DSH Desktop 后验证；当前旧进程未加载本次路由桥。
 - Status: 修复已安装，待重启后的真实 UI 回归
+
+## WIN-018 编辑图片放大预览清晰度
+
+- Severity: serious visual fidelity regression
+- Minimal reproduction: 在画布中打开图片，点击“编辑图片”，将预览放大到 200% 以上，观察包装上的小字和细线。
+- Expected: 编辑器使用项目源文件的原始像素；放大只受源图本身分辨率限制，不应再次使用画布缩略图或低质量压缩副本。
+- Actual: 旧导入逻辑把较大的拖入/粘贴图片限制到最长边 3200 像素并压到约 2MB；编辑器直接读取 `file.dataURL`，已有画布元素因此会继续使用旧压缩数据，放大后文字明显发糊。
+- Root cause: 外部图片预处理阈值过低，且编辑器没有按元素的原始项目路径重新读取栅格文件。
+- Fix: 新导入图片的保真阈值提高到 16MB、最长边提高到 8192 像素，并提高 WebP 质量；编辑图片和文字编辑打开时，若元素有项目源路径，则通过画布图片接口重新读取 PNG/JPEG/WebP 等原始文件，失败时才回退到已有数据。
+- Compatibility: 模型编辑请求仍可使用单独的输入尺寸限制，不改变生成接口的稳定性；已有源文件无需重新导入即可受益。
+- Automatic check: `node --check`（client/index/image-engine）、`node tests/check-portability.mjs` 通过；安装器已同步四个 Windows 运行副本。
+- Resolution note: 示例文件 `white_milk_packaging-3.png` 的源尺寸为 1184×1328；在 233% 下无法凭空增加源图没有的细节，修复后不再额外压缩，但超过原始像素后的插值模糊仍属于正常限制。
+- Real Desktop UI: 必须完全退出（含托盘）并重新打开 DSH Desktop 后验证；当前运行中的旧窗口不能代表新代码已加载。
+- Status: 修复已安装，待重启后的真实 UI 回归
