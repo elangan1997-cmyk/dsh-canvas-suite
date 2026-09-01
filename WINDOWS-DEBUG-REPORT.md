@@ -222,3 +222,14 @@ Secrets, chat contents, and user asset paths are intentionally omitted.
 - API tool regression: 在 `engine: api` 下模拟有效 PNG 返回，工具成功生成 `canvas_imagegen` 结果、保存会话附件，并实际命中 `/v1/images/generations`；无 Codex 凭据不参与该分支。
 - Real Desktop UI: 待完全退出并重新打开 DSH Desktop 后验证聊天工具是否出现在当前模型的工具列表，以及生成后的附件卡片和“加入画布”按钮。
 - Status: 代码已安装，待重启后的真实 UI 回归
+
+## WIN-017 设计模式下统一图片生成路由
+
+- Severity: functional routing mismatch
+- Requirement: 设计模式开启时，聊天中的所有图片生成均使用画布设置；选择 Codex 走 Codex，选择 API 走 API；设计模式关闭时恢复 DSH 原生图片生成。
+- Root cause: 画布工具此前只能通过独立的 `canvas_imagegen` 名称触发，DSH 原生 `imagegen` 仍由模型直接选择，画布开关和 host/agent 工具运行时也没有状态同步。
+- Fix: 增加 `/dsh-canvas/design-mode` 状态桥；renderer 切换或初始化时同步开关，host 端监听状态并在每个 live agent scope 临时 shadow 原生 `imagegen`。shadow 使用与原生工具兼容的参数（参考路径、最近聊天图片、输出路径），但实际引擎读取画布设置；关闭设计模式立即撤销 shadow，恢复原生工具。保留 `canvas_imagegen` 作为显式画布工具入口。
+- Automatic check: `node --check`（index/client/image-engine）、`node tests/check-portability.mjs` 通过；模拟 host 路由验证设计模式开关能注册/撤销每 agent 的 `imagegen` shadow；模拟 API 生成验证 shadow 命中 `/v1/images/generations` 并保存聊天附件。
+- Installation: 已重新同步 profiles/node_modules、profiles/desktop、profiles/web 和 electron 四个插件副本。
+- Real Desktop UI: 必须完全退出（含托盘）并重新打开 DSH Desktop 后验证；当前旧进程未加载本次路由桥。
+- Status: 修复已安装，待重启后的真实 UI 回归

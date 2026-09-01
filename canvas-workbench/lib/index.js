@@ -46,6 +46,25 @@ const DOCUMENT_EXTENSIONS = new Set(['pdf', 'ai']);
 const RASTER_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif', 'bmp']);
 const SOURCE_EXTENSIONS = new Set([...Object.keys(IMAGE_MIME), ...DOCUMENT_EXTENSIONS, 'psd']);
 
+// 设计模式是 renderer 中的开关，但图片工具在 host/agent 进程中执行。
+// 通过一个很小的 host 状态桥把两者同步起来，确保画布开启时所有 agent
+// 都能看到同一个 canvas-owned imagegen shadow；关闭后立即恢复 DSH 原生工具。
+let canvasDesignMode = false;
+const canvasDesignModeListeners = new Set();
+function isCanvasDesignMode() { return canvasDesignMode; }
+function setCanvasDesignMode(value) {
+  const next = Boolean(value);
+  if (next === canvasDesignMode) return;
+  canvasDesignMode = next;
+  for (const listener of [...canvasDesignModeListeners]) {
+    try { listener(next); } catch (_) {}
+  }
+}
+function watchCanvasDesignMode(listener) {
+  canvasDesignModeListeners.add(listener);
+  return () => canvasDesignModeListeners.delete(listener);
+}
+
 function extOf(p) { const m = /\.([a-zA-Z0-9]+)$/.exec(String(p)); return m ? m[1].toLowerCase() : ''; }
 function mimeOf(p) { return IMAGE_MIME[extOf(p)] || null; }
 function isImagePath(p) { return typeof p === 'string' && mimeOf(p) !== null; }
@@ -204,74 +223,194 @@ function respond(res, status, headers, body) {
 const name = 'canvas-workbench';
 const inject = ['webServer', 'subprocess', 'llm', 'attachments'];
 
-// The canvas-owned chat image tool deliberately has a distinct name from
-// dsh-codex's native `imagegen`.  This keeps the DSH core tool registry
-// conflict-free while allowing users without a Codex subscription to choose
-// the canvas API route from the same image-engine settings panel.
+const CANVAS_IMAGEGEN_PARAMETERS = {
+  prompt: { type: 'string', required: true, description: 'Complete generation or edit instruction.' },
+  referenced_image_paths: { type: 'array', items: { type: 'string' }, description: 'Up to five local or active-workspace image paths.' },
+  num_last_images_to_include: { type: 'integer', description: 'Use the most recent 1–5 conversation images.' },
+  output_path: { type: 'string', description: 'Optional active-workspace path for the generated PNG.' },
+};
+const CANVAS_IMAGEGEN_OUTPUT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    prompt: { type: 'string', required: true },
+    engine: { type: 'string', required: true },
+    image: {
+      type: 'object', required: true, additionalProperties: false,
+      properties: {
+        attachmentId: { type: 'string', required: true },
+        mediaType: { type: 'string', required: true },
+        bytes: { type: 'integer', required: true },
+        width: { type: 'integer', required: true },
+        height: { type: 'integer', required: true },
+        name: { type: 'string' },
+      },
+    },
+    file: {
+      type: 'object', additionalProperties: false,
+      properties: {
+        path: { type: 'string', required: true },
+        operation: { type: 'string', required: true },
+      },
+    },
+    writeError: { type: 'string' },
+  },
+};
+
+function collectCanvasImageRefs(content, output) {
+  for (const block of Array.isArray(content) ? content : []) {
+    if (block && block.type === 'image' && block.attachment) output.push(block.attachment);
+    else if (block && block.type === 'tool-result') collectCanvasImageRefs(block.content, output);
+  }
+}
+
+async function readCanvasImageInputs(toolCtx, args, exec) {
+  const paths = Array.isArray(args.referenced_image_paths) ? args.referenced_image_paths : [];
+  const count = args.num_last_images_to_include;
+  if (paths.length && count !== undefined) throw new Error('请只提供图片路径或最近聊天图片，不能同时提供两者');
+  if (paths.length > 5) throw new Error('最多只能引用 5 张图片');
+  if (count !== undefined && (!Number.isInteger(count) || count < 1 || count > 5)) throw new Error('最近聊天图片数量必须是 1 到 5');
+  const images = [];
+  if (paths.length) {
+    if (!toolCtx.fs || typeof toolCtx.fs.resolve !== 'function' || typeof toolCtx.fs.readBytes !== 'function') throw new Error('当前 DSH 文件服务不可用，无法读取参考图片');
+    const cwd = exec.agent && exec.agent.session && exec.agent.session.header ? exec.agent.session.header.cwd : undefined;
+    const maxBytes = toolCtx.attachments && toolCtx.attachments.imageLimits
+      ? Math.min(toolCtx.attachments.imageLimits.maxImageBytes, toolCtx.attachments.imageLimits.maxMessageImageBytes)
+      : 32 * 1024 * 1024;
+    for (const rawPath of paths) {
+      const path = String(rawPath || '').trim();
+      if (!path) throw new Error('参考图片路径不能为空');
+      const target = await toolCtx.fs.resolve(path, { ...(cwd === undefined ? {} : { cwd }), signal: exec.signal });
+      const info = await toolCtx.fs.stat(target, exec.signal);
+      if (!info || info.type !== 'file') throw new Error('参考图片不存在或不是文件：' + path);
+      const data = Buffer.from(await toolCtx.fs.readBytes(target, exec.signal, maxBytes));
+      if (!imageMediaType(data).startsWith('image/')) throw new Error('参考文件不是支持的图片格式：' + path);
+      images.push(data);
+    }
+    return images;
+  }
+  if (count !== undefined) {
+    const session = exec.agent && exec.agent.session;
+    if (!session || typeof session.deriveMessages !== 'function' || !toolCtx.attachments || typeof toolCtx.attachments.readImage !== 'function') throw new Error('当前会话没有可读取的图片附件');
+    const refs = [];
+    for (const message of session.deriveMessages() || []) collectCanvasImageRefs(message && message.content, refs);
+    const selected = refs.slice(-count);
+    if (selected.length !== count) throw new Error(`最近聊天中只有 ${selected.length} 张图片，无法取得 ${count} 张`);
+    for (const ref of selected) {
+      const stored = await toolCtx.attachments.readImage(ref, exec.signal);
+      images.push(Buffer.from(stored.data));
+    }
+  }
+  return images;
+}
+
+async function writeCanvasImageOutput(toolCtx, exec, outputPath, bytes) {
+  if (!outputPath) return { file: undefined, writeError: undefined };
+  try {
+    if (!toolCtx.fs || typeof toolCtx.fs.resolve !== 'function' || typeof toolCtx.fs.writeBytes !== 'function') throw new Error('当前文件服务不支持保存输出文件');
+    const cwd = exec.agent && exec.agent.session && exec.agent.session.header ? exec.agent.session.header.cwd : undefined;
+    const target = await toolCtx.fs.resolve(String(outputPath), { ...(cwd === undefined ? {} : { cwd }), signal: exec.signal });
+    const intent = typeof toolCtx.waterfall === 'function'
+      ? await toolCtx.waterfall('fs/write-intent', target, exec, () => undefined)
+      : undefined;
+    const result = await toolCtx.fs.writeBytes(target, bytes, intent, exec.signal);
+    return { file: { path: String(target.displayPath || outputPath), operation: String(result && result.operation || 'create') }, writeError: undefined };
+  } catch (error) {
+    return { file: undefined, writeError: String((error && error.message) || error) };
+  }
+}
+
+function createCanvasImagegenTool(toolCtx, defineTool, toolName) {
+  const contentOf = (value) => {
+    const file = value.file ? `\n<output_path operation="${value.file.operation}">${value.file.path}</output_path>` : value.writeError ? `\n<output_error>${value.writeError}</output_error>` : '';
+    return [
+      { type: 'text', text: `<image>${value.image.mediaType}, ${value.image.width}x${value.image.height} px, ${value.image.bytes} bytes</image>${file}\n<canvas_image_engine>${value.engine}</canvas_image_engine>` },
+      { type: 'image', attachment: { ...value.image } },
+    ];
+  };
+  return defineTool({
+    name: toolName,
+    description: 'Generate or edit an image through DSH Canvas. When Design Mode is on, this tool is the active imagegen route and follows the Canvas image engine setting (Codex or configured API). When Design Mode is off, the native DSH imagegen is used.',
+    parameters: CANVAS_IMAGEGEN_PARAMETERS,
+    output: { schema: CANVAS_IMAGEGEN_OUTPUT_SCHEMA, render: (_args, value) => contentOf(value) },
+    timeoutMs: 900000,
+    isConcurrencySafe: (args) => args && args.output_path === undefined,
+    async execute(args, exec) {
+      const settings = await readImageEngineSettings();
+      const images = await readCanvasImageInputs(toolCtx, args, exec);
+      const generated = await generateImage({ ctx: toolCtx, image: images[0] || Buffer.alloc(0), images, prompt: String(args.prompt || '').trim(), engine: settings.engine, signal: exec.signal });
+      const mediaType = imageMediaType(generated.bytes);
+      if (!mediaType.startsWith('image/')) throw new Error('图片生成接口返回了不可识别的图片格式');
+      const ref = await toolCtx.attachments.saveImage({ data: generated.bytes, mediaType, name: 'canvas-generated.png' });
+      const written = await writeCanvasImageOutput(toolCtx, exec, args.output_path, generated.bytes);
+      return {
+        prompt: String(args.prompt || '').trim(),
+        engine: generated.engine,
+        image: {
+          attachmentId: String(ref.attachmentId), mediaType, bytes: Number(ref.bytes), width: Number(ref.width), height: Number(ref.height),
+          ...(ref.name === undefined ? {} : { name: ref.name }),
+        },
+        ...(written.file ? { file: written.file } : {}),
+        ...(written.writeError ? { writeError: written.writeError } : {}),
+      };
+    },
+  });
+}
+
+// Register the canvas tool and, while Design Mode is on, shadow DSH's native
+// `imagegen` in every live agent scope. This keeps ordinary chat unchanged
+// when Design Mode is off while making the Canvas engine selection authoritative
+// for every image generation call when it is on.
 function installCanvasImagegenTool(ctx) {
   if (!ctx || typeof ctx.inject !== 'function') return;
-  ctx.inject(['tools', 'attachments'], (toolCtx) => {
+  ctx.inject(['tools', 'attachments', 'fs', 'agents'], (toolCtx) => {
     void import('@deepseek-ai/dsh-tools').then(({ defineTool }) => {
       if (!toolCtx.tools || typeof toolCtx.tools.register !== 'function') return;
-      if (typeof toolCtx.tools.get === 'function' && toolCtx.tools.get('canvas_imagegen')) return;
-      const contentOf = (value) => [
-        { type: 'text', text: `<image>${value.image.mediaType}, ${value.image.width}x${value.image.height} px, ${value.image.bytes} bytes</image>\n<canvas_image_engine>${value.engine}</canvas_image_engine>` },
-        { type: 'image', attachment: { ...value.image } },
-      ];
-      const tool = defineTool({
-        name: 'canvas_imagegen',
-        description: 'Generate or edit an image as part of the DSH Canvas. This tool follows the image engine selected in Canvas settings (Codex or the configured API), so it also works without a Codex subscription. Use it when the user asks to create an image for the canvas or explicitly says to use the canvas image engine.',
-        parameters: {
-          prompt: { type: 'string', required: true, description: 'Complete image generation or editing instruction.' },
-        },
-        output: {
-          schema: {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-              prompt: { type: 'string', required: true },
-              engine: { type: 'string', required: true },
-              image: {
-                type: 'object',
-                required: true,
-                additionalProperties: false,
-                properties: {
-                  attachmentId: { type: 'string', required: true },
-                  mediaType: { type: 'string', required: true },
-                  bytes: { type: 'integer', required: true },
-                  width: { type: 'integer', required: true },
-                  height: { type: 'integer', required: true },
-                  name: { type: 'string' },
-                },
-              },
-            },
-          },
-          render: (_args, value) => contentOf(value),
-        },
-        timeoutMs: 900000,
-        isConcurrencySafe: () => true,
-        async execute(args, exec) {
-          const settings = await readImageEngineSettings();
-          const generated = await generateImage({ ctx: toolCtx, image: Buffer.alloc(0), prompt: args.prompt, engine: settings.engine, signal: exec.signal });
-          const mediaType = imageMediaType(generated.bytes);
-          if (!mediaType.startsWith('image/')) throw new Error('图片生成接口返回了不可识别的图片格式');
-          const ref = await toolCtx.attachments.saveImage({ data: generated.bytes, mediaType, name: 'canvas-generated.png' });
-          return {
-            prompt: args.prompt,
-            engine: generated.engine,
-            image: {
-              attachmentId: String(ref.attachmentId),
-              mediaType,
-              bytes: Number(ref.bytes),
-              width: Number(ref.width),
-              height: Number(ref.height),
-              ...(ref.name === undefined ? {} : { name: ref.name }),
-            },
-          };
-        },
-      });
-      try { toolCtx.tools.register(tool); } catch (error) { console.warn('[canvas-workbench] canvas_imagegen registration skipped:', error); }
-    }).catch((error) => console.warn('[canvas-workbench] canvas_imagegen unavailable:', error));
+      if (!(typeof toolCtx.tools.get === 'function' && toolCtx.tools.get('canvas_imagegen'))) {
+        try { toolCtx.tools.register(createCanvasImagegenTool(toolCtx, defineTool, 'canvas_imagegen')); }
+        catch (error) { console.warn('[canvas-workbench] canvas_imagegen registration skipped:', error); }
+      }
+
+      const installed = new Map();
+      let syncing = false;
+      const remove = (agent) => {
+        const current = installed.get(agent);
+        if (!current) return;
+        installed.delete(agent);
+        try { current.dispose(); } catch (_) {}
+      };
+      const syncAgent = (agent) => {
+        const current = installed.get(agent);
+        const original = typeof toolCtx.tools.get === 'function' ? toolCtx.tools.get('imagegen') : null;
+        if (!isCanvasDesignMode() || !original || !agent || !agent.ctx || !agent.ctx.tools || typeof agent.ctx.tools.register !== 'function') {
+          remove(agent);
+          return;
+        }
+        if (current && current.original === original) return;
+        remove(agent);
+        try {
+          const dispose = agent.ctx.tools.register(createCanvasImagegenTool(agent.ctx, defineTool, 'imagegen'));
+          installed.set(agent, { original, dispose });
+        } catch (error) { console.warn('[canvas-workbench] imagegen shadow registration skipped:', error); }
+      };
+      const syncAll = () => {
+        if (syncing) return;
+        syncing = true;
+        try {
+          for (const agent of (toolCtx.agents && typeof toolCtx.agents.list === 'function' ? toolCtx.agents.list() : [])) syncAgent(agent);
+          for (const agent of [...installed.keys()]) if (!toolCtx.agents || toolCtx.agents.get(agent.id) !== agent) remove(agent);
+        } finally { syncing = false; }
+      };
+      const onCreated = ({ agent }) => syncAgent(agent);
+      const onDisposed = ({ agent }) => { installed.delete(agent); };
+      try { ctx.on('agent/created', onCreated); ctx.on('agent/disposed', onDisposed); ctx.on('tools/change', syncAll); } catch (_) {}
+      const stopMode = watchCanvasDesignMode(syncAll);
+      syncAll();
+      if (typeof ctx.effect === 'function') ctx.effect(() => () => {
+        stopMode();
+        for (const agent of [...installed.keys()]) remove(agent);
+      }, 'canvas imagegen routing');
+    }).catch((error) => console.warn('[canvas-workbench] canvas imagegen unavailable:', error));
   });
 }
 
@@ -720,6 +859,29 @@ function apply(ctx) {
           if (!origin) return true;
           try { return new URL(origin).host === String(req.headers && req.headers.host || ''); } catch { return false; }
         };
+
+        // Renderer 设计模式开关的轻量同步桥。工具执行在 host 端，
+        // 因此不能直接读取 renderer 的 localStorage；POST 后立即更新
+        // 所有 agent 的 imagegen shadow，关闭时则恢复 DSH 原生路由。
+        if (pathname === '/dsh-canvas/design-mode' && req.method === 'GET') {
+          respond(res, 200, { ...CORS, 'content-type': 'application/json', 'cache-control': 'no-store' }, JSON.stringify({ ok: true, enabled: isCanvasDesignMode() }));
+          return;
+        }
+        if (pathname === '/dsh-canvas/design-mode' && req.method === 'POST') {
+          if (!sameOriginRequest()) {
+            respond(res, 403, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: '仅允许从当前 DSH 页面修改设计模式状态' }));
+            return;
+          }
+          try {
+            const body = JSON.parse(await readBody(req) || '{}');
+            setCanvasDesignMode(body.enabled === true || body.enabled === 1 || body.mode === '1');
+            logOperation('设计模式' + (isCanvasDesignMode() ? '已开启：图片生成切换到画布设置' : '已关闭：恢复 DSH 原生图片生成'));
+            respond(res, 200, { ...CORS, 'content-type': 'application/json', 'cache-control': 'no-store' }, JSON.stringify({ ok: true, enabled: isCanvasDesignMode() }));
+          } catch (error) {
+            respond(res, 400, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: String((error && error.message) || error) }));
+          }
+          return;
+        }
 
         // 图像生成/编辑只允许在画布设置中显式选择一个引擎：
         // dsh-codex（独立 OAuth）或 API（读取本机已有 image2 凭据）。

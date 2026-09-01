@@ -313,7 +313,7 @@ export async function testImageApiConnection() {
   };
 }
 
-async function generateWithDshCodex({ ctx, image, prompt, signal }) {
+async function generateWithDshCodex({ ctx, image, images, prompt, signal }) {
   const module = await loadCodexModule();
   const service = typeof ctx.get === 'function' ? ctx.get('openAICodex') : null;
   const credentials = service && service.credentials
@@ -321,15 +321,16 @@ async function generateWithDshCodex({ ctx, image, prompt, signal }) {
     : module.OpenAICodexCredentialStore ? new module.OpenAICodexCredentialStore() : null;
   if (!credentials || !module.OpenAICodexImageClient) throw new Error('当前 dsh-codex 未提供图片编辑客户端，请重启 DSH 后重试');
   const client = new module.OpenAICodexImageClient(credentials);
-  const references = image && image.length ? [dataUrl(image)] : [];
+  const inputImages = Array.isArray(images) && images.length ? images : (image && image.length ? [image] : []);
+  const references = inputImages.filter((item) => item && item.length).map((item) => dataUrl(item));
   return Buffer.from(await client.generate(prompt, references, signal || AbortSignal.timeout(180000)));
 }
 
-export async function generateImage({ ctx, image, mask, prompt, engine, signal }) {
+export async function generateImage({ ctx, image, images, mask, prompt, engine, signal }) {
   const settings = await readImageEngineSettings();
   const selected = normalizeImageEngine(engine || settings.engine);
   const bytes = Buffer.from(image || []);
-  if (selected === 'dsh-codex') return { engine: selected, bytes: await generateWithDshCodex({ ctx, image: bytes, prompt, signal }) };
+  if (selected === 'dsh-codex') return { engine: selected, bytes: await generateWithDshCodex({ ctx, image: bytes, images, prompt, signal }) };
   if (!bytes.length && selected !== 'api') throw new Error('图片输入为空');
   return { engine: selected, bytes: await generateWithApi({ image: bytes, mask, prompt, settings, signal }) };
 }

@@ -59,6 +59,16 @@ window.__ModuleLoader__.load({
     mode = storedMode === '1' || (storedMode == null && legacyMode === '1');
     if (storedMode == null && legacyMode === '1') writeStorageValue(window.localStorage, MODE_KEY, '1');
     const modeListeners = new Set();
+    function syncModeToHost(value) {
+      try {
+        fetch('/api/dsh-canvas/design-mode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: !!value }),
+          cache: 'no-store',
+        }).catch(() => {});
+      } catch (e) {}
+    }
     function getMode() { return mode; }
     function setMode(v) {
       mode = !!v;
@@ -70,6 +80,7 @@ window.__ModuleLoader__.load({
         removeStorageValue(window.localStorage, MODE_KEY);
         removeStorageValue(window.sessionStorage, MODE_KEY);
       }
+      syncModeToHost(mode);
       for (const fn of [...modeListeners]) fn(mode);
     }
     function toggleMode() { setMode(!mode); }
@@ -1299,7 +1310,10 @@ window.__ModuleLoader__.load({
         try { directory.load().then(update).catch(() => {}); } catch (e) {}
         return directory.store && typeof directory.store.subscribe === 'function' ? directory.store.subscribe(update) : undefined;
       }, [props.sessionId, modelCapabilityRevision]);
-      React.useEffect(() => subscribeMode(setOn), []);
+      React.useEffect(() => {
+        syncModeToHost(getMode());
+        return subscribeMode(setOn);
+      }, []);
       React.useEffect(() => {
         // Desktop builds may omit `cwd` from the lightweight session summary.
         // Still publish the current session id so a later conversation event can
@@ -3326,7 +3340,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
                   React.createElement('button', { className: 'dsh-canvas-tb', disabled: imageSettingsBusy, onClick: () => askDshToConfigure('dsh-codex') }, '让 DSH 帮我配置')
                 )
               ) : React.createElement('div', { className: 'dsh-canvas-engine-setup' },
-                React.createElement('div', { className: 'dsh-canvas-engine-note' }, '提示：画布图片生成工具会跟随这里的选择。选 API 可在没有 Codex 会员时生成；聊天中请说“使用画布图片生成”，结果会进入聊天附件并可加入画布。DSH 原生 imagegen 仍保持独立。'),
+                React.createElement('div', { className: 'dsh-canvas-engine-note' }, '提示：开启设计模式后，聊天中的所有图片生成都会跟随这里的选择。选 Codex 走 Codex，选 API 走已配置的 API；关闭设计模式后恢复 DSH 原生图片生成。结果会进入聊天附件并可加入画布。'),
                 React.createElement('div', { className: 'dsh-canvas-engine-api-grid' },
                   React.createElement('label', { className: 'dsh-canvas-engine-field' }, React.createElement('span', null, 'API 地址', React.createElement('small', null, '须为 HTTPS；带或不带 /v1 均可')), React.createElement('input', { value: imageSettings.apiBaseUrl || '', onChange: (e) => setImageSettings({ ...imageSettings, apiBaseUrl: e.target.value }), placeholder: 'https://api.example.com' })),
                   React.createElement('label', { className: 'dsh-canvas-engine-field' }, React.createElement('span', null, '模型名称', React.createElement('small', null, '服务商提供的图片编辑模型 ID')), React.createElement('input', { value: imageSettings.apiModel || '', onChange: (e) => setImageSettings({ ...imageSettings, apiModel: e.target.value }), placeholder: 'gpt-image-2' })),
