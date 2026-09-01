@@ -1273,11 +1273,74 @@ window.__ModuleLoader__.load({
     function dispatchResolvedImage(path) {
       if (attachmentFromPath(path)) {
         resolveAttachmentSource(path)
-          .then((url) => dispatchAddImage(path, url))
+          .then((url) => materializeGeneratedImage(url, imageName(path)))
           .catch(() => {});
         return;
       }
       dispatchAddImage(path, displaySourceUrl(path));
+    }
+    async function materializeGeneratedImage(url, requestedName) {
+      const cwd = activeChatCwd || visibleChatCwd();
+      const project = chosenProject(cwd, activeChatSessionId);
+      if (!project) {
+        dispatchAddImage(requestedName || '聊天生成图片.png', url);
+        return { path: '', url };
+      }
+      const response = await fetch(url, { cache: 'no-store' });
+      if (!response.ok) throw new Error('生成图片读取失败 HTTP ' + response.status);
+      const blob = await response.blob();
+      const dataURL = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+      const savedResponse = await fetch('/api/dsh-canvas/materialize-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cwd, project, name: requestedName || '聊天生成图片.png', dataURL })
+      });
+      const saved = await savedResponse.json();
+      if (!savedResponse.ok || !saved.ok || !saved.image) throw new Error(saved.error || '生成图片保存失败');
+      dispatchAddImage(saved.image.path, saved.image.url);
+      return saved.image;
+    }
+    function installNativeImagegenCanvasActions() {
+      const enhance = () => {
+        for (const preview of document.querySelectorAll('button')) {
+          const label = String(preview.getAttribute('aria-label') || preview.getAttribute('title') || preview.textContent || '').trim();
+          if (label.indexOf('查看原图：') !== 0 || preview.dataset.dshCanvasEnhanced === '1') continue;
+          preview.dataset.dshCanvasEnhanced = '1';
+          const action = document.createElement('button');
+          action.type = 'button';
+          action.className = 'dsh-canvas-native-add';
+          action.textContent = '加入画布和文件夹';
+          action.addEventListener('click', async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const img = preview.querySelector('img');
+            if (!img || !img.src) return;
+            const previous = action.textContent;
+            action.disabled = true;
+            action.textContent = '正在加入…';
+            try {
+              await materializeGeneratedImage(img.src, label.slice('查看原图：'.length) || '聊天生成图片.png');
+              action.textContent = chosenProject(activeChatCwd || visibleChatCwd(), activeChatSessionId) ? '已加入画布和文件夹' : '已加入画布';
+            } catch (error) {
+              action.textContent = '加入失败，点击重试';
+              action.title = String((error && error.message) || error);
+              action.disabled = false;
+              return;
+            }
+            setTimeout(() => { action.textContent = previous; action.disabled = false; }, 2200);
+          });
+          preview.insertAdjacentElement('afterend', action);
+        }
+      };
+      enhance();
+      const observer = new MutationObserver(enhance);
+      observer.observe(document.body, { childList: true, subtree: true });
+      return () => observer.disconnect();
     }
     function DesignModeToggle(props) {
       const [on, setOn] = React.useState(getMode());
@@ -3150,10 +3213,18 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
                 const cachedFile = snapshot.files && snapshot.files[element.fileId];
                 const cachedDataURL = String(cachedFile && cachedFile.dataURL || '');
                 const cachedMime = String(cachedFile && cachedFile.mimeType || '');
+                // Older Windows builds persisted PDF/AI/PSD fallback cards as
+                // image/svg+xml.  Once Poppler can render a real preview their
+                // source mtime is unchanged, so the normal freshness check
+                // never replaces the placeholder.  Treat that legacy cache as
+                // invalid and refresh it once to the JPEG preview.
+                const legacyDocumentPlaceholder = ['pdf', 'ai', 'psd'].indexOf(sourceKind) >= 0
+                  && cachedMime.toLowerCase() === 'image/svg+xml';
                 const cacheInvalid = element.status === 'error'
                   || !cachedFile
                   || cachedDataURL.indexOf('data:text/html') === 0
-                  || (cachedMime && !cachedMime.startsWith('image/'));
+                  || (cachedMime && !cachedMime.startsWith('image/'))
+                  || legacyDocumentPlaceholder;
                 if (cacheInvalid || Math.abs(Number(disk.mtime || 0) - Number(source.dshSourceMtime || 0)) > 1 || (Number(source.dshSourceSize || 0) > 0 && Number(disk.size || 0) !== Number(source.dshSourceSize || 0))) {
                   updates.set(element.id, disk.mtime);
                   post({ type: 'refresh-source', elementId: element.id, ...disk });
@@ -3505,6 +3576,8 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
       '.dsh-canvas-image-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex:none}',
       '.dsh-canvas-add-btn{font:inherit;font-size:12px;padding:2px 8px;border-radius:6px;border:1px solid var(--dsw-alias-border-l3, rgba(128,128,128,.35));background:transparent;color:var(--dsw-alias-label-primary, #333);cursor:pointer;flex:none}',
       '.dsh-canvas-add-btn:hover{background:var(--dsw-alias-interactive-bg-hover, rgba(128,128,128,.12))}',
+      '.dsh-canvas-native-add{display:inline-flex;align-items:center;justify-content:center;margin:8px 0 8px 8px;padding:6px 12px;border-radius:8px;border:1px solid var(--dsw-alias-border-l3, rgba(128,128,128,.35));background:var(--dsw-alias-interactive-bg-primary, #2563eb);color:#fff;font:inherit;font-size:12px;cursor:pointer}',
+      '.dsh-canvas-native-add:disabled{cursor:wait;opacity:.72}',
       '.dsh-canvas-lightbox{position:fixed;inset:0;z-index:2200;display:flex;align-items:center;justify-content:center;padding:32px;background:rgba(8,12,20,.82);backdrop-filter:blur(10px)}',
       '.dsh-canvas-lightbox-inner{display:flex;max-width:min(94vw,1280px);max-height:92vh;flex-direction:column;overflow:hidden;border-radius:16px;background:#111827;box-shadow:0 24px 80px rgba(0,0,0,.45)}',
       '.dsh-canvas-lightbox-image{display:block;max-width:92vw;max-height:82vh;object-fit:contain;background:#0b0f17}',
@@ -3756,6 +3829,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
       if (!conversationEventsApi) compatibilityLogger(ctx, 'warn', '会话图片事件正在等待 conversation 服务');
 
       safeEffect(ctx, '本地图片回退', () => installLocalMarkdownImageFallback());
+      safeEffect(ctx, '原生图片加入画布', () => installNativeImagegenCanvasActions());
 
       // 与 DSH 2.x 官方 deliverables 插件保持同一注册时序。
       // turnTail 是会话回放的结构插槽，不应再包一层 effect，

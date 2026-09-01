@@ -83,6 +83,38 @@ function Add-ElectronEcosystemEntry([string]$Id, [string]$PackageName) {
   Write-Status "已注入 Electron：$PackageName"
 }
 
+function Repair-ElectronHostOverlay {
+  # DeepSeek Harness Desktop 0.1.1-rc.2 bundles both the Web official brand
+  # and a Desktop brand adapter.  Both register the same single slots at
+  # priority 0, which aborts the complete client-plugin load before Canvas is
+  # mounted.  Patch the packaged template (the userData copy is regenerated
+  # from this file on every start) and keep the operation idempotent.
+  $candidates = @(
+    (Join-Path $env:LOCALAPPDATA 'Programs\DeepSeek Harness\resources\app\runtime\host.patch.yml'),
+    (Join-Path $env:ProgramFiles 'DeepSeek Harness\resources\app\runtime\host.patch.yml'),
+    $(if (${env:ProgramFiles(x86)}) { Join-Path ${env:ProgramFiles(x86)} 'DeepSeek Harness\resources\app\runtime\host.patch.yml' })
+  ) | Where-Object { $_ }
+  foreach ($template in $candidates | Select-Object -Unique) {
+    if (-not (Test-Path -LiteralPath $template)) { continue }
+    $content = Get-Content -LiteralPath $template -Raw -Encoding UTF8
+    if ($content -match '(?ms)^- id:\s*ui-brand-official\s*\r?\n\s+disabled:\s*true\s*$') {
+      Write-Status "桌面启动冲突已处理：$template"
+      continue
+    }
+    $anchor = "- id: directory-picker`r`n  disabled: true"
+    $normalized = $content -replace "`r?`n", "`r`n"
+    if (-not $normalized.Contains($anchor)) {
+      Write-Warning "未识别桌面 Host 模板，跳过品牌冲突修复：$template"
+      continue
+    }
+    $replacement = $anchor + "`r`n`r`n# Avoid duplicate registration of Desktop/Web brand single slots.`r`n- id: ui-brand-official`r`n  disabled: true"
+    $temporary = "$template.canvas-suite.tmp"
+    [IO.File]::WriteAllText($temporary, $normalized.Replace($anchor, $replacement), [Text.UTF8Encoding]::new($false))
+    Move-Item -LiteralPath $temporary -Destination $template -Force
+    Write-Status "已修复桌面启动插件冲突：$template"
+  }
+}
+
 function Get-ActiveProfile {
   $candidates = @(
     (Join-Path $env:APPDATA 'DSH Desktop\profile-selection\state.json'),
@@ -131,6 +163,7 @@ Assert-Source 'home-explorer'
 if (-not (Test-Path -LiteralPath $ProfilesRoot)) { throw "未找到 DSH Profiles：$ProfilesRoot。请先安装并启动一次 DSH Desktop。" }
 
 if (-not $CheckOnly) {
+  Repair-ElectronHostOverlay
   Copy-PluginAtomic 'canvas-workbench'
   Copy-PluginAtomic 'home-explorer'
   $active = Get-ActiveProfile

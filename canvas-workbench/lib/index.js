@@ -357,19 +357,17 @@ function createCanvasImagegenTool(toolCtx, defineTool, toolName) {
   });
 }
 
-// Register the canvas tool and, while Design Mode is on, shadow DSH's native
-// `imagegen` in every live agent scope. This keeps ordinary chat unchanged
-// when Design Mode is off while making the Canvas engine selection authoritative
-// for every image generation call when it is on.
+// While Design Mode is on, provide the standard `imagegen` tool in every live
+// agent scope.  Deliberately do not expose a second `canvas_imagegen` tool: a
+// second name lets the model bypass DSH's native image result renderer and was
+// the reason generated attachments appeared only as a generic failed tool row.
+// This registration must not depend on dsh-codex being installed; API-only
+// users still need the Canvas image engine to work.
 function installCanvasImagegenTool(ctx) {
   if (!ctx || typeof ctx.inject !== 'function') return;
   ctx.inject(['tools', 'attachments', 'fs', 'agents'], (toolCtx) => {
     void import('@deepseek-ai/dsh-tools').then(({ defineTool }) => {
       if (!toolCtx.tools || typeof toolCtx.tools.register !== 'function') return;
-      if (!(typeof toolCtx.tools.get === 'function' && toolCtx.tools.get('canvas_imagegen'))) {
-        try { toolCtx.tools.register(createCanvasImagegenTool(toolCtx, defineTool, 'canvas_imagegen')); }
-        catch (error) { console.warn('[canvas-workbench] canvas_imagegen registration skipped:', error); }
-      }
 
       const installed = new Map();
       let syncing = false;
@@ -381,16 +379,19 @@ function installCanvasImagegenTool(ctx) {
       };
       const syncAgent = (agent) => {
         const current = installed.get(agent);
-        const original = typeof toolCtx.tools.get === 'function' ? toolCtx.tools.get('imagegen') : null;
-        if (!isCanvasDesignMode() || !original || !agent || !agent.ctx || !agent.ctx.tools || typeof agent.ctx.tools.register !== 'function') {
+        if (!isCanvasDesignMode() || !agent || !agent.ctx || !agent.ctx.tools || typeof agent.ctx.tools.register !== 'function') {
           remove(agent);
           return;
         }
-        if (current && current.original === original) return;
+        if (current) return;
         remove(agent);
         try {
-          const dispose = agent.ctx.tools.register(createCanvasImagegenTool(agent.ctx, defineTool, 'imagegen'));
-          installed.set(agent, { original, dispose });
+          // Register in the agent scope, but execute with the host tool context.
+          // Agent-local contexts do not consistently expose the attachments/fs
+          // services; using them caused `imagegen` to fail before the request
+          // with a missing attachment injection error in Desktop.
+          const dispose = agent.ctx.tools.register(createCanvasImagegenTool(toolCtx, defineTool, 'imagegen'));
+          installed.set(agent, { dispose });
         } catch (error) { console.warn('[canvas-workbench] imagegen shadow registration skipped:', error); }
       };
       const syncAll = () => {
