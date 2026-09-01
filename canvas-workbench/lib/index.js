@@ -667,14 +667,14 @@ function apply(ctx) {
       + '<path d="M420 250h360l110 110v270H420z" fill="#eef2ff" stroke="#94a3b8" stroke-width="5"/>'
       + '<path d="M780 250v115h110" fill="none" stroke="#94a3b8" stroke-width="5"/>'
       + '<text x="600" y="475" text-anchor="middle" fill="#334155" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="84" font-weight="700">' + xmlEscape(label) + '</text>'
-      + '<text x="600" y="560" text-anchor="middle" fill="#64748b" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="28">预览转换器不可用，可点击 Illustrator 编辑打开原文件</text>'
+      + '<text x="600" y="560" text-anchor="middle" fill="#64748b" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="28">' + xmlEscape(kind === 'ai' ? '文件的 PDF 兼容层为空；请用 Illustrator 另存并勾选“创建 PDF 兼容文件”' : '预览转换器不可用，可点击 Adobe 编辑打开原文件') + '</text>'
       + '<text x="600" y="635" text-anchor="middle" fill="#94a3b8" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="22">' + xmlEscape(title) + '</text></svg>';
     await writeFile(target, svg, 'utf8');
     return target;
   };
   const documentPreviewPath = async (path, mtimeMs, kind) => {
     await mkdir(previewCache, { recursive: true });
-    const key = createHash('sha1').update(path + ':' + String(Math.round(mtimeMs || 0)) + ':' + kind).digest('hex');
+    const key = createHash('sha1').update(path + ':' + String(Math.round(mtimeMs || 0)) + ':' + kind + ':preview-v2').digest('hex');
     const target = join(previewCache, key + '.jpg');
     try { await access(target); return { path: target, mime: 'image/jpeg' }; } catch (err) {}
     let pdftoppm = '';
@@ -682,7 +682,19 @@ function apply(ctx) {
     if (pdftoppm) {
       const result = await runProcessWithTimeout(pdftoppm, ['-f', '1', '-l', '1', '-singlefile', '-jpeg', '-scale-to', '2400', path, join(previewCache, key)], dirname(path), 20000);
       if (result.exitCode === 0) {
-        try { await access(target); return { path: target, mime: 'image/jpeg' }; } catch (err) {}
+        try {
+          await access(target);
+          // Some Illustrator files contain a PDF-compatible wrapper whose
+          // visible PDF page is completely white while the real artwork only
+          // exists in Illustrator private data.  Do not cache that white page
+          // as a successful preview.
+          if (kind === 'ai' && isWindows) {
+            const python = await resolvePython(ctx);
+            const probe = await runProcessWithTimeout(python.executable, [...python.prefixArgs, '-c', 'from PIL import Image,ImageStat; import sys; im=Image.open(sys.argv[1]).convert("RGB"); ex=ImageStat.Stat(im).extrema; sys.exit(2 if all(lo>=250 and hi>=250 for lo,hi in ex) else 0)', target], dirname(path), 10000);
+            if (probe.exitCode !== 0) throw new Error('Poppler returned a blank AI preview');
+          }
+          return { path: target, mime: 'image/jpeg' };
+        } catch (err) {}
       }
     }
     // 旧版 AI 是 PostScript，不一定能被 Poppler 直接读取；尝试 Quick Look，
