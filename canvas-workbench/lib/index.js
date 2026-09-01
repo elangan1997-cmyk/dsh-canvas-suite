@@ -1704,9 +1704,27 @@ function apply(ctx) {
             // block belongs to the user's selection. Re-filtering by the
             // model-estimated coordinates here used to disable valid rows,
             // leaving both the draft and Photoshop PSD without text layers.
-            const exportBlocks = blocks.map((item) => item && typeof item === 'object'
+            let exportBlocks = blocks.map((item) => item && typeof item === 'object'
               ? { ...item, enabled: item.enabled !== false }
               : item);
+            // Some vision models transcribe every row correctly but return
+            // placeholder geometry (0,0,1,1). Never turn that into tiny text
+            // at the document origin. Lay those rows back into the explicit
+            // user selection; valid model geometry is preserved unchanged.
+            const usable = exportBlocks.filter((item) => item && item.enabled !== false && String(item.text || '').trim());
+            const geometryLooksInvalid = usable.length > 0 && usable.every((item) =>
+              Number(item.width || 0) < 8 || Number(item.height || 0) < 8
+              || (Number(item.x || 0) <= 1 && Number(item.y || 0) <= 1));
+            if (geometryLooksInvalid && selections.length) {
+              const region = selections.reduce((best, item) => Number(item.width || 0) * Number(item.height || 0) > Number(best.width || 0) * Number(best.height || 0) ? item : best, selections[0]);
+              const rowHeight = Math.max(12, Number(region.height || 0) / Math.max(1, usable.length));
+              let row = 0;
+              exportBlocks = exportBlocks.map((item) => {
+                if (!item || item.enabled === false || !String(item.text || '').trim()) return item;
+                const y = Number(region.y || 0) + rowHeight * row++;
+                return { ...item, x: Number(region.x || 0), y, width: Number(region.width || 0), height: rowHeight, fontSize: Math.max(10, rowHeight * 0.72), lineHeight: Math.max(12, rowHeight * 0.9) };
+              });
+            }
             // Photoshop ExtendScript 在部分版本中无法 app.open 中文目录下的
             // 临时文件；先在 ASCII 系统临时目录完成 JSX/PSD，再把最终字节
             // 写回项目 assets，避免路径编码导致原生文字层分支失败。
@@ -1729,11 +1747,10 @@ function apply(ctx) {
             let cleanupEngine = '';
             let cleanupWarning = '';
             const enabledBlocks = exportBlocks.filter((item) => item && item.enabled !== false && String(item.text || '').trim());
-            // Build a narrow mask from the reviewed OCR rows and run the same
-            // model chain as normal image editing: Codex/gpt-image-2 first,
-            // Pixel image2 API second.  The final composite copies every pixel
-            // outside the mask from the source, so a model cannot redraw the
-            // whole poster or silently alter the product.
+            // Let the image model see and edit the complete source without an
+            // inpainting mask. Afterward, composite only the user's selection
+            // rectangles back onto the source so all unselected pixels remain
+            // exact. Glyph-only masks caused embossed/ghost text remnants.
             if (body.cleanBackground !== false && selections.length) {
               try {
                 const maskScript = join(pluginRoot, 'scripts', 'prepare_text_mask.py');
@@ -1741,7 +1758,7 @@ function apply(ctx) {
                 await access(maskScript);
                 await access(compositeScript);
                 tempMask = join(outputDir, 'text-psd-mask-' + token + '.png');
-                const preparedMask = await runProcessWithTimeout(python.executable, [...python.prefixArgs, maskScript, '--source', tempInput, '--blocks', JSON.stringify(exportBlocks), '--regions', JSON.stringify(selections), '--output', tempMask], pluginRoot, 120000);
+                const preparedMask = await runProcessWithTimeout(python.executable, [...python.prefixArgs, maskScript, '--source', tempInput, '--blocks', '[]', '--regions', JSON.stringify(selections), '--output', tempMask], pluginRoot, 120000);
                 const maskLines = String(preparedMask.stdout || '').trim().split(/\r?\n/).filter(Boolean);
                 let maskPayload = null;
                 try { maskPayload = maskLines.length ? JSON.parse(maskLines[maskLines.length - 1]) : null; } catch (err) { maskPayload = null; }
@@ -1753,7 +1770,7 @@ function apply(ctx) {
                 const selectedTextJson = JSON.stringify(selectedTexts, null, 0);
                 const erasePlan = body.erasePlan && typeof body.erasePlan === 'object' ? body.erasePlan : null;
                 const reasonedErasePrompt = String((erasePlan && erasePlan.prompt) || body.erasePrompt || '').trim().slice(0, 2400);
-                const cleanPrompt = '这是严格局部的文字擦除与背景修复任务。用户明确框选了 ' + selections.length + ' 个区域；透明遮罩就是唯一允许编辑的区域。\n'
+                const cleanPrompt = '这是严格的文字擦除与背景修复任务。请直接处理整张原图；用户明确指定了 ' + selections.length + ' 个文字区域。程序会在返回后只采用这些区域内的结果。\n'
                   + '需要擦除的已识别文字候选为：' + selectedTextJson + '。识别结果可能不完整或有错，因此仍须删除遮罩区域内所有属于原文字的内容，包括完整文字、残缺偏旁、半个字形、笔画、标点、抗锯齿边缘、描边、阴影、发光和压缩残影；不要生成任何替代文字。\n'
                   + (reasonedErasePrompt ? ('视觉模型对选区的局部理解：' + reasonedErasePrompt + '\n') : '')
                   + '擦除后，根据每个框选区域四周紧邻像素，推断并延续文字出现之前的真实背景。保持原有颜色、渐变、材质纹理、光照、噪声、透视、颗粒尺度及连续线条，形成自然 clean plate。框选区域内若存在非文字的产品、人物、图形或结构，只修补被文字覆盖的部分，不改变其形状与位置。\n'
@@ -1763,13 +1780,11 @@ function apply(ctx) {
                 // Use the image engine selected in Canvas settings for the
                 // clean plate. The recognition model supplies the semantic
                 // erase prompt; the glyph mask remains the hard edit boundary.
-                const localInpaintScript = join(pluginRoot, 'scripts', 'inpaint_text_glyphs.py');
                 try {
                   const engineSettings = await readImageEngineSettings();
                   const generated = await generateImage({
                     ctx,
                     image: uploaded.bytes,
-                    mask: await readFile(tempMask),
                     prompt: cleanPrompt,
                     engine: engineSettings.engine,
                     signal: AbortSignal.timeout(900000)
@@ -1782,23 +1797,10 @@ function apply(ctx) {
                     try { const cleanInfo = await stat(tempClean); if (cleanInfo.isFile() && cleanInfo.size > 0) cleanInput = tempClean; } catch (err) {}
                   }
                 } catch (err) {}
-                // Offline/local fallback keeps export usable when the chosen
-                // image service is temporarily unavailable.
+                // No local scanline fallback here: it cannot reconstruct
+                // complex artwork as reliably as the selected image model.
                 if (!cleanInput) {
-                  try {
-                    await access(localInpaintScript);
-                    const localResult = await runProcessWithTimeout(python.executable, [...python.prefixArgs, localInpaintScript, '--source', tempInput, '--mask', tempMask, '--output', tempClean], pluginRoot, 180000);
-                    const localLines = String(localResult.stdout || '').trim().split(/\r?\n/).filter(Boolean);
-                    let localPayload = null;
-                    try { localPayload = localLines.length ? JSON.parse(localLines[localLines.length - 1]) : null; } catch (err) { localPayload = null; }
-                    if (localResult.exitCode === 0 && localPayload && localPayload.success === true) {
-                      cleanInput = tempClean;
-                      cleanupEngine = localPayload.engine || 'local-glyph-inpaint-fallback';
-                    }
-                  } catch (err) {}
-                  if (!cleanInput) {
-                    cleanupWarning = '图片模型背景修复失败，本地兜底也未能生成干净背景';
-                  }
+                  cleanupWarning = '图片模型未能生成干净背景';
                 }
                 if (!cleanInput) {
                   try { const cleanInfo = await stat(tempClean); if (cleanInfo.isFile() && cleanInfo.size > 0) cleanInput = tempClean; } catch (err) {}
