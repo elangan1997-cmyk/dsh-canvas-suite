@@ -204,9 +204,13 @@ def main() -> int:
         # disabled; it also makes accidental whole-image generation impossible.
         mask_count = region_count or count
         if mask_count:
-            # Give the image model a visibly soft transition.  The later
-            # composite still restores every pixel outside this declared mask.
-            blur_radius = max(1.5, min(3.0, min(width, height) * 0.0025))
+            # Full selection rectangles composite a model-generated clean
+            # plate back onto the exact source. A 2px edge is visible on an
+            # 800px poster, so feather region-only masks by 2.5% of the short
+            # side (20px at 800px). Glyph masks remain deliberately narrow.
+            blur_radius = (max(6.0, min(48.0, min(width, height) * 0.025))
+                           if region_count else
+                           max(1.5, min(3.0, min(width, height) * 0.0025)))
             selected = selected.filter(ImageFilter.GaussianBlur(blur_radius))
         alpha = selected.point(lambda value: 255 - value)
         result = Image.new("RGBA", image.size, (255, 255, 255, 255))
