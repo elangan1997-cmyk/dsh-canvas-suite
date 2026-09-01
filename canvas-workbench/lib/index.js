@@ -674,7 +674,7 @@ function apply(ctx) {
   };
   const documentPreviewPath = async (path, mtimeMs, kind) => {
     await mkdir(previewCache, { recursive: true });
-    const key = createHash('sha1').update(path + ':' + String(Math.round(mtimeMs || 0)) + ':' + kind + ':preview-v2').digest('hex');
+    const key = createHash('sha1').update(path + ':' + String(Math.round(mtimeMs || 0)) + ':' + kind + ':preview-v3').digest('hex');
     const target = join(previewCache, key + '.jpg');
     try { await access(target); return { path: target, mime: 'image/jpeg' }; } catch (err) {}
     let pdftoppm = '';
@@ -691,7 +691,12 @@ function apply(ctx) {
           if (kind === 'ai' && isWindows) {
             const python = await resolvePython(ctx);
             const probe = await runProcessWithTimeout(python.executable, [...python.prefixArgs, '-c', 'from PIL import Image,ImageStat; import sys; im=Image.open(sys.argv[1]).convert("RGB"); ex=ImageStat.Stat(im).extrema; sys.exit(2 if all(lo>=250 and hi>=250 for lo,hi in ex) else 0)', target], dirname(path), 10000);
-            if (probe.exitCode !== 0) throw new Error('Poppler returned a blank AI preview');
+            if (probe.exitCode !== 0) {
+              const pluginRoot = dirname(dirname(fileURLToPath(import.meta.url)));
+              const extractor = join(pluginRoot, 'scripts', 'extract_ai_thumbnail.py');
+              const extracted = await runProcessWithTimeout(python.executable, [...python.prefixArgs, extractor, '--input', path, '--output', target], pluginRoot, 10000);
+              if (extracted.exitCode !== 0) throw new Error('Poppler returned a blank AI preview and no embedded thumbnail was available');
+            }
           }
           return { path: target, mime: 'image/jpeg' };
         } catch (err) {}
