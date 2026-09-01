@@ -453,9 +453,9 @@ function installCanvasImagegenTool(ctx) {
 }
 
 const TEXT_VISION_SYSTEM = `你是平面设计稿的文字理解与局部背景修复规划器。优先理解文字语义和版面关系，不要像传统 OCR 一样仅按单个字符猜测。
-只返回严格 JSON，不要解释、前后缀或 Markdown 代码块。格式为 {"schemaVersion":1,"blocks":[...],"erasePrompt":"..."} 。每个 block 必须包含：text,x,y,width,height,fontSize,fontFamily,fontWeight,color,textAlign,rotation,confidence,backgroundHint。
+只返回严格 JSON，不要解释、前后缀或 Markdown 代码块。格式为 {"schemaVersion":1,"blocks":[...],"erasePrompt":"..."} 。每个 block 必须包含：text,x,y,width,height,fontSize,fontFamily,fontWeight,fontStyle,color,textAlign,rotation,letterSpacing,lineHeight,confidence,backgroundHint。
 x/y/width/height 是 0-1000 的整图归一化坐标；fontSize 是相对整图高度 0-1000 的估算值；color 用 #RRGGBB；confidence 用 0-100。
-按视觉上的一行或一个连续文字对象输出，不要把同一行无故拆分。结合品牌名、品类、规格和上下文纠正易混字符，但不得臆造图中不存在的文字；不确定时保留最可信原文并降低 confidence。backgroundHint 必须描述文字下方的真实底色、渐变、纹理、光照、边缘和附近结构。erasePrompt 必须根据所有 backgroundHint 动态生成可直接用于局部修复模型的中文提示词：逐区域说明要删除的文字及应如何延展邻近背景，强调保持框外像素、产品结构、排版、颜色和光照不变，禁止生成新文字、符号或装饰。fontFamily 只用 sans-serif/serif/rounded/display/monospace/handwriting，fontWeight 只用 normal/medium/bold，textAlign 只用 left/center/right。`;
+按视觉上的一行或一个连续文字对象输出，不要把同一行无故拆分。结合品牌名、品类、规格和上下文纠正易混字符，但不得臆造图中不存在的文字；不确定时保留最可信原文并降低 confidence。backgroundHint 必须描述文字下方的真实底色、渐变、纹理、光照、边缘和附近结构。erasePrompt 必须根据所有 backgroundHint 动态生成可直接用于局部修复模型的中文提示词：逐区域说明要删除的文字及应如何延展邻近背景，强调保持框外像素、产品结构、排版、颜色和光照不变，禁止生成新文字、符号或装饰。fontFamily 只用 sans-serif/serif/rounded/display/monospace/handwriting，fontWeight 只用 normal/medium/bold，fontStyle 只用 normal/italic，textAlign 只用 left/center/right；letterSpacing 使用 Photoshop tracking 的近似值（-200 到 1000），lineHeight 使用相对当前裁剪图高度 0-1000 的值。`;
 
 function parseModelJson(text) {
   let raw = String(text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
@@ -472,6 +472,7 @@ function visionBlocks(value, width, height) {
   const families = new Set(['sans-serif', 'serif', 'rounded', 'display', 'monospace', 'handwriting']);
   const weights = new Set(['normal', 'medium', 'bold']);
   const aligns = new Set(['left', 'center', 'right']);
+  const styles = new Set(['normal', 'italic']);
   return value.blocks.slice(0, 200).map((item) => {
     const text = normalizeTextLayerText(item && item.text);
     if (!text) return null;
@@ -490,6 +491,9 @@ function visionBlocks(value, width, height) {
       fontFamily: cjk ? (serif ? 'Songti SC' : 'PingFang SC') : (serif ? 'Times New Roman' : family === 'monospace' ? 'Menlo' : 'Arial'),
       fontPostScript: cjk ? (serif ? (bold ? 'SongtiSC-Bold' : 'SongtiSC-Regular') : (bold ? 'PingFangSC-Semibold' : 'PingFangSC-Regular')) : (serif ? (bold ? 'TimesNewRomanPS-BoldMT' : 'TimesNewRomanPSMT') : family === 'monospace' ? (bold ? 'Menlo-Bold' : 'Menlo-Regular') : (bold ? 'Arial-BoldMT' : 'ArialMT')),
       fontWeight: weight,
+      fontStyle: styles.has(item.fontStyle) ? item.fontStyle : 'normal',
+      letterSpacing: Math.round(clamp(item.letterSpacing, -200, 1000)),
+      lineHeight: Math.max(0, Math.round(clamp(item.lineHeight, 0, 1000) * height / 1000)),
       color: /^#[0-9a-f]{6}$/i.test(String(item.color || '')) ? String(item.color).toUpperCase() : '#111111',
       textAlign: aligns.has(item.textAlign) ? item.textAlign : 'left',
       rotation: clamp(item.rotation, -180, 180), confidence: clamp(item.confidence, 0, 100),
@@ -504,26 +508,43 @@ async function analyzeTextWithCurrentModel(ctx, uploaded, body) {
   if (!provider || !model) throw new Error('未取得当前聊天模型');
   const mediaType = uploaded.mime === 'image/jpg' ? 'image/jpeg' : uploaded.mime;
   if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(mediaType)) throw new Error('当前图片格式不支持模型分析');
-  const attachment = await ctx.attachments.saveImage({ data: new Uint8Array(uploaded.bytes), mediaType, name: String(body.name || '画布图片') });
+  const visionUploads = Array.isArray(body.visionUploads) && body.visionUploads.length ? body.visionUploads : [uploaded];
+  const attachments = [];
+  for (let index = 0; index < visionUploads.length; index += 1) {
+    const item = visionUploads[index];
+    const itemMediaType = item.mime === 'image/jpg' ? 'image/jpeg' : item.mime;
+    attachments.push(await ctx.attachments.saveImage({
+      data: new Uint8Array(item.bytes), mediaType: itemMediaType,
+      name: index === 0 ? '原始整图' : index === 1 ? '框选区域蒙版' : '框选区域高清放大图'
+    }));
+  }
+  const attachment = attachments[attachments.length - 1];
   const info = await ctx.llm.resolveModelInfo(provider, model, AbortSignal.timeout(15000));
   if (info && info.capabilities && info.capabilities.imageInput === false) throw new Error('当前聊天模型不支持图片输入');
   // Vision models with visible/hidden reasoning can exhaust a 6k budget
   // before emitting the requested JSON. Keep this utility call deterministic
   // and leave enough room for multi-region text metadata.
   const prepared = await ctx.llm.prepareCall({ provider, model, maxTokens: 16000, reasoningEffort: 'low' }, AbortSignal.timeout(30000));
-  const imageWidth = Math.max(1, Number(attachment.width || body.width || 1));
-  const imageHeight = Math.max(1, Number(attachment.height || body.height || 1));
+  const imageWidth = Math.max(1, Number(body.width || attachment.width || 1));
+  const imageHeight = Math.max(1, Number(body.height || attachment.height || 1));
   const crops = Array.isArray(body.crops) ? body.crops : [];
   const normalized = crops.map((item, index) => ({ id: index + 1,
     x: Math.round(Math.max(0, Number(item.x || 0)) * 1000 / imageWidth),
     y: Math.round(Math.max(0, Number(item.y || 0)) * 1000 / imageHeight),
     width: Math.round(Math.max(0, Number(item.width || 0)) * 1000 / imageWidth),
     height: Math.round(Math.max(0, Number(item.height || 0)) * 1000 / imageHeight) }));
-  const instruction = normalized.length
+  const instruction = body.selectionCrop
+    ? '你将依次收到三张图片：1 原始整图；2 与原图等尺寸的黑白蒙版，只有白色区域是用户框选目标，黑色区域必须忽略；3 白色区域的高清放大图。请结合整图语义，并以放大图逐行转写蒙版白色区域中的全部可见文字，包括白色描边字、贴近边缘或轻微裁切的字。图中可见文字都属于待编辑目标，不得因为文字有描边或边缘不完整而返回空 blocks。blocks 坐标必须相对于第 3 张放大图，以 0-1000 表示。严格返回 JSON；每个文字对象包含内容、位置、字体类别、字重、字号、颜色、对齐、旋转、置信度及文字下方背景描述。erasePrompt 只描述清除 blocks 中这些文字并自然延展其下方背景，禁止删除产品、人物、图案、边框或蒙版外内容，禁止生成任何新文字。'
+    : normalized.length
     ? '用户框选区域（0-1000 整图归一化坐标）为：' + JSON.stringify(normalized)
       + '。只输出这些矩形内准备移除并重建为图层的文字；框外文字仅可作为语义校对依据，不得输出。请结合完整图片理解品牌、品类和规格，返回严格 JSON、每个文字块下方的背景特征，以及可直接用于局部修复的动态 erasePrompt。'
     : '分析整张设计图中的可编辑文字。请结合完整图片理解品牌、品类和规格，返回严格 JSON、每个文字块下方的背景特征，以及可直接用于局部修复的动态 erasePrompt。';
-  const message = createUserMessage({ source: { kind: 'plugin', plugin: name }, content: [{ type: 'text', text: instruction }, { type: 'image', attachment }] });
+  const content = [{ type: 'text', text: instruction }];
+  attachments.forEach((item, index) => {
+    content.push({ type: 'text', text: index === 0 ? '图片 1：原始整图' : index === 1 ? '图片 2：黑白框选蒙版（白色为目标）' : '图片 3：框选区域高清放大图（请从此图读取文字并输出坐标）' });
+    content.push({ type: 'image', attachment: item });
+  });
+  const message = createUserMessage({ source: { kind: 'plugin', plugin: name }, content });
   const assembler = new BlockAssembler();
   const signal = AbortSignal.timeout(120000);
   for await (const chunk of prepared.stream({ ...prepared.config, messages: [message], system: TEXT_VISION_SYSTEM, signal, purpose: 'canvas-text-analysis' })) assembler.push(chunk);
@@ -531,6 +552,25 @@ async function analyzeTextWithCurrentModel(ctx, uploaded, body) {
   if (finish.kind !== 'stop') throw new Error('当前聊天模型识别未正常完成：' + finish.kind);
   const text = assembler.blocks().flatMap((block) => block.type === 'text' ? [block.text] : []).join('').trim();
   return { value: parseModelJson(text), width: imageWidth, height: imageHeight, provider, model };
+}
+
+function visionBlocksRelativeToRegion(value, width, height, region) {
+  const rx = Math.max(0, Number(region && region.x || 0));
+  const ry = Math.max(0, Number(region && region.y || 0));
+  const rw = Math.max(1, Number(region && region.width || width));
+  const rh = Math.max(1, Number(region && region.height || height));
+  const mapped = {
+    ...value,
+    blocks: (Array.isArray(value && value.blocks) ? value.blocks : []).map((item) => ({
+      ...item,
+      x: (rx + Math.max(0, Math.min(1000, Number(item && item.x || 0))) * rw / 1000) * 1000 / width,
+      y: (ry + Math.max(0, Math.min(1000, Number(item && item.y || 0))) * rh / 1000) * 1000 / height,
+      width: Math.max(1, Math.min(1000, Number(item && item.width || 0))) * rw / width,
+      height: Math.max(1, Math.min(1000, Number(item && item.height || 0))) * rh / height,
+      fontSize: Math.max(1, Math.min(1000, Number(item && item.fontSize || 1))) * rh / height,
+    }))
+  };
+  return visionBlocks(mapped, width, height);
 }
 
 function sourcePathFromImageUrl(value) {
@@ -1330,6 +1370,8 @@ function apply(ctx) {
         if (pathname === '/dsh-canvas/ocr-image' && req.method === 'POST') {
           let tempInput = '';
           let tempBlocks = '';
+          let tempVisionCrop = '';
+          let tempVisionMask = '';
           try {
             const body = JSON.parse(await readBody(req) || '{}');
             const uploaded = decodeImageData(body.imageData);
@@ -1356,7 +1398,34 @@ function apply(ctx) {
             // 用户先框选，再由聊天输入框当前模型理解选区内文字与背景。
             if (body.provider && body.model) {
               try {
-                const analyzed = await analyzeTextWithCurrentModel(ctx, uploaded, { ...body, crops: recognitionCrops });
+                let modelUploaded = uploaded;
+                let modelBody = { ...body, crops: recognitionCrops };
+                let cropMapping = null;
+                if (recognitionCrops.length === 1) {
+                  const outputDir = join(tmpdir(), 'dsh-canvas-text-rebuild');
+                  await mkdir(outputDir, { recursive: true });
+                  const token = Date.now() + '-' + Math.random().toString(16).slice(2);
+                  tempInput = join(outputDir, '.ocr-input-' + token + '.' + uploaded.ext);
+                  tempVisionCrop = join(outputDir, '.vision-crop-' + token + '.png');
+                  tempVisionMask = join(outputDir, '.vision-mask-' + token + '.png');
+                  await writeFile(tempInput, uploaded.bytes);
+                  const pluginRoot = dirname(dirname(fileURLToPath(import.meta.url)));
+                  const cropScript = join(pluginRoot, 'scripts', 'prepare_text_vision_crop.py');
+                  const cropPython = await resolvePython(ctx);
+                  const cropResult = await runProcessWithTimeout(cropPython.executable, [...cropPython.prefixArgs, cropScript, '--input', tempInput, '--output', tempVisionCrop, '--mask-output', tempVisionMask, '--region', JSON.stringify(recognitionCrops[0])], pluginRoot, 30000);
+                  const cropLines = String(cropResult.stdout || '').trim().split(/\r?\n/).filter(Boolean);
+                  let cropPayload = null;
+                  try { cropPayload = cropLines.length ? JSON.parse(cropLines[cropLines.length - 1]) : null; } catch (err) { cropPayload = null; }
+                  if (cropResult.exitCode === 0 && cropPayload && cropPayload.success === true) {
+                    modelUploaded = { bytes: await readFile(tempVisionCrop), mime: 'image/png', ext: 'png' };
+                    const maskUploaded = { bytes: await readFile(tempVisionMask), mime: 'image/png', ext: 'png' };
+                    modelBody = { ...body, width: cropPayload.outputWidth, height: cropPayload.outputHeight, crops: [], selectionCrop: true,
+                      visionUploads: [uploaded, maskUploaded, modelUploaded] };
+                    cropMapping = cropPayload;
+                    logOperation('文字识别：已放大选区送入聊天模型 · ' + cropPayload.outputWidth + '×' + cropPayload.outputHeight);
+                  }
+                }
+                const analyzed = await analyzeTextWithCurrentModel(ctx, modelUploaded, modelBody);
                 const intersects = (block, region) => {
                   const iw = Math.max(0, Math.min(block.x + block.width, region.x + region.width) - Math.max(block.x, region.x));
                   const ih = Math.max(0, Math.min(block.y + block.height, region.y + region.height) - Math.max(block.y, region.y));
@@ -1368,19 +1437,62 @@ function apply(ctx) {
                     || (centerX >= Number(region.x || 0) && centerX <= Number(region.x || 0) + Number(region.width || 0)
                       && centerY >= Number(region.y || 0) && centerY <= Number(region.y || 0) + Number(region.height || 0));
                 };
-                const understood = visionBlocks(analyzed.value, analyzed.width, analyzed.height);
-                const blocks = requestedCrops.length
+                let understood = visionBlocks(analyzed.value, analyzed.width, analyzed.height);
+                if (cropMapping) {
+                  const scaleX = Math.max(0.0001, Number(cropMapping.scaleX || 1));
+                  const scaleY = Math.max(0.0001, Number(cropMapping.scaleY || 1));
+                  understood = understood.map((block) => ({
+                    ...block,
+                    x: Math.round(Number(cropMapping.x || 0) + Number(block.x || 0) / scaleX),
+                    y: Math.round(Number(cropMapping.y || 0) + Number(block.y || 0) / scaleY),
+                    width: Math.max(1, Math.round(Number(block.width || 1) / scaleX)),
+                    height: Math.max(1, Math.round(Number(block.height || 1) / scaleY)),
+                    fontSize: Math.max(8, Math.round(Number(block.fontSize || 8) / scaleY)),
+                  }));
+                }
+                let blocks = requestedCrops.length
                   ? understood.filter((block) => requestedCrops.some((region) => intersects(block, region)))
                   : understood;
+                let coordinateMode = cropMapping ? 'upscaled-selection-crop' : 'full-image';
+                // Some vision adapters correctly read the selected text but
+                // express 0-1000 coordinates relative to the selected crop,
+                // despite being asked for full-image coordinates. Reproject
+                // that valid text instead of discarding every row and falling
+                // into a weaker OCR engine.
+                if (!blocks.length && understood.length && requestedCrops.length) {
+                  const left = Math.min(...requestedCrops.map((item) => Number(item.x || 0)));
+                  const top = Math.min(...requestedCrops.map((item) => Number(item.y || 0)));
+                  const right = Math.max(...requestedCrops.map((item) => Number(item.x || 0) + Number(item.width || 0)));
+                  const bottom = Math.max(...requestedCrops.map((item) => Number(item.y || 0) + Number(item.height || 0)));
+                  const relative = visionBlocksRelativeToRegion(analyzed.value, analyzed.width, analyzed.height, {
+                    x: left, y: top, width: Math.max(1, right - left), height: Math.max(1, bottom - top)
+                  });
+                  blocks = relative.filter((block) => requestedCrops.some((region) => intersects(block, region)));
+                  if (blocks.length) {
+                    coordinateMode = 'selection-relative';
+                    logOperation('文字识别：已将模型选区相对坐标重映射到整图 · ' + blocks.length + ' 个文字对象');
+                  }
+                }
                 if (!blocks.length) throw new Error('模型未识别到可用文字');
                 const hints = Array.from(new Set(blocks.map((block) => String(block.backgroundHint || '').trim()).filter(Boolean))).slice(0, 12);
                 const modelErasePrompt = String(analyzed.value.erasePrompt || '').trim();
                 const erasePrompt = (modelErasePrompt || ('仅擦除所选文字并按邻近真实背景连续补全。局部背景特征：' + hints.join('；')))
                   .slice(0, 2400);
+                const erasePlan = {
+                  schemaVersion: 1,
+                  operation: 'remove-recognized-text',
+                  prompt: erasePrompt,
+                  preserveOutsideMask: true,
+                  forbidNewText: true,
+                  regions: blocks.map((block) => ({
+                    text: block.text, x: block.x, y: block.y, width: block.width, height: block.height,
+                    backgroundHint: block.backgroundHint || ''
+                  }))
+                };
                 logOperation('文字识别：聊天模型完成 · ' + blocks.length + ' 个文字对象 · ' + analyzed.model);
                 respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({
-                  ok: true, width: analyzed.width, height: analyzed.height, blocks, crops: requestedCrops,
-                  schemaVersion: 1, erasePrompt,
+                  ok: true, width: sourceWidth, height: sourceHeight, blocks, crops: requestedCrops,
+                  schemaVersion: 1, erasePrompt, erasePlan, coordinateMode,
                   engine: 'current-chat-model', provider: analyzed.provider, model: analyzed.model, styleEngine: 'current-chat-model'
                 }));
                 return;
@@ -1393,8 +1505,10 @@ function apply(ctx) {
             }
             const outputDir = join(tmpdir(), 'dsh-canvas-text-rebuild');
             await mkdir(outputDir, { recursive: true });
-            tempInput = join(outputDir, '.ocr-input-' + Date.now() + '-' + Math.random().toString(16).slice(2) + '.' + uploaded.ext);
-            await writeFile(tempInput, uploaded.bytes);
+            if (!tempInput) {
+              tempInput = join(outputDir, '.ocr-input-' + Date.now() + '-' + Math.random().toString(16).slice(2) + '.' + uploaded.ext);
+              await writeFile(tempInput, uploaded.bytes);
+            }
             const pluginRoot = dirname(dirname(fileURLToPath(import.meta.url)));
             const script = join(pluginRoot, 'scripts', 'ocr_image.py');
             await access(script);
@@ -1480,6 +1594,8 @@ function apply(ctx) {
           } finally {
             if (tempInput) await unlink(tempInput).catch(() => {});
             if (tempBlocks) await unlink(tempBlocks).catch(() => {});
+            if (tempVisionCrop) await unlink(tempVisionCrop).catch(() => {});
+            if (tempVisionMask) await unlink(tempVisionMask).catch(() => {});
           }
           return;
         }
@@ -1573,7 +1689,8 @@ function apply(ctx) {
                 const height = Math.max(1, Number(body.height || 1));
                 const selectedTexts = Array.from(new Set(enabledBlocks.map((item) => String(item.text || '').replace(/\s+/g, ' ').trim()).filter(Boolean))).slice(0, 40);
                 const selectedTextJson = JSON.stringify(selectedTexts, null, 0);
-                const reasonedErasePrompt = String(body.erasePrompt || '').trim().slice(0, 1200);
+                const erasePlan = body.erasePlan && typeof body.erasePlan === 'object' ? body.erasePlan : null;
+                const reasonedErasePrompt = String((erasePlan && erasePlan.prompt) || body.erasePrompt || '').trim().slice(0, 2400);
                 const cleanPrompt = '这是严格局部的文字擦除与背景修复任务。用户明确框选了 ' + selections.length + ' 个区域；透明遮罩就是唯一允许编辑的区域。\n'
                   + '需要擦除的已识别文字候选为：' + selectedTextJson + '。识别结果可能不完整或有错，因此仍须删除遮罩区域内所有属于原文字的内容，包括完整文字、残缺偏旁、半个字形、笔画、标点、抗锯齿边缘、描边、阴影、发光和压缩残影；不要生成任何替代文字。\n'
                   + (reasonedErasePrompt ? ('视觉模型对选区的局部理解：' + reasonedErasePrompt + '\n') : '')
@@ -1626,7 +1743,7 @@ function apply(ctx) {
             const jsx = '#target photoshop\n(function(){\n'
               + 'var cfg=' + jsxPayload + ';\n'
               + 'function rgb(value){var m=String(value||"#111827").replace("#",""); if(m.length!==6)m="111827"; var c=new SolidColor(); c.rgb.red=parseInt(m.substr(0,2),16); c.rgb.green=parseInt(m.substr(2,2),16); c.rgb.blue=parseInt(m.substr(4,2),16); return c;}\n'
-              + 'try{var doc=app.open(new File(cfg.input)); var list=cfg.blocks||[]; for(var i=0;i<list.length;i++){var b=list[i]||{}; var text=String(b.text||"").replace(/^[\\s\\r\\n]+|[\\s\\r\\n]+$/g,""); if(b.enabled===false||!text)continue; var layer=doc.artLayers.add(); layer.kind=LayerKind.TEXT; layer.name="文字 "+(i+1)+" · "+text.substr(0,24); var ti=layer.textItem; ti.contents=text; ti.position=[Number(b.x||0),Number(b.y||0)+Math.max(8,Number(b.fontSize||24))]; ti.size=Math.max(8,Number(b.fontSize||24)); try{ti.font=String(b.fontPostScript||b.fontFamily||"PingFangSC-Regular");}catch(fontErr){try{ti.font="ArialMT";}catch(fontFallbackErr){}} ti.color=rgb(b.color); try{ti.justification=Justification.LEFT;}catch(justErr){} layer.visible=true;} for(var g=0;g<doc.layerSets.length;g++){try{if(String(doc.layerSets[g].name)==="OCR text preview - replace in Photoshop")doc.layerSets[g].visible=false;}catch(groupErr){}} var opts=new PhotoshopSaveOptions(); opts.layers=true; doc.saveAs(new File(cfg.output),opts,true,Extension.LOWERCASE); doc.close(SaveOptions.DONOTSAVECHANGES); }catch(err){try{if(doc)doc.close(SaveOptions.DONOTSAVECHANGES);}catch(closeErr){} throw err;}\n})();\n';
+              + 'try{var doc=app.open(new File(cfg.input)); var list=cfg.blocks||[]; for(var i=0;i<list.length;i++){var b=list[i]||{}; var text=String(b.text||"").replace(/^[\\s\\r\\n]+|[\\s\\r\\n]+$/g,""); if(b.enabled===false||!text)continue; var layer=doc.artLayers.add(); layer.kind=LayerKind.TEXT; layer.name="文字 "+(i+1)+" · "+text.substr(0,24); var ti=layer.textItem; ti.contents=text; ti.position=[Number(b.x||0),Number(b.y||0)+Math.max(8,Number(b.fontSize||24))]; ti.size=Math.max(8,Number(b.fontSize||24)); try{ti.font=String(b.fontPostScript||b.fontFamily||"PingFangSC-Regular");}catch(fontErr){try{ti.font="ArialMT";}catch(fontFallbackErr){}} ti.color=rgb(b.color); try{ti.tracking=Math.max(-200,Math.min(1000,Number(b.letterSpacing||0)));}catch(trackErr){} try{if(Number(b.lineHeight||0)>0)ti.leading=Number(b.lineHeight);}catch(leadErr){} try{ti.justification=String(b.textAlign||"left")==="center"?Justification.CENTER:String(b.textAlign||"left")==="right"?Justification.RIGHT:Justification.LEFT;}catch(justErr){} try{if(Math.abs(Number(b.rotation||0))>0.01)layer.rotate(Number(b.rotation));}catch(rotateErr){} layer.visible=true;} for(var g=0;g<doc.layerSets.length;g++){try{if(String(doc.layerSets[g].name)==="OCR text preview - replace in Photoshop")doc.layerSets[g].visible=false;}catch(groupErr){}} var opts=new PhotoshopSaveOptions(); opts.layers=true; doc.saveAs(new File(cfg.output),opts,true,Extension.LOWERCASE); doc.close(SaveOptions.DONOTSAVECHANGES); }catch(err){try{if(doc)doc.close(SaveOptions.DONOTSAVECHANGES);}catch(closeErr){} throw err;}\n})();\n';
             await writeFile(jsxPath, jsx, 'utf8');
             // Explicit UTF-8 decoding prevents Chinese `contents` from being
             // interpreted with the host's legacy Mac encoding.

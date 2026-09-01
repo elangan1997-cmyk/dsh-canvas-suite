@@ -2546,7 +2546,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
         fetch('/api/dsh-canvas/export-text-psd', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...current, elementId: active.elementId, name: active.name, imageData: active.dataURL, width: Number(active.width || 0), height: Number(active.height || 0), selection: regions.length === 1 ? regions[0] : null, selections: regions, blocks: blocks || [], erasePrompt: active.erasePrompt || '', cleanBackground: true, openPhotoshop: openPhotoshop !== false })
+          body: JSON.stringify({ ...current, elementId: active.elementId, name: active.name, imageData: active.dataURL, width: Number(active.width || 0), height: Number(active.height || 0), selection: regions.length === 1 ? regions[0] : null, selections: regions, blocks: blocks || [], erasePrompt: active.erasePrompt || '', erasePlan: active.erasePlan || null, cleanBackground: true, openPhotoshop: openPhotoshop !== false })
         })
           .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
           .then((result) => {
@@ -2573,7 +2573,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
         }
         const current = projectRef.current;
         setTextRebuild((prev) => prev && prev.elementId === active.elementId
-          ? { ...prev, loading: true, hasDetected: false, error: '', blocks: [], erasePrompt: '' }
+          ? { ...prev, loading: true, hasDetected: false, error: '', blocks: [], erasePrompt: '', erasePlan: null }
           : prev);
         setFeedback('正在让当前聊天模型理解 ' + regions.length + ' 个文字选区…');
         const modelRoute = activeChatModelSelection || {};
@@ -2599,7 +2599,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
           .then((result) => {
             if (!result.ok || !result.data || !result.data.ok) throw new Error(result.data && result.data.error || 'OCR 识别失败');
             setTextRebuild((prev) => prev && prev.elementId === active.elementId
-              ? { ...prev, loading: false, hasDetected: true, blocks: Array.isArray(result.data.blocks) ? result.data.blocks : [], erasePrompt: result.data.erasePrompt || '', engine: result.data.engine || 'tesseract', width: Number(result.data.width || prev.width || 0), height: Number(result.data.height || prev.height || 0) }
+              ? { ...prev, loading: false, hasDetected: true, blocks: Array.isArray(result.data.blocks) ? result.data.blocks : [], erasePrompt: result.data.erasePrompt || '', erasePlan: result.data.erasePlan || null, engine: result.data.engine || 'tesseract', width: Number(result.data.width || prev.width || 0), height: Number(result.data.height || prev.height || 0) }
               : prev);
             const engineLabel = result.data.engine === 'current-chat-model' ? ('当前聊天模型 ' + (result.data.model || '')) : '本地 OCR 兜底';
             setFeedback('✓ ' + engineLabel + ' 已理解选区内 ' + Number((result.data.blocks || []).length) + ' 个文字对象，请确认后执行' + (result.data.warning ? '；' + result.data.warning : ''));
@@ -2759,7 +2759,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
             })
             .catch((err) => setFeedback('⚠ Illustrator 打开失败：' + String((err && err.message) || err)));
         } else if (d.type === 'request-text-rebuild') {
-          const base = { elementId: d.elementId, name: d.name || '当前图片', dataURL: d.imageData || '', loading: false, busy: false, hasDetected: false, blocks: [], erasePrompt: '', selection: null, selections: [], width: 0, height: 0, error: '' };
+          const base = { elementId: d.elementId, name: d.name || '当前图片', dataURL: d.imageData || '', loading: false, busy: false, hasDetected: false, blocks: [], erasePrompt: '', erasePlan: null, selection: null, selections: [], width: 0, height: 0, error: '' };
           setTextRebuild(base);
           setFeedback('请先框选需要移除并重建的文字区域，再点击“识别选区”');
         } else if (d.type === 'request-text-rebuild-export') {
@@ -2770,7 +2770,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
           fetch('/api/dsh-canvas/export-text-psd', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...current, elementId: active.elementId, name: active.name, imageData: active.dataURL, width: Number(active.width || 0), height: Number(active.height || 0), selection: active.selection || null, selections: Array.isArray(active.selections) ? active.selections : [], blocks: d.blocks || [], erasePrompt: active.erasePrompt || '', cleanBackground: true, openPhotoshop: d.openPhotoshop !== false })
+            body: JSON.stringify({ ...current, elementId: active.elementId, name: active.name, imageData: active.dataURL, width: Number(active.width || 0), height: Number(active.height || 0), selection: active.selection || null, selections: Array.isArray(active.selections) ? active.selections : [], blocks: d.blocks || [], erasePrompt: active.erasePrompt || '', erasePlan: active.erasePlan || null, cleanBackground: true, openPhotoshop: d.openPhotoshop !== false })
           })
             .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
             .then((result) => {
