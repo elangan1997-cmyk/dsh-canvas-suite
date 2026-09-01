@@ -672,11 +672,35 @@ function apply(ctx) {
     await writeFile(target, svg, 'utf8');
     return target;
   };
+  const embeddedAiPreviewPath = async (path, target) => {
+    const source = (await readFile(path)).toString('latin1');
+    const match = source.match(/<xmpGImg:image>([\s\S]*?)<\/xmpGImg:image>/i);
+    if (!match) throw new Error('AI file has no embedded XMP thumbnail');
+    const encoded = match[1]
+      .replace(/&#x0*a;/gi, '')
+      .replace(/&#0*10;/g, '')
+      .replace(/\s+/g, '');
+    const bytes = Buffer.from(encoded, 'base64');
+    if (bytes.length < 256 || bytes[0] !== 0xff || bytes[1] !== 0xd8 || bytes[2] !== 0xff) {
+      throw new Error('AI embedded thumbnail is not a valid JPEG');
+    }
+    await writeFile(target, bytes);
+    return target;
+  };
   const documentPreviewPath = async (path, mtimeMs, kind) => {
     await mkdir(previewCache, { recursive: true });
-    const key = createHash('sha1').update(path + ':' + String(Math.round(mtimeMs || 0)) + ':' + kind + ':preview-v3').digest('hex');
+    const key = createHash('sha1').update(path + ':' + String(Math.round(mtimeMs || 0)) + ':' + kind + ':preview-v4').digest('hex');
     const target = join(previewCache, key + '.jpg');
     try { await access(target); return { path: target, mime: 'image/jpeg' }; } catch (err) {}
+    // Illustrator stores a canvas-sized JPEG thumbnail in XMP.  Prefer it on
+    // Windows: it is reliable even when the PDF-compatible layer renders as a
+    // blank page, and avoids depending on Python or launching Illustrator.
+    if (kind === 'ai' && isWindows) {
+      try {
+        await embeddedAiPreviewPath(path, target);
+        return { path: target, mime: 'image/jpeg' };
+      } catch (err) {}
+    }
     let pdftoppm = '';
     try { pdftoppm = await ctx.subprocess.resolveExecutable('pdftoppm'); } catch (err) {}
     if (pdftoppm) {
@@ -691,12 +715,7 @@ function apply(ctx) {
           if (kind === 'ai' && isWindows) {
             const python = await resolvePython(ctx);
             const probe = await runProcessWithTimeout(python.executable, [...python.prefixArgs, '-c', 'from PIL import Image,ImageStat; import sys; im=Image.open(sys.argv[1]).convert("RGB"); ex=ImageStat.Stat(im).extrema; sys.exit(2 if all(lo>=250 and hi>=250 for lo,hi in ex) else 0)', target], dirname(path), 10000);
-            if (probe.exitCode !== 0) {
-              const pluginRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-              const extractor = join(pluginRoot, 'scripts', 'extract_ai_thumbnail.py');
-              const extracted = await runProcessWithTimeout(python.executable, [...python.prefixArgs, extractor, '--input', path, '--output', target], pluginRoot, 10000);
-              if (extracted.exitCode !== 0) throw new Error('Poppler returned a blank AI preview and no embedded thumbnail was available');
-            }
+            if (probe.exitCode !== 0) throw new Error('Poppler returned a blank AI preview');
           }
           return { path: target, mime: 'image/jpeg' };
         } catch (err) {}
