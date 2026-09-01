@@ -29,9 +29,21 @@ def main() -> int:
     parser.add_argument("--padding", type=float, default=0.0, help="extra pixels around each OCR box")
     args = parser.parse_args()
     try:
-        import cv2
         import numpy as np
         from PIL import Image, ImageChops, ImageDraw, ImageFilter
+        from scipy import ndimage
+
+        def components(binary):
+            labels, component_count = ndimage.label(binary, structure=np.ones((3, 3), dtype=np.uint8))
+            objects = ndimage.find_objects(labels)
+            result = []
+            for component, bounds in enumerate(objects, start=1):
+                if bounds is None:
+                    continue
+                ys, xs = bounds
+                area = int(np.count_nonzero(labels[bounds] == component))
+                result.append((component, xs.start, ys.start, xs.stop - xs.start, ys.stop - ys.start, area))
+            return labels, result
 
         image = Image.open(args.source).convert("RGBA")
         try:
@@ -57,6 +69,19 @@ def main() -> int:
         base_padding = max(2.0, min(24.0, automatic + max(0.0, args.padding)))
         selected = Image.new("L", (width, height), 0)
         draw = ImageDraw.Draw(selected)
+        region_mask = Image.new("L", (width, height), 0)
+        region_draw = ImageDraw.Draw(region_mask)
+        valid_regions = []
+        for raw in regions[:24]:
+            if not isinstance(raw, dict):
+                continue
+            rx0 = max(0.0, _number(raw.get("x")))
+            ry0 = max(0.0, _number(raw.get("y")))
+            rx1 = min(width, rx0 + max(0.0, _number(raw.get("width"))))
+            ry1 = min(height, ry0 + max(0.0, _number(raw.get("height"))))
+            if rx1 - rx0 >= 6 and ry1 - ry0 >= 6:
+                valid_regions.append((round(rx0), round(ry0), round(rx1), round(ry1)))
+                region_draw.rectangle(valid_regions[-1], fill=255)
         count = 0
         region_count = 0
         # Repaint the reviewed text boxes, not the whole selection rectangle.
@@ -98,11 +123,10 @@ def main() -> int:
             # components touching the crop edge; actual glyph components stay
             # inside the padded OCR box.
             glyph_array = np.asarray(glyph, dtype=np.uint8)
-            component_count, labels, stats, _ = cv2.connectedComponentsWithStats((glyph_array > 0).astype(np.uint8), 8)
+            labels, glyph_components = components(glyph_array > 0)
             filtered = np.zeros_like(glyph_array)
             crop_h, crop_w = glyph_array.shape
-            for component in range(1, component_count):
-                cx, cy, cw, ch, area = stats[component]
+            for component, cx, cy, cw, ch, area in glyph_components:
                 touches_edge = cx <= 0 or cy <= 0 or cx + cw >= crop_w or cy + ch >= crop_h
                 structural = cw >= crop_w * 0.82 or ch >= crop_h * 0.82
                 if area >= 4 and not touches_edge and not structural:
@@ -117,6 +141,30 @@ def main() -> int:
                 selected = ImageChops.lighter(selected, layer)
                 count += 1
                 continue
+
+            # Vision models can read the selected text correctly while still
+            # returning an imprecise text box. Search the authoritative user
+            # selection for the same estimated glyph colour. This never opens
+            # pixels outside the blue-box selection and avoids a no-op clean
+            # background when the model coordinates drift.
+            if valid_regions:
+                full_rgb = np.asarray(image.convert("RGB"), dtype=np.int16)
+                target_rgb = np.asarray(target, dtype=np.int16)
+                distance = np.max(np.abs(full_rgb - target_rgb), axis=2)
+                candidate = np.where((distance <= 92) & (np.asarray(region_mask) > 0), 255, 0).astype(np.uint8)
+                labels, region_components = components(candidate > 0)
+                filtered = np.zeros_like(candidate)
+                for component, cx, cy, cw, ch, area in region_components:
+                    structural = cw >= width * 0.45 or ch >= height * 0.45 or area > width * height * 0.08
+                    if area >= 4 and not structural:
+                        filtered[labels == component] = 255
+                region_glyph = Image.fromarray(filtered, mode="L")
+                region_pixels = sum(index * amount for index, amount in enumerate(region_glyph.histogram())) / 255
+                if region_pixels >= 4:
+                    region_glyph = region_glyph.filter(ImageFilter.MaxFilter(5)).filter(ImageFilter.GaussianBlur(1.4))
+                    selected = ImageChops.lighter(selected, region_glyph)
+                    count += 1
+                    continue
 
             # Geometry fallback for unusual gradients or inaccurate colour.
             # Keep it tight so structural shapes below the text remain locked.

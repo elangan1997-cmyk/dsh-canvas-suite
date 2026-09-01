@@ -455,7 +455,7 @@ function installCanvasImagegenTool(ctx) {
 const TEXT_VISION_SYSTEM = `你是平面设计稿的文字理解与局部背景修复规划器。优先理解文字语义和版面关系，不要像传统 OCR 一样仅按单个字符猜测。
 只返回严格 JSON，不要解释、前后缀或 Markdown 代码块。格式为 {"schemaVersion":1,"blocks":[...],"erasePrompt":"..."} 。每个 block 必须包含：text,x,y,width,height,fontSize,fontFamily,fontWeight,fontStyle,color,textAlign,rotation,letterSpacing,lineHeight,confidence,backgroundHint。
 x/y/width/height 是 0-1000 的整图归一化坐标；fontSize 是相对整图高度 0-1000 的估算值；color 用 #RRGGBB；confidence 用 0-100。
-按视觉上的一行或一个连续文字对象输出，不要把同一行无故拆分。结合品牌名、品类、规格和上下文纠正易混字符，但不得臆造图中不存在的文字；不确定时保留最可信原文并降低 confidence。backgroundHint 必须描述文字下方的真实底色、渐变、纹理、光照、边缘和附近结构。erasePrompt 必须根据所有 backgroundHint 动态生成可直接用于局部修复模型的中文提示词：逐区域说明要删除的文字及应如何延展邻近背景，强调保持框外像素、产品结构、排版、颜色和光照不变，禁止生成新文字、符号或装饰。fontFamily 只用 sans-serif/serif/rounded/display/monospace/handwriting，fontWeight 只用 normal/medium/bold，fontStyle 只用 normal/italic，textAlign 只用 left/center/right；letterSpacing 使用 Photoshop tracking 的近似值（-200 到 1000），lineHeight 使用相对当前裁剪图高度 0-1000 的值。`;
+按视觉上的一行或一个连续文字对象输出，不要把同一行无故拆分。结合品牌名、品类、规格和上下文纠正易混字符，但不得臆造图中不存在的文字；不确定时保留最可信原文并降低 confidence。backgroundHint 必须描述文字下方的真实底色、渐变、纹理、光照、边缘和附近结构。erasePrompt 必须根据所有 backgroundHint 动态生成可直接用于图片编辑模型的中文提示词，并明确列出只允许删除的原文字。提示词必须要求：仅擦除这些指定文字的字形、描边、阴影和抗锯齿残边；以文字紧邻像素延续其下方原有背景；不得改变底部圆角矩形、按钮、边框、渐变、产品、人物、其他文字、尺寸、位置、颜色、光照和清晰度；未被指定的所有内容逐像素保持一致；禁止生成新文字、符号、色块或装饰。fontFamily 只用 sans-serif/serif/rounded/display/monospace/handwriting，fontWeight 只用 normal/medium/bold，fontStyle 只用 normal/italic，textAlign 只用 left/center/right；letterSpacing 使用 Photoshop tracking 的近似值（-200 到 1000），lineHeight 使用相对当前裁剪图高度 0-1000 的值。`;
 
 function parseModelJson(text) {
   let raw = String(text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
@@ -1759,24 +1759,11 @@ function apply(ctx) {
                   + '擦除后，根据每个框选区域四周紧邻像素，推断并延续文字出现之前的真实背景。保持原有颜色、渐变、材质纹理、光照、噪声、透视、颗粒尺度及连续线条，形成自然 clean plate。框选区域内若存在非文字的产品、人物、图形或结构，只修补被文字覆盖的部分，不改变其形状与位置。\n'
                   + '框选区域之外必须逐像素保持原图不变。禁止重绘、缩放、美化或锐化整图，禁止改变其他文字、产品、人物、构图、颜色和清晰度，禁止生成新文字、图标、色块或装饰。输出尺寸必须与原图完全一致，边缘自然无接缝、无白块、无光晕、无重复纹理。';
                 tempClean = join(outputDir, 'text-psd-clean-' + token + '.png');
-                // Deterministic glyph inpainting is the primary path. Image
-                // generation cannot guarantee that a button/card gradient is
-                // pixel-identical even with a strict prompt and mask.
+                // Use the image engine selected in Canvas settings for the
+                // clean plate. The recognition model supplies the semantic
+                // erase prompt; the glyph mask remains the hard edit boundary.
                 const localInpaintScript = join(pluginRoot, 'scripts', 'inpaint_text_glyphs.py');
                 try {
-                  await access(localInpaintScript);
-                  const localResult = await runProcessWithTimeout(python.executable, [...python.prefixArgs, localInpaintScript, '--source', tempInput, '--mask', tempMask, '--output', tempClean], pluginRoot, 180000);
-                  const localLines = String(localResult.stdout || '').trim().split(/\r?\n/).filter(Boolean);
-                  let localPayload = null;
-                  try { localPayload = localLines.length ? JSON.parse(localLines[localLines.length - 1]) : null; } catch (err) { localPayload = null; }
-                  if (localResult.exitCode === 0 && localPayload && localPayload.success === true) {
-                    cleanInput = tempClean;
-                    cleanupEngine = localPayload.engine || 'local-glyph-inpaint';
-                  }
-                } catch (err) {}
-                // Retain image2 as a compatibility fallback only when the
-                // deterministic local repair is unavailable.
-                if (!cleanInput) {
                   const engineSettings = await readImageEngineSettings();
                   const generated = await generateImage({
                     ctx,
@@ -1792,6 +1779,24 @@ function apply(ctx) {
                   const composite = await runProcessWithTimeout(python.executable, [...python.prefixArgs, compositeScript, '--source', tempInput, '--generated', tempGenerated, '--mask', tempMask, '--output', tempClean], pluginRoot, 180000);
                   if (composite.exitCode === 0) {
                     try { const cleanInfo = await stat(tempClean); if (cleanInfo.isFile() && cleanInfo.size > 0) cleanInput = tempClean; } catch (err) {}
+                  }
+                } catch (err) {}
+                // Offline/local fallback keeps export usable when the chosen
+                // image service is temporarily unavailable.
+                if (!cleanInput) {
+                  try {
+                    await access(localInpaintScript);
+                    const localResult = await runProcessWithTimeout(python.executable, [...python.prefixArgs, localInpaintScript, '--source', tempInput, '--mask', tempMask, '--output', tempClean], pluginRoot, 180000);
+                    const localLines = String(localResult.stdout || '').trim().split(/\r?\n/).filter(Boolean);
+                    let localPayload = null;
+                    try { localPayload = localLines.length ? JSON.parse(localLines[localLines.length - 1]) : null; } catch (err) { localPayload = null; }
+                    if (localResult.exitCode === 0 && localPayload && localPayload.success === true) {
+                      cleanInput = tempClean;
+                      cleanupEngine = localPayload.engine || 'local-glyph-inpaint-fallback';
+                    }
+                  } catch (err) {}
+                  if (!cleanInput) {
+                    cleanupWarning = '图片模型背景修复失败，本地兜底也未能生成干净背景';
                   }
                 }
                 if (!cleanInput) {
@@ -1827,7 +1832,8 @@ function apply(ctx) {
             const jsx = '#target photoshop\n(function(){\n'
               + 'var cfg=' + jsxPayload + ';\n'
               + 'function rgb(value){var m=String(value||"#111827").replace("#",""); if(m.length!==6)m="111827"; var c=new SolidColor(); c.rgb.red=parseInt(m.substr(0,2),16); c.rgb.green=parseInt(m.substr(2,2),16); c.rgb.blue=parseInt(m.substr(4,2),16); return c;}\n'
-              + 'try{var doc=app.open(new File(cfg.input)); var list=cfg.blocks||[]; for(var i=0;i<list.length;i++){var b=list[i]||{}; var text=String(b.text||"").replace(/^[\\s\\r\\n]+|[\\s\\r\\n]+$/g,""); if(b.enabled===false||!text)continue; var layer=doc.artLayers.add(); layer.kind=LayerKind.TEXT; layer.name="文字 "+(i+1)+" · "+text.substr(0,24); var ti=layer.textItem; ti.contents=text; ti.position=[Number(b.x||0),Number(b.y||0)+Math.max(8,Number(b.fontSize||24))]; ti.size=Math.max(8,Number(b.fontSize||24)); try{ti.font=String(b.fontPostScript||b.fontFamily||"PingFangSC-Regular");}catch(fontErr){try{ti.font="ArialMT";}catch(fontFallbackErr){}} ti.color=rgb(b.color); try{ti.tracking=Math.max(-200,Math.min(1000,Number(b.letterSpacing||0)));}catch(trackErr){} try{if(Number(b.lineHeight||0)>0)ti.leading=Number(b.lineHeight);}catch(leadErr){} try{ti.justification=String(b.textAlign||"left")==="center"?Justification.CENTER:String(b.textAlign||"left")==="right"?Justification.RIGHT:Justification.LEFT;}catch(justErr){} try{if(Math.abs(Number(b.rotation||0))>0.01)layer.rotate(Number(b.rotation));}catch(rotateErr){} layer.visible=true;} for(var g=0;g<doc.layerSets.length;g++){try{if(String(doc.layerSets[g].name)==="OCR text preview - replace in Photoshop")doc.layerSets[g].visible=false;}catch(groupErr){}} var opts=new PhotoshopSaveOptions(); opts.layers=true; doc.saveAs(new File(cfg.output),opts,true,Extension.LOWERCASE); doc.close(SaveOptions.DONOTSAVECHANGES); }catch(err){try{if(doc)doc.close(SaveOptions.DONOTSAVECHANGES);}catch(closeErr){} throw err;}\n})();\n';
+              + 'var oldRuler=app.preferences.rulerUnits,oldType=app.preferences.typeUnits; function restoreUnits(){try{app.preferences.rulerUnits=oldRuler;}catch(e){} try{app.preferences.typeUnits=oldType;}catch(e){}}\n'
+              + 'try{app.preferences.rulerUnits=Units.PIXELS; app.preferences.typeUnits=TypeUnits.PIXELS; var doc=app.open(new File(cfg.input)); var docW=Number(doc.width.as("px")),docH=Number(doc.height.as("px")); var list=cfg.blocks||[]; for(var i=0;i<list.length;i++){var b=list[i]||{}; var text=String(b.text||"").replace(/^[\\s\\r\\n]+|[\\s\\r\\n]+$/g,""); if(b.enabled===false||!text)continue; var boxH=Math.max(8,Number(b.height||0)); var fontSize=Math.max(8,Math.min(docH*.5,Number(b.fontSize||0)>0?Number(b.fontSize):boxH*.82)); var x=Math.max(0,Math.min(docW-1,Number(b.x||0))); var y=Math.max(fontSize,Math.min(docH-1,Number(b.y||0)+fontSize)); var layer=doc.artLayers.add(); layer.kind=LayerKind.TEXT; layer.name="文字 "+(i+1)+" · "+text.substr(0,24); var ti=layer.textItem; ti.contents=text; ti.position=[UnitValue(x,"px"),UnitValue(y,"px")]; ti.size=UnitValue(fontSize,"px"); try{ti.font=String(b.fontPostScript||b.fontFamily||"MicrosoftYaHei");}catch(fontErr){try{ti.font="MicrosoftYaHei";}catch(fontFallbackErr){try{ti.font="ArialMT";}catch(e){}}} ti.color=rgb(b.color); try{ti.tracking=Math.max(-200,Math.min(1000,Number(b.letterSpacing||0)));}catch(trackErr){} try{if(Number(b.lineHeight||0)>0)ti.leading=UnitValue(Math.max(fontSize,Number(b.lineHeight)),"px");}catch(leadErr){} try{ti.justification=String(b.textAlign||"left")==="center"?Justification.CENTER:String(b.textAlign||"left")==="right"?Justification.RIGHT:Justification.LEFT;}catch(justErr){} try{if(Math.abs(Number(b.rotation||0))>0.01)layer.rotate(Number(b.rotation));}catch(rotateErr){} layer.visible=true;} for(var g=0;g<doc.layerSets.length;g++){try{if(String(doc.layerSets[g].name)==="OCR text preview - replace in Photoshop")doc.layerSets[g].visible=false;}catch(groupErr){}} var opts=new PhotoshopSaveOptions(); opts.layers=true; doc.saveAs(new File(cfg.output),opts,true,Extension.LOWERCASE); doc.close(SaveOptions.DONOTSAVECHANGES); restoreUnits(); }catch(err){restoreUnits(); try{if(doc)doc.close(SaveOptions.DONOTSAVECHANGES);}catch(closeErr){} throw err;}\n})();\n';
             await writeFile(jsxPath, jsx, 'utf8');
             // Explicit UTF-8 decoding prevents Chinese `contents` from being
             // interpreted with the host's legacy Mac encoding.
