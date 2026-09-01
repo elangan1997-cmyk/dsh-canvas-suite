@@ -21,12 +21,15 @@ def main() -> int:
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--mask-output", type=Path)
     parser.add_argument("--ocr-output", type=Path)
+    parser.add_argument("--annotated-output", type=Path)
+    parser.add_argument("--selection-region")
     parser.add_argument("--region", required=True)
     args = parser.parse_args()
     try:
         from PIL import Image, ImageDraw, ImageEnhance, ImageFilter
 
         region = json.loads(args.region)
+        selection_region = json.loads(args.selection_region) if args.selection_region else region
         image = Image.open(args.input).convert("RGB")
         width, height = image.size
         x0 = max(0, min(width - 1, round(number(region.get("x")))))
@@ -51,6 +54,17 @@ def main() -> int:
             ocr_crop = gray.point(lambda value: 0 if value >= 205 else 255, mode="1")
             args.ocr_output.parent.mkdir(parents=True, exist_ok=True)
             ocr_crop.save(args.ocr_output, format="PNG", optimize=True)
+        if args.annotated_output:
+            annotated = image.copy()
+            sx0 = max(0, min(width - 1, round(number(selection_region.get("x")))))
+            sy0 = max(0, min(height - 1, round(number(selection_region.get("y")))))
+            sx1 = max(sx0 + 1, min(width, round(number(selection_region.get("x")) + number(selection_region.get("width")))))
+            sy1 = max(sy0 + 1, min(height, round(number(selection_region.get("y")) + number(selection_region.get("height")))))
+            guide = ImageDraw.Draw(annotated)
+            stroke = max(3, round(max(width, height) / 250))
+            guide.rectangle((sx0, sy0, sx1 - 1, sy1 - 1), outline=(25, 118, 255), width=stroke)
+            args.annotated_output.parent.mkdir(parents=True, exist_ok=True)
+            annotated.save(args.annotated_output, format="PNG", optimize=True)
         if args.mask_output:
             # A high-contrast full-size mask is sent beside the source image.
             # White is the only region the model may transcribe; black must be
@@ -68,6 +82,7 @@ def main() -> int:
             "scaleY": crop.height / max(1, y1 - y0),
             "maskOutput": str(args.mask_output) if args.mask_output else "",
             "ocrOutput": str(args.ocr_output) if args.ocr_output else "",
+            "annotatedOutput": str(args.annotated_output) if args.annotated_output else "",
         }, ensure_ascii=False))
         return 0
     except Exception as exc:

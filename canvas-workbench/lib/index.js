@@ -515,7 +515,7 @@ async function analyzeTextWithCurrentModel(ctx, uploaded, body) {
     const itemMediaType = item.mime === 'image/jpg' ? 'image/jpeg' : item.mime;
     attachments.push(await ctx.attachments.saveImage({
       data: new Uint8Array(item.bytes), mediaType: itemMediaType,
-      name: body.selectionCrop
+      name: body.selectionAnnotated ? '带蓝色框的完整原图' : body.selectionCrop
         ? (index === 0 ? '用户框选区域截图' : index === 1 ? '原始整图' : '框选区域蒙版')
         : String(body.name || '画布图片')
     }));
@@ -535,7 +535,9 @@ async function analyzeTextWithCurrentModel(ctx, uploaded, body) {
     y: Math.round(Math.max(0, Number(item.y || 0)) * 1000 / imageHeight),
     width: Math.round(Math.max(0, Number(item.width || 0)) * 1000 / imageWidth),
     height: Math.round(Math.max(0, Number(item.height || 0)) * 1000 / imageHeight) }));
-  const instruction = body.selectionCrop
+  const instruction = body.selectionAnnotated
+    ? '这是一张完整原图，用户框选区域已用清晰的蓝色矩形边框标出。只识别蓝色矩形框内部的文字，框外文字仅用于理解语义，绝对不要输出。蓝色框是界面添加的识别引导线，不属于原始设计内容。严格返回 JSON；每个 block 包含文字、相对于整张图片的 0-1000 坐标、字体类别、字重、字号、颜色、对齐、旋转、字距、行距、置信度和文字下方背景描述。erasePrompt 必须说明：删除蓝框内部识别到的原文字并恢复被文字遮挡的真实背景，同时去除识别预览中的蓝色引导框，禁止生成新文字，蓝框外原图保持不变。不得返回空 blocks。'
+    : body.selectionCrop
     ? '这张图片是用户刚刚框选区域的直接截图，已经按原图像素裁剪并清晰放大；图片边界就是识别范围。请逐行读取截图中的全部可见文字，包括白字、描边字、贴近边缘或轻微裁切的字，不要分析截图外内容，不得返回空 blocks。blocks 坐标相对于当前截图，以 0-1000 表示。严格返回 JSON；每个文字对象包含内容、位置、字体类别、字重、字号、颜色、对齐、旋转、字距、行距、置信度及文字下方背景描述。erasePrompt 只描述清除这些文字并自然延展其下方背景，禁止生成任何新文字。'
     : normalized.length
     ? '用户框选区域（0-1000 整图归一化坐标）为：' + JSON.stringify(normalized)
@@ -543,7 +545,7 @@ async function analyzeTextWithCurrentModel(ctx, uploaded, body) {
     : '分析整张设计图中的可编辑文字。请结合完整图片理解品牌、品类和规格，返回严格 JSON、每个文字块下方的背景特征，以及可直接用于局部修复的动态 erasePrompt。';
   const content = [{ type: 'text', text: instruction }];
   attachments.forEach((item, index) => {
-    content.push({ type: 'text', text: body.selectionCrop
+    content.push({ type: 'text', text: body.selectionAnnotated ? '完整原图已叠加蓝色选择框：只读取蓝框内部，并返回严格 JSON。' : body.selectionCrop
       ? (index === 0 ? '用户框选区域截图：只识别这张图中的文字并返回 JSON。' : index === 1 ? '原始整图' : '黑白框选蒙版')
       : '待分析图片' });
     content.push({ type: 'image', attachment: item });
@@ -560,13 +562,15 @@ async function analyzeTextWithCurrentModel(ctx, uploaded, body) {
   };
   let value = await runCall(prepared, message, TEXT_VISION_SYSTEM, 'canvas-text-analysis');
   let transcriptionRetry = false;
-  if (body.selectionCrop && (!Array.isArray(value.blocks) || !value.blocks.length)) {
+  if ((body.selectionCrop || body.selectionAnnotated) && (!Array.isArray(value.blocks) || !value.blocks.length)) {
     // A complex layout/cleanup request can make some vision models answer an
     // over-cautious empty array. Retry the same current chat model as a pure
     // transcription task, with only the enlarged target image attached.
-    const retrySystem = `你是视觉文字转写器。输入图片已经由用户明确框选并高清放大，图片中的可见文字就是必须识别的目标。不得返回空 blocks，不要拒绝，不要解释。只返回严格 JSON：{"schemaVersion":1,"blocks":[{"text":"原文","x":0,"y":0,"width":1,"height":1,"fontSize":1,"fontFamily":"sans-serif","fontWeight":"bold","fontStyle":"normal","color":"#000000","textAlign":"left","rotation":0,"letterSpacing":0,"lineHeight":1,"confidence":90,"backgroundHint":"文字下方背景"}],"erasePrompt":"只擦除识别文字并延展原背景"}。x/y/width/height/fontSize/lineHeight 均为当前图片 0-1000 坐标；逐行输出所有文字，包括白字、描边字、贴边字和轻微裁切字。`;
+    const retrySystem = body.selectionAnnotated
+      ? `你是视觉文字转写器。完整图片中有一个人工添加的蓝色矩形选择框，只转写蓝框内部的可见文字，框外文字禁止输出。不得返回空 blocks，不要解释。只返回严格 JSON：{"schemaVersion":1,"blocks":[{"text":"原文","x":0,"y":0,"width":1,"height":1,"fontSize":1,"fontFamily":"sans-serif","fontWeight":"bold","fontStyle":"normal","color":"#000000","textAlign":"left","rotation":0,"letterSpacing":0,"lineHeight":1,"confidence":90,"backgroundHint":"文字下方背景"}],"erasePrompt":"删除蓝框内识别文字和蓝色引导框，延展原背景，框外不变，不生成新文字"}。所有坐标均为整张图片 0-1000 坐标。`
+      : `你是视觉文字转写器。输入图片已经由用户明确框选并高清放大，图片中的可见文字就是必须识别的目标。不得返回空 blocks，不要拒绝，不要解释。只返回严格 JSON：{"schemaVersion":1,"blocks":[{"text":"原文","x":0,"y":0,"width":1,"height":1,"fontSize":1,"fontFamily":"sans-serif","fontWeight":"bold","fontStyle":"normal","color":"#000000","textAlign":"left","rotation":0,"letterSpacing":0,"lineHeight":1,"confidence":90,"backgroundHint":"文字下方背景"}],"erasePrompt":"只擦除识别文字并延展原背景"}。x/y/width/height/fontSize/lineHeight 均为当前图片 0-1000 坐标；逐行输出所有文字，包括白字、描边字、贴边字和轻微裁切字。`;
     const retryMessage = createUserMessage({ source: { kind: 'plugin', plugin: name }, content: [
-      { type: 'text', text: '逐行识别这张用户框选的高清图片。先读出实际文字，再输出规定 JSON；至少输出一个可见文字块。' },
+      { type: 'text', text: body.selectionAnnotated ? '只识别完整图片中蓝色矩形框内的文字，再输出规定 JSON；至少输出一个文字块。' : '逐行识别这张用户框选的高清图片。先读出实际文字，再输出规定 JSON；至少输出一个可见文字块。' },
       { type: 'image', attachment: attachments[0] }
     ] });
     const retryPrepared = await ctx.llm.prepareCall({ provider, model, maxTokens: 8000, reasoningEffort: 'low' }, AbortSignal.timeout(30000));
@@ -1394,6 +1398,7 @@ function apply(ctx) {
           let tempBlocks = '';
           let tempVisionCrop = '';
           let tempVisionOcr = '';
+          let tempVisionAnnotated = '';
           let visionCropMapping = null;
           try {
             const body = JSON.parse(await readBody(req) || '{}');
@@ -1431,22 +1436,21 @@ function apply(ctx) {
                   tempInput = join(outputDir, '.ocr-input-' + token + '.' + uploaded.ext);
                   tempVisionCrop = join(outputDir, '.vision-crop-' + token + '.png');
                   tempVisionOcr = join(outputDir, '.vision-ocr-' + token + '.png');
+                  tempVisionAnnotated = join(outputDir, '.vision-annotated-' + token + '.png');
                   await writeFile(tempInput, uploaded.bytes);
                   const pluginRoot = dirname(dirname(fileURLToPath(import.meta.url)));
                   const cropScript = join(pluginRoot, 'scripts', 'prepare_text_vision_crop.py');
                   const cropPython = await resolvePython(ctx);
-                  const cropResult = await runProcessWithTimeout(cropPython.executable, [...cropPython.prefixArgs, cropScript, '--input', tempInput, '--output', tempVisionCrop, '--ocr-output', tempVisionOcr, '--region', JSON.stringify(recognitionCrops[0])], pluginRoot, 30000);
+                  const cropResult = await runProcessWithTimeout(cropPython.executable, [...cropPython.prefixArgs, cropScript, '--input', tempInput, '--output', tempVisionCrop, '--ocr-output', tempVisionOcr, '--annotated-output', tempVisionAnnotated, '--selection-region', JSON.stringify(requestedCrops[0]), '--region', JSON.stringify(recognitionCrops[0])], pluginRoot, 30000);
                   const cropLines = String(cropResult.stdout || '').trim().split(/\r?\n/).filter(Boolean);
                   let cropPayload = null;
                   try { cropPayload = cropLines.length ? JSON.parse(cropLines[cropLines.length - 1]) : null; } catch (err) { cropPayload = null; }
                   if (cropResult.exitCode === 0 && cropPayload && cropPayload.success === true) {
-                    modelUploaded = { bytes: await readFile(tempVisionCrop), mime: 'image/png', ext: 'png' };
-                    // Recognition deliberately receives only the direct crop.
-                    // The source and mask are kept for the later background
-                    // cleanup request, where global context is useful.
-                    modelBody = { ...body, width: cropPayload.outputWidth, height: cropPayload.outputHeight, crops: [], selectionCrop: true,
+                    modelUploaded = { bytes: await readFile(tempVisionAnnotated), mime: 'image/png', ext: 'png' };
+                    // Give the model exactly what the user sees conceptually:
+                    // the complete image with a blue selection rectangle.
+                    modelBody = { ...body, width: sourceWidth, height: sourceHeight, crops: [], selectionAnnotated: true,
                       visionUploads: [modelUploaded] };
-                    cropMapping = cropPayload;
                     visionCropMapping = cropPayload;
                     logOperation('文字识别：已放大选区送入聊天模型 · ' + cropPayload.outputWidth + '×' + cropPayload.outputHeight);
                   }
@@ -1503,7 +1507,8 @@ function apply(ctx) {
                 if (!blocks.length) throw new Error('模型未识别到可用文字');
                 const hints = Array.from(new Set(blocks.map((block) => String(block.backgroundHint || '').trim()).filter(Boolean))).slice(0, 12);
                 const modelErasePrompt = String(analyzed.value.erasePrompt || '').trim();
-                const erasePrompt = (modelErasePrompt || ('仅擦除所选文字并按邻近真实背景连续补全。局部背景特征：' + hints.join('；')))
+                const erasePrompt = ((modelErasePrompt || ('仅擦除所选文字并按邻近真实背景连续补全。局部背景特征：' + hints.join('；')))
+                  + (modelBody.selectionAnnotated ? ' 同时移除识别预览中人工添加的蓝色矩形引导框；蓝框不是原图内容。除蓝框内文字及该引导框外，其他内容保持不变。' : ''))
                   .slice(0, 2400);
                 const erasePlan = {
                   schemaVersion: 1,
@@ -1646,6 +1651,7 @@ function apply(ctx) {
             if (tempBlocks) await unlink(tempBlocks).catch(() => {});
             if (tempVisionCrop) await unlink(tempVisionCrop).catch(() => {});
             if (tempVisionOcr) await unlink(tempVisionOcr).catch(() => {});
+            if (tempVisionAnnotated) await unlink(tempVisionAnnotated).catch(() => {});
           }
           return;
         }
