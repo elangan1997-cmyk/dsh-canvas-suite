@@ -473,13 +473,24 @@ function visionBlocks(value, width, height) {
   const weights = new Set(['normal', 'medium', 'bold']);
   const aligns = new Set(['left', 'center', 'right']);
   const styles = new Set(['normal', 'italic']);
+  const windowsFonts = process.platform === 'win32';
+  // Although the prompt requests 0-1000 coordinates, vision models often
+  // follow their conventional 0-1 normalized schema. Detect that response
+  // before rounding; otherwise 0.18 becomes x=0 and 0.07 becomes the minimum
+  // 8px font, which is exactly the tiny top-left text regression on Windows.
+  const geometryValues = value.blocks.slice(0, 200).flatMap((item) => item && typeof item === 'object'
+    ? [item.x, item.y, item.width, item.height, item.fontSize, item.lineHeight].map(Number).filter(Number.isFinite)
+    : []);
+  const normalized01 = geometryValues.length > 0
+    && Math.max(...geometryValues.map((item) => Math.abs(item))) <= 2;
+  const coordinateScale = normalized01 ? 1000 : 1;
   return value.blocks.slice(0, 200).map((item) => {
     const text = normalizeTextLayerText(item && item.text);
     if (!text) return null;
-    const x = Math.round(clamp(item.x, 0, 1000) * width / 1000);
-    const y = Math.round(clamp(item.y, 0, 1000) * height / 1000);
-    const w = Math.max(1, Math.round(clamp(item.width, 0, 1000) * width / 1000));
-    const h = Math.max(1, Math.round(clamp(item.height, 0, 1000) * height / 1000));
+    const x = Math.round(clamp(Number(item.x || 0) * coordinateScale, 0, 1000) * width / 1000);
+    const y = Math.round(clamp(Number(item.y || 0) * coordinateScale, 0, 1000) * height / 1000);
+    const w = Math.max(1, Math.round(clamp(Number(item.width || 0) * coordinateScale, 0, 1000) * width / 1000));
+    const h = Math.max(1, Math.round(clamp(Number(item.height || 0) * coordinateScale, 0, 1000) * height / 1000));
     const family = families.has(item.fontFamily) ? item.fontFamily : 'sans-serif';
     const weight = weights.has(item.fontWeight) ? item.fontWeight : 'normal';
     const cjk = /[\u3400-\u9fff]/.test(text);
@@ -487,13 +498,13 @@ function visionBlocks(value, width, height) {
     const bold = weight !== 'normal';
     return {
       text, x, y, width: Math.min(w, Math.max(1, width - x)), height: Math.min(h, Math.max(1, height - y)),
-      fontSize: Math.max(8, Math.round(clamp(item.fontSize, 1, 1000) * height / 1000)),
-      fontFamily: cjk ? (serif ? 'Songti SC' : 'PingFang SC') : (serif ? 'Times New Roman' : family === 'monospace' ? 'Menlo' : 'Arial'),
-      fontPostScript: cjk ? (serif ? (bold ? 'SongtiSC-Bold' : 'SongtiSC-Regular') : (bold ? 'PingFangSC-Semibold' : 'PingFangSC-Regular')) : (serif ? (bold ? 'TimesNewRomanPS-BoldMT' : 'TimesNewRomanPSMT') : family === 'monospace' ? (bold ? 'Menlo-Bold' : 'Menlo-Regular') : (bold ? 'Arial-BoldMT' : 'ArialMT')),
+      fontSize: Math.max(8, Math.round(clamp(Number(item.fontSize || 0) * coordinateScale, 1, 1000) * height / 1000)),
+      fontFamily: cjk ? (windowsFonts ? (serif ? 'SimSun' : 'Microsoft YaHei') : (serif ? 'Songti SC' : 'PingFang SC')) : (serif ? 'Times New Roman' : family === 'monospace' ? (windowsFonts ? 'Consolas' : 'Menlo') : 'Arial'),
+      fontPostScript: cjk ? (windowsFonts ? (serif ? 'SimSun' : (bold ? 'MicrosoftYaHei-Bold' : 'MicrosoftYaHei')) : (serif ? (bold ? 'SongtiSC-Bold' : 'SongtiSC-Regular') : (bold ? 'PingFangSC-Semibold' : 'PingFangSC-Regular'))) : (serif ? (bold ? 'TimesNewRomanPS-BoldMT' : 'TimesNewRomanPSMT') : family === 'monospace' ? (windowsFonts ? (bold ? 'Consolas-Bold' : 'Consolas') : (bold ? 'Menlo-Bold' : 'Menlo-Regular')) : (bold ? 'Arial-BoldMT' : 'ArialMT')),
       fontWeight: weight,
       fontStyle: styles.has(item.fontStyle) ? item.fontStyle : 'normal',
       letterSpacing: Math.round(clamp(item.letterSpacing, -200, 1000)),
-      lineHeight: Math.max(0, Math.round(clamp(item.lineHeight, 0, 1000) * height / 1000)),
+      lineHeight: Math.max(0, Math.round(clamp(Number(item.lineHeight || 0) * coordinateScale, 0, 1000) * height / 1000)),
       color: /^#[0-9a-f]{6}$/i.test(String(item.color || '')) ? String(item.color).toUpperCase() : '#111111',
       textAlign: aligns.has(item.textAlign) ? item.textAlign : 'left',
       rotation: clamp(item.rotation, -180, 180), confidence: clamp(item.confidence, 0, 100),
