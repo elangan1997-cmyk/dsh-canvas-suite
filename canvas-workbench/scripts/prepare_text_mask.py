@@ -135,7 +135,11 @@ def main() -> int:
             glyph_pixels = sum(index * amount for index, amount in enumerate(glyph.histogram())) / 255
             glyph_ratio = glyph_pixels / max(1, source_crop.width * source_crop.height)
             if 0.004 <= glyph_ratio <= 0.62:
-                glyph = glyph.filter(ImageFilter.MaxFilter(5)).filter(ImageFilter.GaussianBlur(1.4))
+                # Include stroke, glow, shadow and JPEG antialiasing around
+                # the core colour. A 2px dilation left the embossed-looking
+                # character silhouettes seen in generated clean plates.
+                dilation = max(7, min(13, int(round(box_h * 0.14)) | 1))
+                glyph = glyph.filter(ImageFilter.MaxFilter(dilation)).filter(ImageFilter.GaussianBlur(1.8))
                 layer = Image.new("L", (width, height), 0)
                 layer.paste(glyph, (gx0, gy0))
                 selected = ImageChops.lighter(selected, layer)
@@ -161,7 +165,8 @@ def main() -> int:
                 region_glyph = Image.fromarray(filtered, mode="L")
                 region_pixels = sum(index * amount for index, amount in enumerate(region_glyph.histogram())) / 255
                 if region_pixels >= 4:
-                    region_glyph = region_glyph.filter(ImageFilter.MaxFilter(5)).filter(ImageFilter.GaussianBlur(1.4))
+                    dilation = max(7, min(13, int(round(box_h * 0.14)) | 1))
+                    region_glyph = region_glyph.filter(ImageFilter.MaxFilter(dilation)).filter(ImageFilter.GaussianBlur(1.8))
                     selected = ImageChops.lighter(selected, region_glyph)
                     count += 1
                     continue
