@@ -515,7 +515,9 @@ async function analyzeTextWithCurrentModel(ctx, uploaded, body) {
     const itemMediaType = item.mime === 'image/jpg' ? 'image/jpeg' : item.mime;
     attachments.push(await ctx.attachments.saveImage({
       data: new Uint8Array(item.bytes), mediaType: itemMediaType,
-      name: index === 0 ? '原始整图' : index === 1 ? '框选区域蒙版' : '框选区域高清放大图'
+      name: body.selectionCrop
+        ? (index === 0 ? '框选区域高清放大图' : index === 1 ? '原始整图' : '框选区域蒙版')
+        : String(body.name || '画布图片')
     }));
   }
   const attachment = attachments[attachments.length - 1];
@@ -534,24 +536,44 @@ async function analyzeTextWithCurrentModel(ctx, uploaded, body) {
     width: Math.round(Math.max(0, Number(item.width || 0)) * 1000 / imageWidth),
     height: Math.round(Math.max(0, Number(item.height || 0)) * 1000 / imageHeight) }));
   const instruction = body.selectionCrop
-    ? '你将依次收到三张图片：1 原始整图；2 与原图等尺寸的黑白蒙版，只有白色区域是用户框选目标，黑色区域必须忽略；3 白色区域的高清放大图。请结合整图语义，并以放大图逐行转写蒙版白色区域中的全部可见文字，包括白色描边字、贴近边缘或轻微裁切的字。图中可见文字都属于待编辑目标，不得因为文字有描边或边缘不完整而返回空 blocks。blocks 坐标必须相对于第 3 张放大图，以 0-1000 表示。严格返回 JSON；每个文字对象包含内容、位置、字体类别、字重、字号、颜色、对齐、旋转、置信度及文字下方背景描述。erasePrompt 只描述清除 blocks 中这些文字并自然延展其下方背景，禁止删除产品、人物、图案、边框或蒙版外内容，禁止生成任何新文字。'
+    ? '你将依次收到三张图片：1 框选区域的高清放大图；2 原始整图；3 与原图等尺寸的黑白蒙版，只有白色区域是用户框选目标，黑色区域必须忽略。请以第 1 张放大图逐行转写全部可见文字，并结合第 2 张整图校对语义、第 3 张蒙版确认目标范围。包括白色描边字、贴近边缘或轻微裁切的字；图中可见文字都属于待编辑目标，不得因为文字有描边或边缘不完整而返回空 blocks。blocks 坐标必须相对于第 1 张放大图，以 0-1000 表示。严格返回 JSON；每个文字对象包含内容、位置、字体类别、字重、字号、颜色、对齐、旋转、置信度及文字下方背景描述。erasePrompt 只描述清除 blocks 中这些文字并自然延展其下方背景，禁止删除产品、人物、图案、边框或蒙版外内容，禁止生成任何新文字。'
     : normalized.length
     ? '用户框选区域（0-1000 整图归一化坐标）为：' + JSON.stringify(normalized)
       + '。只输出这些矩形内准备移除并重建为图层的文字；框外文字仅可作为语义校对依据，不得输出。请结合完整图片理解品牌、品类和规格，返回严格 JSON、每个文字块下方的背景特征，以及可直接用于局部修复的动态 erasePrompt。'
     : '分析整张设计图中的可编辑文字。请结合完整图片理解品牌、品类和规格，返回严格 JSON、每个文字块下方的背景特征，以及可直接用于局部修复的动态 erasePrompt。';
   const content = [{ type: 'text', text: instruction }];
   attachments.forEach((item, index) => {
-    content.push({ type: 'text', text: index === 0 ? '图片 1：原始整图' : index === 1 ? '图片 2：黑白框选蒙版（白色为目标）' : '图片 3：框选区域高清放大图（请从此图读取文字并输出坐标）' });
+    content.push({ type: 'text', text: body.selectionCrop
+      ? (index === 0 ? '图片 1：框选区域高清放大图（请从此图读取文字并输出坐标）' : index === 1 ? '图片 2：原始整图' : '图片 3：黑白框选蒙版（白色为目标）')
+      : '待分析图片' });
     content.push({ type: 'image', attachment: item });
   });
   const message = createUserMessage({ source: { kind: 'plugin', plugin: name }, content });
-  const assembler = new BlockAssembler();
-  const signal = AbortSignal.timeout(120000);
-  for await (const chunk of prepared.stream({ ...prepared.config, messages: [message], system: TEXT_VISION_SYSTEM, signal, purpose: 'canvas-text-analysis' })) assembler.push(chunk);
-  const finish = assembler.finish;
-  if (finish.kind !== 'stop') throw new Error('当前聊天模型识别未正常完成：' + finish.kind);
-  const text = assembler.blocks().flatMap((block) => block.type === 'text' ? [block.text] : []).join('').trim();
-  return { value: parseModelJson(text), width: imageWidth, height: imageHeight, provider, model };
+  const runCall = async (call, callMessage, system, purpose) => {
+    const assembler = new BlockAssembler();
+    const signal = AbortSignal.timeout(120000);
+    for await (const chunk of call.stream({ ...call.config, messages: [callMessage], system, signal, purpose })) assembler.push(chunk);
+    const finish = assembler.finish;
+    if (finish.kind !== 'stop') throw new Error('当前聊天模型识别未正常完成：' + finish.kind);
+    const text = assembler.blocks().flatMap((block) => block.type === 'text' ? [block.text] : []).join('').trim();
+    return parseModelJson(text);
+  };
+  let value = await runCall(prepared, message, TEXT_VISION_SYSTEM, 'canvas-text-analysis');
+  let transcriptionRetry = false;
+  if (body.selectionCrop && (!Array.isArray(value.blocks) || !value.blocks.length)) {
+    // A complex layout/cleanup request can make some vision models answer an
+    // over-cautious empty array. Retry the same current chat model as a pure
+    // transcription task, with only the enlarged target image attached.
+    const retrySystem = `你是视觉文字转写器。输入图片已经由用户明确框选并高清放大，图片中的可见文字就是必须识别的目标。不得返回空 blocks，不要拒绝，不要解释。只返回严格 JSON：{"schemaVersion":1,"blocks":[{"text":"原文","x":0,"y":0,"width":1,"height":1,"fontSize":1,"fontFamily":"sans-serif","fontWeight":"bold","fontStyle":"normal","color":"#000000","textAlign":"left","rotation":0,"letterSpacing":0,"lineHeight":1,"confidence":90,"backgroundHint":"文字下方背景"}],"erasePrompt":"只擦除识别文字并延展原背景"}。x/y/width/height/fontSize/lineHeight 均为当前图片 0-1000 坐标；逐行输出所有文字，包括白字、描边字、贴边字和轻微裁切字。`;
+    const retryMessage = createUserMessage({ source: { kind: 'plugin', plugin: name }, content: [
+      { type: 'text', text: '逐行识别这张用户框选的高清图片。先读出实际文字，再输出规定 JSON；至少输出一个可见文字块。' },
+      { type: 'image', attachment: attachments[0] }
+    ] });
+    const retryPrepared = await ctx.llm.prepareCall({ provider, model, maxTokens: 8000, reasoningEffort: 'low' }, AbortSignal.timeout(30000));
+    value = await runCall(retryPrepared, retryMessage, retrySystem, 'canvas-text-transcription-retry');
+    transcriptionRetry = true;
+  }
+  return { value, width: imageWidth, height: imageHeight, provider, model, transcriptionRetry };
 }
 
 function visionBlocksRelativeToRegion(value, width, height, region) {
@@ -1372,6 +1394,8 @@ function apply(ctx) {
           let tempBlocks = '';
           let tempVisionCrop = '';
           let tempVisionMask = '';
+          let tempVisionOcr = '';
+          let visionCropMapping = null;
           try {
             const body = JSON.parse(await readBody(req) || '{}');
             const uploaded = decodeImageData(body.imageData);
@@ -1408,24 +1432,30 @@ function apply(ctx) {
                   tempInput = join(outputDir, '.ocr-input-' + token + '.' + uploaded.ext);
                   tempVisionCrop = join(outputDir, '.vision-crop-' + token + '.png');
                   tempVisionMask = join(outputDir, '.vision-mask-' + token + '.png');
+                  tempVisionOcr = join(outputDir, '.vision-ocr-' + token + '.png');
                   await writeFile(tempInput, uploaded.bytes);
                   const pluginRoot = dirname(dirname(fileURLToPath(import.meta.url)));
                   const cropScript = join(pluginRoot, 'scripts', 'prepare_text_vision_crop.py');
                   const cropPython = await resolvePython(ctx);
-                  const cropResult = await runProcessWithTimeout(cropPython.executable, [...cropPython.prefixArgs, cropScript, '--input', tempInput, '--output', tempVisionCrop, '--mask-output', tempVisionMask, '--region', JSON.stringify(recognitionCrops[0])], pluginRoot, 30000);
+                  const cropResult = await runProcessWithTimeout(cropPython.executable, [...cropPython.prefixArgs, cropScript, '--input', tempInput, '--output', tempVisionCrop, '--mask-output', tempVisionMask, '--ocr-output', tempVisionOcr, '--region', JSON.stringify(recognitionCrops[0])], pluginRoot, 30000);
                   const cropLines = String(cropResult.stdout || '').trim().split(/\r?\n/).filter(Boolean);
                   let cropPayload = null;
                   try { cropPayload = cropLines.length ? JSON.parse(cropLines[cropLines.length - 1]) : null; } catch (err) { cropPayload = null; }
                   if (cropResult.exitCode === 0 && cropPayload && cropPayload.success === true) {
                     modelUploaded = { bytes: await readFile(tempVisionCrop), mime: 'image/png', ext: 'png' };
                     const maskUploaded = { bytes: await readFile(tempVisionMask), mime: 'image/png', ext: 'png' };
+                    // Some provider adapters only forward the first image in
+                    // a multi-image message. Put the transcription target
+                    // first, while still supplying the full image and mask.
                     modelBody = { ...body, width: cropPayload.outputWidth, height: cropPayload.outputHeight, crops: [], selectionCrop: true,
-                      visionUploads: [uploaded, maskUploaded, modelUploaded] };
+                      visionUploads: [modelUploaded, uploaded, maskUploaded] };
                     cropMapping = cropPayload;
+                    visionCropMapping = cropPayload;
                     logOperation('文字识别：已放大选区送入聊天模型 · ' + cropPayload.outputWidth + '×' + cropPayload.outputHeight);
                   }
                 }
                 const analyzed = await analyzeTextWithCurrentModel(ctx, modelUploaded, modelBody);
+                if (analyzed.transcriptionRetry) logOperation('文字识别：首轮为空，已使用当前聊天模型纯转写重试');
                 const intersects = (block, region) => {
                   const iw = Math.max(0, Math.min(block.x + block.width, region.x + region.width) - Math.max(block.x, region.x));
                   const ih = Math.max(0, Math.min(block.y + block.height, region.y + region.height) - Math.max(block.y, region.y));
@@ -1518,15 +1548,15 @@ function apply(ctx) {
             // for installations that already provide the older stack.
             let python = null;
             try { python = await resolvePython(ctx); } catch (err) {}
-            const runOcr = async (crop) => {
+            const runOcr = async (crop, inputPath = tempInput, inputWidth = Number(body.width || 0), inputHeight = Number(body.height || 0)) => {
               try {
                 return await recognizeWithTesseractJs({
                   ctx,
                   runProcessWithTimeout,
                   cwd: pluginRoot,
-                  inputPath: tempInput,
-                  width: Number(body.width || 0),
-                  height: Number(body.height || 0),
+                  inputPath,
+                  width: inputWidth,
+                  height: inputHeight,
                   lang: String(body.lang || 'chi_sim+eng'),
                   psm: String(body.psm || '11'),
                   crop,
@@ -1549,9 +1579,32 @@ function apply(ctx) {
                 return { ...payload, engine: 'tesseract' };
               }
             };
-            const payloads = requestedCrops.length ? [] : [await runOcr(null)];
-            for (const crop of recognitionCrops) payloads.push(await runOcr(crop));
-            const payload = payloads[0] || { width: 1, height: 1 };
+            let payloads = [];
+            if (requestedCrops.length === 1 && tempVisionCrop && visionCropMapping) {
+              let cropPayload = await runOcr(null, tempVisionCrop, Number(visionCropMapping.outputWidth || 0), Number(visionCropMapping.outputHeight || 0));
+              if ((!Array.isArray(cropPayload.blocks) || !cropPayload.blocks.length) && tempVisionOcr) {
+                cropPayload = await runOcr(null, tempVisionOcr, Number(visionCropMapping.outputWidth || 0), Number(visionCropMapping.outputHeight || 0));
+                logOperation('文字识别：彩色高清选区未命中，已使用黑字白底增强图');
+              }
+              const scaleX = Math.max(0.0001, Number(visionCropMapping.scaleX || 1));
+              const scaleY = Math.max(0.0001, Number(visionCropMapping.scaleY || 1));
+              cropPayload.blocks = (Array.isArray(cropPayload.blocks) ? cropPayload.blocks : []).map((block) => ({
+                ...block,
+                x: Math.round(Number(visionCropMapping.x || 0) + Number(block.x || 0) / scaleX),
+                y: Math.round(Number(visionCropMapping.y || 0) + Number(block.y || 0) / scaleY),
+                width: Math.max(1, Math.round(Number(block.width || 1) / scaleX)),
+                height: Math.max(1, Math.round(Number(block.height || 1) / scaleY)),
+                fontSize: Math.max(8, Math.round(Number(block.fontSize || 8) / scaleY)),
+              }));
+              cropPayload.width = Number(body.width || 1);
+              cropPayload.height = Number(body.height || 1);
+              payloads = [cropPayload];
+              logOperation('文字识别：本地兜底改用高清选区 · ' + Number(visionCropMapping.outputWidth || 0) + '×' + Number(visionCropMapping.outputHeight || 0));
+            } else {
+              payloads = requestedCrops.length ? [] : [await runOcr(null)];
+              for (const crop of recognitionCrops) payloads.push(await runOcr(crop));
+            }
+            const payload = payloads[0] || { width: Number(body.width || 1), height: Number(body.height || 1) };
             let blocks = [];
             const seenBlocks = new Set();
             for (const item of payloads.flatMap((entry) => Array.isArray(entry.blocks) ? entry.blocks : [])) {
@@ -1596,6 +1649,7 @@ function apply(ctx) {
             if (tempBlocks) await unlink(tempBlocks).catch(() => {});
             if (tempVisionCrop) await unlink(tempVisionCrop).catch(() => {});
             if (tempVisionMask) await unlink(tempVisionMask).catch(() => {});
+            if (tempVisionOcr) await unlink(tempVisionOcr).catch(() => {});
           }
           return;
         }

@@ -20,6 +20,7 @@ def main() -> int:
     parser.add_argument("--input", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--mask-output", type=Path)
+    parser.add_argument("--ocr-output", type=Path)
     parser.add_argument("--region", required=True)
     args = parser.parse_args()
     try:
@@ -42,6 +43,14 @@ def main() -> int:
         crop = crop.filter(ImageFilter.UnsharpMask(radius=1.2, percent=115, threshold=3))
         args.output.parent.mkdir(parents=True, exist_ok=True)
         crop.save(args.output, format="PNG", optimize=True)
+        if args.ocr_output:
+            # Tesseract is unreliable on light glyphs over saturated colour.
+            # Convert likely bright lettering to black on white while keeping
+            # the lossless colour crop for the vision model.
+            gray = crop.convert("L")
+            ocr_crop = gray.point(lambda value: 0 if value >= 205 else 255, mode="1")
+            args.ocr_output.parent.mkdir(parents=True, exist_ok=True)
+            ocr_crop.save(args.ocr_output, format="PNG", optimize=True)
         if args.mask_output:
             # A high-contrast full-size mask is sent beside the source image.
             # White is the only region the model may transcribe; black must be
@@ -58,6 +67,7 @@ def main() -> int:
             "scaleX": crop.width / max(1, x1 - x0),
             "scaleY": crop.height / max(1, y1 - y0),
             "maskOutput": str(args.mask_output) if args.mask_output else "",
+            "ocrOutput": str(args.ocr_output) if args.ocr_output else "",
         }, ensure_ascii=False))
         return 0
     except Exception as exc:
