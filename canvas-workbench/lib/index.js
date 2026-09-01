@@ -1469,6 +1469,7 @@ function apply(ctx) {
                       && centerY >= Number(region.y || 0) && centerY <= Number(region.y || 0) + Number(region.height || 0));
                 };
                 let understood = visionBlocks(analyzed.value, analyzed.width, analyzed.height);
+                logOperation('文字识别：聊天模型原始返回 · ' + (Array.isArray(analyzed.value && analyzed.value.blocks) ? analyzed.value.blocks.length : 0) + ' 个 blocks；规范化后 ' + understood.length + ' 个');
                 if (cropMapping) {
                   const scaleX = Math.max(0.0001, Number(cropMapping.scaleX || 1));
                   const scaleY = Math.max(0.0001, Number(cropMapping.scaleY || 1));
@@ -1481,7 +1482,13 @@ function apply(ctx) {
                     fontSize: Math.max(8, Math.round(Number(block.fontSize || 8) / scaleY)),
                   }));
                 }
-                let blocks = requestedCrops.length
+                // The annotated-image prompt already restricts output to the
+                // blue rectangle. Do not discard valid recognized text a
+                // second time based on model-estimated geometry: providers
+                // vary between pixel, 0-1 and 0-1000 coordinate conventions.
+                let blocks = modelBody.selectionAnnotated
+                  ? understood
+                  : requestedCrops.length
                   ? understood.filter((block) => requestedCrops.some((region) => intersects(block, region)))
                   : understood;
                 let coordinateMode = cropMapping ? 'upscaled-selection-crop' : 'full-image';
@@ -1490,7 +1497,7 @@ function apply(ctx) {
                 // despite being asked for full-image coordinates. Reproject
                 // that valid text instead of discarding every row and falling
                 // into a weaker OCR engine.
-                if (!blocks.length && understood.length && requestedCrops.length) {
+                if (!modelBody.selectionAnnotated && !blocks.length && understood.length && requestedCrops.length) {
                   const left = Math.min(...requestedCrops.map((item) => Number(item.x || 0)));
                   const top = Math.min(...requestedCrops.map((item) => Number(item.y || 0)));
                   const right = Math.max(...requestedCrops.map((item) => Number(item.x || 0) + Number(item.width || 0)));
