@@ -164,14 +164,6 @@ window.__ModuleLoader__.load({
       // 保留旧键，便于尚未热更新的同页副本读取到最新绑定。
       writeStorageValue(window.sessionStorage, LEGACY_PROJECT_CHOICES_KEY, flatLegacy);
       writeStorageValue(window.sessionStorage, PROJECT_CHOICES_KEY, serialized);
-      // imagegen runs in the host process and cannot read renderer localStorage.
-      // Synchronize the selected project so successful chat generations are
-      // written into assets automatically, without relying on output_path.
-      fetch('/api/dsh-canvas/active-project', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cwd, project: value, sessionId: sessionId || '' })
-      }).catch(() => {});
     }
 
     // ---- HTTP helpers ----
