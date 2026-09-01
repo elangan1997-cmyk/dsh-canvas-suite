@@ -57,24 +57,11 @@ def main() -> int:
         draw = ImageDraw.Draw(selected)
         count = 0
         region_count = 0
-        # Explicit user regions are authoritative.  Painting the exact region
-        # avoids leaving glyph fragments when a vision/OCR box is too small or
-        # slightly displaced.  The user can deliberately include enough local
-        # background for image2 to reconstruct a clean plate.
-        for raw in regions[:24]:
-            if not isinstance(raw, dict):
-                continue
-            x0 = max(0.0, _number(raw.get("x")))
-            y0 = max(0.0, _number(raw.get("y")))
-            x1 = min(width, x0 + max(0.0, _number(raw.get("width"))))
-            y1 = min(height, y0 + max(0.0, _number(raw.get("height"))))
-            if x1 - x0 < 6 or y1 - y0 < 6:
-                continue
-            draw.rectangle((round(x0), round(y0), round(x1), round(y1)), fill=255)
-            region_count += 1
-
-        # Compatibility fallback for callers that do not yet pass selections.
-        for raw in ([] if region_count else blocks[:200]):
+        # Repaint the reviewed text boxes, not the whole selection rectangle.
+        # A large selection often contains products, spheres, lines or other
+        # geometry. Sending that whole rectangle to image2 makes those objects
+        # move and creates a visible rectangular seam at composite time.
+        for raw in blocks[:200]:
             if not isinstance(raw, dict) or raw.get("enabled") is False:
                 continue
             text = str(raw.get("text") or "").strip()
@@ -96,13 +83,29 @@ def main() -> int:
             draw.rectangle((round(max(0.0, x0)), round(max(0.0, y0)), round(min(width, x1)), round(min(height, y1))), fill=255)
             count += 1
 
+        # If recognition produced no usable rows, retain the user region as a
+        # conservative compatibility fallback instead of turning the request
+        # into a no-op. Normal reviewed exports always take the block path.
+        if not count:
+            for raw in regions[:24]:
+                if not isinstance(raw, dict):
+                    continue
+                x0 = max(0.0, _number(raw.get("x")))
+                y0 = max(0.0, _number(raw.get("y")))
+                x1 = min(width, x0 + max(0.0, _number(raw.get("width"))))
+                y1 = min(height, y0 + max(0.0, _number(raw.get("height"))))
+                if x1 - x0 < 6 or y1 - y0 < 6:
+                    continue
+                draw.rectangle((round(x0), round(y0), round(x1), round(y1)), fill=255)
+                region_count += 1
+
         # A fully opaque mask is a safe no-op if every OCR candidate was
         # disabled; it also makes accidental whole-image generation impossible.
         mask_count = region_count or count
         if mask_count:
             # Give the image model a visibly soft transition.  The later
             # composite still restores every pixel outside this declared mask.
-            blur_radius = max(3.0, min(8.0, min(width, height) * 0.0035))
+            blur_radius = max(6.0, min(16.0, min(width, height) * 0.0075))
             selected = selected.filter(ImageFilter.GaussianBlur(blur_radius))
         alpha = selected.point(lambda value: 255 - value)
         result = Image.new("RGBA", image.size, (255, 255, 255, 255))
