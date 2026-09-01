@@ -1337,11 +1337,26 @@ function apply(ctx) {
             let visionWarning = '';
             const validCrop = (item) => item && typeof item === 'object' && Number(item.width || 0) >= 6 && Number(item.height || 0) >= 6;
             const requestedCrops = Array.isArray(body.crops) ? body.crops.filter(validCrop).slice(0, 24) : (validCrop(body.crop) ? [body.crop] : []);
+            // A box drawn exactly on the glyph bounds clips antialiasing,
+            // ascenders/descenders and the neighbouring context required by
+            // both vision models and OCR. Expand only the recognition crop;
+            // the original user rectangle remains the eligibility boundary.
+            const sourceWidth = Math.max(1, Number(body.width || 1));
+            const sourceHeight = Math.max(1, Number(body.height || 1));
+            const recognitionCrops = requestedCrops.map((crop) => {
+              const x = Number(crop.x || 0), y = Number(crop.y || 0);
+              const width = Number(crop.width || 0), height = Number(crop.height || 0);
+              const padX = Math.max(8, Math.min(48, width * 0.12));
+              const padY = Math.max(8, Math.min(48, height * 0.22));
+              const left = Math.max(0, x - padX), top = Math.max(0, y - padY);
+              const right = Math.min(sourceWidth, x + width + padX), bottom = Math.min(sourceHeight, y + height + padY);
+              return { x: Math.round(left), y: Math.round(top), width: Math.max(1, Math.round(right - left)), height: Math.max(1, Math.round(bottom - top)) };
+            });
             logOperation('文字识别：开始 · ' + requestedCrops.length + ' 个选区 · ' + (body.model || '未取得聊天模型'));
             // 用户先框选，再由聊天输入框当前模型理解选区内文字与背景。
             if (body.provider && body.model) {
               try {
-                const analyzed = await analyzeTextWithCurrentModel(ctx, uploaded, body);
+                const analyzed = await analyzeTextWithCurrentModel(ctx, uploaded, { ...body, crops: recognitionCrops });
                 const intersects = (block, region) => {
                   const iw = Math.max(0, Math.min(block.x + block.width, region.x + region.width) - Math.max(block.x, region.x));
                   const ih = Math.max(0, Math.min(block.y + block.height, region.y + region.height) - Math.max(block.y, region.y));
@@ -1421,7 +1436,7 @@ function apply(ctx) {
               }
             };
             const payloads = requestedCrops.length ? [] : [await runOcr(null)];
-            for (const crop of requestedCrops) payloads.push(await runOcr(crop));
+            for (const crop of recognitionCrops) payloads.push(await runOcr(crop));
             const payload = payloads[0] || { width: 1, height: 1 };
             let blocks = [];
             const seenBlocks = new Set();
@@ -1604,17 +1619,42 @@ function apply(ctx) {
 
             let photoshop = false;
             let photoshopWarning = '';
-            const jsxPayload = JSON.stringify({ input: draftPsd, output: finalPsd, blocks: exportBlocks, cleanBackground: Boolean(cleanInput) });
+            // Keep the JSX ASCII-only so Windows Photoshop never decodes
+            // Chinese text/path metadata through a legacy code page.
+            const jsxPayload = JSON.stringify({ input: draftPsd, output: finalPsd, blocks: exportBlocks, cleanBackground: Boolean(cleanInput) })
+              .replace(/[\u007f-\uffff]/g, (character) => '\\u' + character.charCodeAt(0).toString(16).padStart(4, '0'));
             const jsx = '#target photoshop\n(function(){\n'
               + 'var cfg=' + jsxPayload + ';\n'
               + 'function rgb(value){var m=String(value||"#111827").replace("#",""); if(m.length!==6)m="111827"; var c=new SolidColor(); c.rgb.red=parseInt(m.substr(0,2),16); c.rgb.green=parseInt(m.substr(2,2),16); c.rgb.blue=parseInt(m.substr(4,2),16); return c;}\n'
-              + 'try{var doc=app.open(new File(cfg.input)); var list=cfg.blocks||[]; for(var i=0;i<list.length;i++){var b=list[i]||{}; if(b.enabled===false||!String(b.text||"").replace(/^[\\s\\r\\n]+|[\\s\\r\\n]+$/g,""))continue; var layer=doc.artLayers.add(); layer.kind=LayerKind.TEXT; layer.name="OCR text "+(i+1)+" (review before enabling)"; var ti=layer.textItem; ti.contents=String(b.text||""); ti.position=[Number(b.x||0),Number(b.y||0)+Math.max(8,Number(b.fontSize||24))]; ti.size=Math.max(8,Number(b.fontSize||24)); try{ti.font=String(b.fontPostScript||b.fontFamily||"PingFangSC-Regular");}catch(fontErr){try{ti.font="ArialMT";}catch(fontFallbackErr){}} ti.color=rgb(b.color); try{ti.justification=Justification.LEFT;}catch(justErr){} layer.visible=false;} for(var g=0;g<doc.layerSets.length;g++){try{if(String(doc.layerSets[g].name)==="OCR text preview - replace in Photoshop")doc.layerSets[g].visible=false;}catch(groupErr){}} var opts=new PhotoshopSaveOptions(); opts.layers=true; doc.saveAs(new File(cfg.output),opts,true,Extension.LOWERCASE); doc.close(SaveOptions.DONOTSAVECHANGES); }catch(err){try{if(doc)doc.close(SaveOptions.DONOTSAVECHANGES);}catch(closeErr){} throw err;}\n})();\n';
+              + 'try{var doc=app.open(new File(cfg.input)); var list=cfg.blocks||[]; for(var i=0;i<list.length;i++){var b=list[i]||{}; var text=String(b.text||"").replace(/^[\\s\\r\\n]+|[\\s\\r\\n]+$/g,""); if(b.enabled===false||!text)continue; var layer=doc.artLayers.add(); layer.kind=LayerKind.TEXT; layer.name="文字 "+(i+1)+" · "+text.substr(0,24); var ti=layer.textItem; ti.contents=text; ti.position=[Number(b.x||0),Number(b.y||0)+Math.max(8,Number(b.fontSize||24))]; ti.size=Math.max(8,Number(b.fontSize||24)); try{ti.font=String(b.fontPostScript||b.fontFamily||"PingFangSC-Regular");}catch(fontErr){try{ti.font="ArialMT";}catch(fontFallbackErr){}} ti.color=rgb(b.color); try{ti.justification=Justification.LEFT;}catch(justErr){} layer.visible=true;} for(var g=0;g<doc.layerSets.length;g++){try{if(String(doc.layerSets[g].name)==="OCR text preview - replace in Photoshop")doc.layerSets[g].visible=false;}catch(groupErr){}} var opts=new PhotoshopSaveOptions(); opts.layers=true; doc.saveAs(new File(cfg.output),opts,true,Extension.LOWERCASE); doc.close(SaveOptions.DONOTSAVECHANGES); }catch(err){try{if(doc)doc.close(SaveOptions.DONOTSAVECHANGES);}catch(closeErr){} throw err;}\n})();\n';
             await writeFile(jsxPath, jsx, 'utf8');
             // Explicit UTF-8 decoding prevents Chinese `contents` from being
             // interpreted with the host's legacy Mac encoding.
             const appleScript = 'tell application id "com.adobe.Photoshop"\nactivate\ndo javascript (read POSIX file ' + JSON.stringify(jsxPath) + ' as «class utf8»)\nend tell\n';
             await writeFile(appleScriptPath, appleScript, 'utf8');
-            if (body.openPhotoshop !== false && isMac) {
+            if (body.openPhotoshop !== false && isWindows) {
+              try {
+                const settings = await readImageEngineSettings();
+                const executable = await findWindowsAdobeExecutable('photoshop', ctx, runProcess, settings.photoshopPath);
+                if (!executable) throw new Error('未找到 Adobe Photoshop');
+                const powershell = await ctx.subprocess.resolveExecutable('powershell.exe');
+                const literal = (value) => "'" + String(value || '').replace(/'/g, "''") + "'";
+                const launchScript = 'Start-Process -FilePath ' + literal(executable) + ' -ArgumentList @(' + literal('-r') + ',' + literal(jsxPath) + ')';
+                const launched = await runProcess(powershell, ['-NoLogo', '-NoProfile', '-Command', launchScript], outputDir);
+                if (launched.exitCode !== 0) throw new Error(launched.stderr.trim() || 'Photoshop 脚本启动失败');
+                const deadline = Date.now() + 90000;
+                while (Date.now() < deadline) {
+                  try {
+                    const info = await stat(finalPsd);
+                    if (info.isFile() && info.size > 0) { photoshop = true; break; }
+                  } catch (err) {}
+                  await new Promise((resolve) => setTimeout(resolve, 500));
+                }
+                if (!photoshop) photoshopWarning = 'Photoshop 未在 90 秒内返回文字层 PSD，已使用草稿兜底';
+              } catch (err) {
+                photoshopWarning = String((err && err.message) || err) + '，已使用 PSD 草稿兜底';
+              }
+            } else if (body.openPhotoshop !== false && isMac) {
               try {
                 const osascript = await ctx.subprocess.resolveExecutable('osascript');
                 const scripted = await runProcessWithTimeout(osascript, [appleScriptPath], outputDir, 120000);
@@ -1626,7 +1666,7 @@ function apply(ctx) {
             } else if (body.openPhotoshop === false) {
               photoshopWarning = '已生成 PSD 草稿（未调用 Photoshop），原图与 OCR 文字预览均已保留';
             } else {
-              photoshopWarning = 'Windows 初级版已生成可打开的 PSD；原生 Photoshop 文字层自动化暂仅支持 macOS';
+              photoshopWarning = '已生成可打开的 PSD 草稿；未执行 Photoshop 原生文字层写入';
             }
             const sourcePsd = photoshop ? finalPsd : draftPsd;
             const bytes = await readFile(sourcePsd);

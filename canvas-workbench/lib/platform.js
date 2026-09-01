@@ -164,7 +164,7 @@ export function platformCapabilities() {
     macOS: isMac,
     nativeFolderPicker: isWindows || isMac,
     revealFile: true,
-    adobeNativeTextLayers: isMac,
+      adobeNativeTextLayers: isMac || isWindows,
     adobeOpenByFileAssociation: isWindows,
     localPythonFeatures: 'requires-python'
   };
