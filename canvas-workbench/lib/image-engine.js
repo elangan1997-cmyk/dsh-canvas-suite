@@ -243,6 +243,13 @@ async function generateWithApi({ image, mask, prompt, settings, signal }) {
     } catch (error) {
       if (signal && signal.aborted) throw new Error('画布图片任务超过总等待时间，本机已停止请求；API 可能尚未受理，请在恢复的窗口中重试');
       lastFailure = error && error.name === 'TimeoutError' ? '请求超时' : String((error && error.message) || error);
+      // A timed-out generation may still be running upstream. Retrying it
+      // immediately doubles both the wait (previously ~370s) and the chance
+      // of being billed twice, while the Desktop UI looks frozen. Retry one
+      // transient connection failure, but surface a full 180s timeout now.
+      if (error && error.name === 'TimeoutError') {
+        throw new Error('image2 API 生成超过 180 秒，已停止等待且不会自动重复提交；请检查模型、输入尺寸和服务商任务状态后重试');
+      }
       if (attempt < maxAttempts) { await waitForImageApiRetry(Math.min(40000, 10000 * (2 ** Math.max(0, attempt - 1))), signal); continue; }
       throw new Error(`image2 API 连接失败：${lastFailure}（已自动重试 ${maxAttempts - 1} 次）`);
     }

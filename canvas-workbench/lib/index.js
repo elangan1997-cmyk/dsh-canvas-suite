@@ -470,7 +470,10 @@ async function analyzeTextWithCurrentModel(ctx, uploaded, body) {
   const attachment = await ctx.attachments.saveImage({ data: new Uint8Array(uploaded.bytes), mediaType, name: String(body.name || '画布图片') });
   const info = await ctx.llm.resolveModelInfo(provider, model, AbortSignal.timeout(15000));
   if (info && info.capabilities && info.capabilities.imageInput === false) throw new Error('当前聊天模型不支持图片输入');
-  const prepared = await ctx.llm.prepareCall({ provider, model, maxTokens: 6000, ...(body.reasoningEffort ? { reasoningEffort: String(body.reasoningEffort) } : {}) }, AbortSignal.timeout(180000));
+  // Vision models with visible/hidden reasoning can exhaust a 6k budget
+  // before emitting the requested JSON. Keep this utility call deterministic
+  // and leave enough room for multi-region text metadata.
+  const prepared = await ctx.llm.prepareCall({ provider, model, maxTokens: 16000, reasoningEffort: 'low' }, AbortSignal.timeout(30000));
   const imageWidth = Math.max(1, Number(attachment.width || body.width || 1));
   const imageHeight = Math.max(1, Number(attachment.height || body.height || 1));
   const crops = Array.isArray(body.crops) ? body.crops : [];
@@ -485,7 +488,7 @@ async function analyzeTextWithCurrentModel(ctx, uploaded, body) {
     : '分析整张设计图中的可编辑文字。请结合完整图片理解品牌、品类和规格，返回严格 JSON、每个文字块下方的背景特征，以及可直接用于局部修复的动态 erasePrompt。';
   const message = createUserMessage({ source: { kind: 'plugin', plugin: name }, content: [{ type: 'text', text: instruction }, { type: 'image', attachment }] });
   const assembler = new BlockAssembler();
-  const signal = AbortSignal.timeout(180000);
+  const signal = AbortSignal.timeout(120000);
   for await (const chunk of prepared.stream({ ...prepared.config, messages: [message], system: TEXT_VISION_SYSTEM, signal, purpose: 'canvas-text-analysis' })) assembler.push(chunk);
   const finish = assembler.finish;
   if (finish.kind !== 'stop') throw new Error('当前聊天模型识别未正常完成：' + finish.kind);
@@ -850,7 +853,8 @@ function apply(ctx) {
         const requestPathname = qi === -1 ? raw : raw.slice(0, qi);
         const pathname = requestPathname.startsWith('/api/dsh-canvas') ? requestPathname.slice(4) : requestPathname;
         const query = qi === -1 ? '' : raw.slice(qi + 1);
-        if (pathname !== '/dsh-canvas/log') logOperation(req.method + ' ' + pathname);
+        const quietRoutes = new Set(['/dsh-canvas/log', '/dsh-canvas/project-files', '/dsh-canvas/check-sources', '/dsh-canvas/state', '/dsh-canvas/image', '/dsh-canvas/remove-background-progress']);
+        if (!quietRoutes.has(pathname)) logOperation(req.method + ' ' + pathname);
         if (pathname === '/dsh-canvas/log' && req.method === 'GET') {
           respond(res, 200, { ...CORS, 'content-type': 'application/json', 'cache-control': 'no-store' }, JSON.stringify({ ok: true, entries: operationLog.slice(0, 200) }));
           return;
@@ -1042,12 +1046,14 @@ function apply(ctx) {
               target = rendered.path;
               contentType = rendered.mime;
             } else if (kind === 'pdf' || kind === 'ai') {
+              logOperation('文档预览：开始转换 ' + kind.toUpperCase() + ' · ' + basename(path));
               const rendered = await documentPreviewPath(path, info.mtimeMs, kind);
               target = rendered.path;
               contentType = rendered.mime;
             }
             const bytes = await readFile(target);
             if (!bytes.length || bytes.length > MAX_IMAGE_BYTES) throw new Error('preview too large');
+            if (kind === 'pdf' || kind === 'ai') logOperation('文档预览：完成 · ' + basename(path) + ' · ' + bytes.byteLength + ' bytes');
             respond(res, 200, { ...CORS, 'content-type': contentType || 'application/octet-stream', 'content-length': String(bytes.byteLength), 'cache-control': 'no-store' }, bytes);
           } catch (err) {
             respond(res, 404, { ...CORS, 'content-type': 'text/plain' }, 'preview unavailable');
@@ -1230,6 +1236,7 @@ function apply(ctx) {
             let visionWarning = '';
             const validCrop = (item) => item && typeof item === 'object' && Number(item.width || 0) >= 6 && Number(item.height || 0) >= 6;
             const requestedCrops = Array.isArray(body.crops) ? body.crops.filter(validCrop).slice(0, 24) : (validCrop(body.crop) ? [body.crop] : []);
+            logOperation('文字识别：开始 · ' + requestedCrops.length + ' 个选区 · ' + (body.model || '未取得聊天模型'));
             // 用户先框选，再由聊天输入框当前模型理解选区内文字与背景。
             if (body.provider && body.model) {
               try {
@@ -1254,6 +1261,7 @@ function apply(ctx) {
                 const modelErasePrompt = String(analyzed.value.erasePrompt || '').trim();
                 const erasePrompt = (modelErasePrompt || ('仅擦除所选文字并按邻近真实背景连续补全。局部背景特征：' + hints.join('；')))
                   .slice(0, 2400);
+                logOperation('文字识别：聊天模型完成 · ' + blocks.length + ' 个文字对象 · ' + analyzed.model);
                 respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({
                   ok: true, width: analyzed.width, height: analyzed.height, blocks, crops: requestedCrops,
                   schemaVersion: 1, erasePrompt,
@@ -1262,6 +1270,7 @@ function apply(ctx) {
                 return;
               } catch (err) {
                 visionWarning = '当前聊天模型识别失败，已自动切换本地 OCR：' + String((err && err.message) || err);
+                logOperation('文字识别：聊天模型失败，切换本地 OCR · ' + String((err && err.message) || err), 'warn');
               }
             } else if (requestedCrops.length) {
               visionWarning = '未取得聊天输入框的当前模型，已使用本地 OCR';
@@ -1348,6 +1357,7 @@ function apply(ctx) {
             } catch (err) {}
             blocks.forEach((item, index) => { if (item && typeof item === 'object') item.id = 'ocr-' + (index + 1); });
             const localEngine = payloads.some((entry) => entry && entry.engine === 'tesseract') ? 'tesseract' : 'tesseract.js';
+            logOperation('文字识别：本地兜底完成 · ' + blocks.length + ' 个文字对象 · ' + localEngine);
             respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true, width: payload.width, height: payload.height, blocks, crops: requestedCrops, engine: localEngine, styleEngine, warning: visionWarning }));
           } catch (err) {
             respond(res, 500, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: String((err && err.message) || err) }));
@@ -1935,6 +1945,7 @@ function apply(ctx) {
             const body = JSON.parse(await readBody(req));
             const projectDir = projectDirectory(body.cwd, body.project);
             if (!projectDir) throw new Error('当前聊天没有画布项目');
+            logOperation('去背景：开始 · ' + String(body.name || '画布图片'));
             jobId = cleanJobId(body.jobId) || ('bg-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8));
             progressPath = progressPathFor(projectDir, jobId);
             await mkdir(dirname(progressPath), { recursive: true });
@@ -1963,11 +1974,13 @@ function apply(ctx) {
             if (result.exitCode !== 0 || !payload || payload.success !== true || !isImagePath(payload.image)) {
               throw new Error((payload && payload.error) || result.stderr.trim() || 'rembg 去背景失败');
             }
+            logOperation('去背景：模型完成，正在校验尺寸并保存');
             const finalBytes = await readFile(tempOutput);
             const originalName = safeImageName(body.name || '画布图片.png');
             const dot = originalName.lastIndexOf('.');
             const base = dot > 0 ? originalName.slice(0, dot) : originalName;
             const saved = await writeManagedImage(projectDir, base + '-去背景.png', 'data:image/png;base64,' + finalBytes.toString('base64'));
+            logOperation('去背景：完成 · ' + saved.name + ' · ' + saved.size + ' bytes');
             await writeProgressFile(progressPath, { ok: true, jobId, stage: 'complete', message: '去背景完成', percent: 100 });
             respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true, jobId, engine: 'rembg-isnet-general-use', model: 'isnet-general-use', transparent: true, image: saved }));
           } catch (err) {
@@ -1998,6 +2011,7 @@ function apply(ctx) {
             // 未提供 mode 时，才把 maskData 兼容解释为擦除任务。
             const explicitMode = body.mode === 'erase' ? 'erase' : (body.mode === 'edit' ? 'edit' : '');
             const mode = explicitMode || (typeof body.maskData === 'string' && body.maskData.startsWith('data:image/') ? 'erase' : 'edit');
+            logOperation('图片编辑：开始 · ' + (mode === 'erase' ? '局部擦除' : '图片修改') + ' · 第 ' + (Number(body.editDepth || 0) + 1) + ' 次');
             if (!prompt && mode !== 'erase') { respond(res, 400, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: '请输入图片修改提示词' })); return; }
             if (prompt.length > 4000) { respond(res, 400, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: '提示词过长' })); return; }
 
@@ -2081,6 +2095,7 @@ function apply(ctx) {
             if (tempMask) modelArgs.push('--mask', tempMask, '--output-mask', tempModelMask);
             const modelPrepared = await runProcess(python.executable, [...python.prefixArgs, ...modelArgs], pluginRoot);
             if (modelPrepared.exitCode !== 0) throw new Error(modelPrepared.stderr.trim() || '模型输入预处理失败');
+            logOperation('图片编辑：模型输入已标准化为最长边 1024px' + (tempMask ? '，遮罩尺寸已对齐' : ''));
             const sourceBytes = await readFile(tempModelInput);
             const maskBytes = tempModelMask ? await readFile(tempModelMask) : null;
             const generated = await generateImage({
@@ -2092,6 +2107,7 @@ function apply(ctx) {
               signal: AbortSignal.timeout(900000)
             });
             const engine = generated.engine;
+            logOperation('图片编辑：引擎返回完成 · ' + engine + '，正在与当前母版合成');
             tempGenerated = join(outputDir, '.image-edit-' + Date.now() + '-' + Math.random().toString(16).slice(2) + '.png');
             await writeFile(tempGenerated, generated.bytes);
             tempComposite = join(outputDir, '.composited-edit-' + Date.now() + '-' + Math.random().toString(16).slice(2) + '.png');
@@ -2099,12 +2115,14 @@ function apply(ctx) {
             if (tempMask) compositeArgs.push('--mask', tempMask);
             const composited = await runProcess(python.executable, [...python.prefixArgs, ...compositeArgs], pluginRoot);
             if (composited.exitCode !== 0) throw new Error(composited.stderr.trim() || '图片无损合成失败');
+            logOperation('图片编辑：合成完成，遮罩外像素已恢复');
 
             const finalBytes = await readFile(tempComposite);
             const originalName = safeImageName(body.name || '画布图片.png');
             const dot = originalName.lastIndexOf('.');
             const base = dot > 0 ? originalName.slice(0, dot) : originalName;
             const saved = await writeManagedImage(projectDir, base + (mode === 'erase' ? '-擦除.png' : '-编辑.png'), 'data:image/png;base64,' + finalBytes.toString('base64'));
+            logOperation('图片编辑：完成 · ' + saved.name + ' · ' + saved.size + ' bytes');
             const rootPath = rootSourcePath || (currentSourcePath && isRasterImagePath(currentSourcePath) ? currentSourcePath : saved.path);
             const nextHistory = previousHistory.concat([currentInstruction]).slice(-12);
             respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({

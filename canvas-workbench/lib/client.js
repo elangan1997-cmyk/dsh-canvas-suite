@@ -2570,7 +2570,11 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
           ? { ...prev, loading: true, hasDetected: false, error: '', blocks: [], erasePrompt: '' }
           : prev);
         setFeedback('正在让当前聊天模型理解 ' + regions.length + ' 个文字选区…');
-        const requestBody = { ...current, imageData: active.dataURL, name: active.name, crops: regions, ...(activeChatModelSelection || {}) };
+        const modelRoute = activeChatModelSelection || {};
+        // Recognition is a structured utility call; do not inherit the chat's
+        // High reasoning budget, which previously ended with `max-tokens`
+        // before any JSON reached the panel.
+        const requestBody = { ...current, imageData: active.dataURL, name: active.name, crops: regions, provider: modelRoute.provider || '', model: modelRoute.model || '' };
         fetch('/api/dsh-canvas/ocr-image', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -3324,7 +3328,8 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
       });
       const hidden = !on ? ' dsh-canvas-overlay-hidden' : '';
 
-      return React.createElement('div', { className: 'dsh-canvas-overlay' + hidden, style },
+      const desktopHost = window.deepseekDesktop ? ' dsh-canvas-desktop-host' : '';
+      return React.createElement('div', { className: 'dsh-canvas-overlay' + desktopHost + hidden, style },
         React.createElement('div', {
           className: 'dsh-canvas-resizer',
           onPointerDown: startResize,
@@ -3701,6 +3706,8 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
       ,'@media (prefers-color-scheme:light){.dsh-text-rebuild-overlay{background:rgba(241,245,249,.58)}.dsh-text-rebuild-panel{background:#fff;color:#111827;border-color:rgba(15,23,42,.14);box-shadow:0 22px 60px rgba(15,23,42,.2)}.dsh-text-rebuild-head,.dsh-text-rebuild-foot{border-color:rgba(15,23,42,.1)}.dsh-text-rebuild-subtitle,.dsh-text-rebuild-note,.dsh-text-rebuild-empty,.dsh-text-rebuild-row-top,.dsh-text-rebuild-row-controls label{color:#64748b}.dsh-text-rebuild-close{background:#f8fafc;border-color:#e5e7eb;color:#334155}.dsh-text-rebuild-preview{background:#f1f5f9;border-color:#e2e8f0}.dsh-text-rebuild-row{background:#f8fafc;border-color:#e2e8f0}.dsh-text-rebuild-row textarea,.dsh-text-rebuild-row-controls input[type=number],.dsh-text-rebuild-row-controls input[type=color],.dsh-text-rebuild-row-controls select{background:#fff;border-color:#cbd5e1;color:#111827}.dsh-text-rebuild-row-controls button,.dsh-text-rebuild-add{background:#f1f5f9;border-color:#cbd5e1;color:#334155}.dsh-text-rebuild-cancel{background:#fff;border-color:#cbd5e1;color:#334155}}'
       ,'@container (max-width:920px){.dsh-canvas-toolbar{flex-wrap:wrap}.dsh-canvas-hint,.dsh-canvas-feedback{order:20;flex:1 0 calc(100% - 24px);min-height:16px}.dsh-canvas-project{max-width:110px}.dsh-canvas-tb{padding:5px 9px;font-size:12px}}'
       ,'@container (max-width:680px){.dsh-canvas-status{display:none}.dsh-canvas-title{font-size:13px}.dsh-canvas-project{max-width:92px}.dsh-canvas-toolbar{gap:6px;padding:7px 9px}.dsh-canvas-tb{padding:5px 7px;font-size:11px}}'
+      ,'/* Electron places the native minimize/maximize/close controls over the top-right content. The browser build does not reserve this space. */'
+      ,'.dsh-canvas-desktop-host .dsh-canvas-toolbar{padding-right:152px}'
       ,'.dsh-canvas-overlay,.dsh-canvas-more-menu,.dsh-canvas-engine-card,.dsh-canvas-project-dialog,.dsh-canvas-log-card,.dsh-image-editor-panel,.dsh-text-rebuild-panel,.dsh-text-zoom-dialog,.dsh-canvas-lightbox-inner{box-shadow:none!important}'
     ].join('\n');
 
