@@ -516,7 +516,7 @@ async function analyzeTextWithCurrentModel(ctx, uploaded, body) {
     attachments.push(await ctx.attachments.saveImage({
       data: new Uint8Array(item.bytes), mediaType: itemMediaType,
       name: body.selectionCrop
-        ? (index === 0 ? '框选区域高清放大图' : index === 1 ? '原始整图' : '框选区域蒙版')
+        ? (index === 0 ? '用户框选区域截图' : index === 1 ? '原始整图' : '框选区域蒙版')
         : String(body.name || '画布图片')
     }));
   }
@@ -536,7 +536,7 @@ async function analyzeTextWithCurrentModel(ctx, uploaded, body) {
     width: Math.round(Math.max(0, Number(item.width || 0)) * 1000 / imageWidth),
     height: Math.round(Math.max(0, Number(item.height || 0)) * 1000 / imageHeight) }));
   const instruction = body.selectionCrop
-    ? '你将依次收到三张图片：1 框选区域的高清放大图；2 原始整图；3 与原图等尺寸的黑白蒙版，只有白色区域是用户框选目标，黑色区域必须忽略。请以第 1 张放大图逐行转写全部可见文字，并结合第 2 张整图校对语义、第 3 张蒙版确认目标范围。包括白色描边字、贴近边缘或轻微裁切的字；图中可见文字都属于待编辑目标，不得因为文字有描边或边缘不完整而返回空 blocks。blocks 坐标必须相对于第 1 张放大图，以 0-1000 表示。严格返回 JSON；每个文字对象包含内容、位置、字体类别、字重、字号、颜色、对齐、旋转、置信度及文字下方背景描述。erasePrompt 只描述清除 blocks 中这些文字并自然延展其下方背景，禁止删除产品、人物、图案、边框或蒙版外内容，禁止生成任何新文字。'
+    ? '这张图片是用户刚刚框选区域的直接截图，已经按原图像素裁剪并清晰放大；图片边界就是识别范围。请逐行读取截图中的全部可见文字，包括白字、描边字、贴近边缘或轻微裁切的字，不要分析截图外内容，不得返回空 blocks。blocks 坐标相对于当前截图，以 0-1000 表示。严格返回 JSON；每个文字对象包含内容、位置、字体类别、字重、字号、颜色、对齐、旋转、字距、行距、置信度及文字下方背景描述。erasePrompt 只描述清除这些文字并自然延展其下方背景，禁止生成任何新文字。'
     : normalized.length
     ? '用户框选区域（0-1000 整图归一化坐标）为：' + JSON.stringify(normalized)
       + '。只输出这些矩形内准备移除并重建为图层的文字；框外文字仅可作为语义校对依据，不得输出。请结合完整图片理解品牌、品类和规格，返回严格 JSON、每个文字块下方的背景特征，以及可直接用于局部修复的动态 erasePrompt。'
@@ -544,7 +544,7 @@ async function analyzeTextWithCurrentModel(ctx, uploaded, body) {
   const content = [{ type: 'text', text: instruction }];
   attachments.forEach((item, index) => {
     content.push({ type: 'text', text: body.selectionCrop
-      ? (index === 0 ? '图片 1：框选区域高清放大图（请从此图读取文字并输出坐标）' : index === 1 ? '图片 2：原始整图' : '图片 3：黑白框选蒙版（白色为目标）')
+      ? (index === 0 ? '用户框选区域截图：只识别这张图中的文字并返回 JSON。' : index === 1 ? '原始整图' : '黑白框选蒙版')
       : '待分析图片' });
     content.push({ type: 'image', attachment: item });
   });
@@ -1393,7 +1393,6 @@ function apply(ctx) {
           let tempInput = '';
           let tempBlocks = '';
           let tempVisionCrop = '';
-          let tempVisionMask = '';
           let tempVisionOcr = '';
           let visionCropMapping = null;
           try {
@@ -1431,24 +1430,22 @@ function apply(ctx) {
                   const token = Date.now() + '-' + Math.random().toString(16).slice(2);
                   tempInput = join(outputDir, '.ocr-input-' + token + '.' + uploaded.ext);
                   tempVisionCrop = join(outputDir, '.vision-crop-' + token + '.png');
-                  tempVisionMask = join(outputDir, '.vision-mask-' + token + '.png');
                   tempVisionOcr = join(outputDir, '.vision-ocr-' + token + '.png');
                   await writeFile(tempInput, uploaded.bytes);
                   const pluginRoot = dirname(dirname(fileURLToPath(import.meta.url)));
                   const cropScript = join(pluginRoot, 'scripts', 'prepare_text_vision_crop.py');
                   const cropPython = await resolvePython(ctx);
-                  const cropResult = await runProcessWithTimeout(cropPython.executable, [...cropPython.prefixArgs, cropScript, '--input', tempInput, '--output', tempVisionCrop, '--mask-output', tempVisionMask, '--ocr-output', tempVisionOcr, '--region', JSON.stringify(recognitionCrops[0])], pluginRoot, 30000);
+                  const cropResult = await runProcessWithTimeout(cropPython.executable, [...cropPython.prefixArgs, cropScript, '--input', tempInput, '--output', tempVisionCrop, '--ocr-output', tempVisionOcr, '--region', JSON.stringify(recognitionCrops[0])], pluginRoot, 30000);
                   const cropLines = String(cropResult.stdout || '').trim().split(/\r?\n/).filter(Boolean);
                   let cropPayload = null;
                   try { cropPayload = cropLines.length ? JSON.parse(cropLines[cropLines.length - 1]) : null; } catch (err) { cropPayload = null; }
                   if (cropResult.exitCode === 0 && cropPayload && cropPayload.success === true) {
                     modelUploaded = { bytes: await readFile(tempVisionCrop), mime: 'image/png', ext: 'png' };
-                    const maskUploaded = { bytes: await readFile(tempVisionMask), mime: 'image/png', ext: 'png' };
-                    // Some provider adapters only forward the first image in
-                    // a multi-image message. Put the transcription target
-                    // first, while still supplying the full image and mask.
+                    // Recognition deliberately receives only the direct crop.
+                    // The source and mask are kept for the later background
+                    // cleanup request, where global context is useful.
                     modelBody = { ...body, width: cropPayload.outputWidth, height: cropPayload.outputHeight, crops: [], selectionCrop: true,
-                      visionUploads: [modelUploaded, uploaded, maskUploaded] };
+                      visionUploads: [modelUploaded] };
                     cropMapping = cropPayload;
                     visionCropMapping = cropPayload;
                     logOperation('文字识别：已放大选区送入聊天模型 · ' + cropPayload.outputWidth + '×' + cropPayload.outputHeight);
@@ -1648,7 +1645,6 @@ function apply(ctx) {
             if (tempInput) await unlink(tempInput).catch(() => {});
             if (tempBlocks) await unlink(tempBlocks).catch(() => {});
             if (tempVisionCrop) await unlink(tempVisionCrop).catch(() => {});
-            if (tempVisionMask) await unlink(tempVisionMask).catch(() => {});
             if (tempVisionOcr) await unlink(tempVisionOcr).catch(() => {});
           }
           return;
