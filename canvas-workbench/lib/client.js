@@ -2569,7 +2569,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
           })
           .catch((err) => setTextRebuild((prev) => prev ? { ...prev, busy: false, error: '⚠ PSD 生成失败：' + String((err && err.message) || err) } : prev));
       };
-      const detectTextRebuild = (selectedRegions) => {
+      const detectTextRebuild = async (selectedRegions) => {
         const active = textRebuild;
         if (!active || active.busy || active.loading) return;
         const regions = (Array.isArray(selectedRegions) ? selectedRegions : (active.selections || [])).filter((item) => item && Number(item.width || 0) >= 6 && Number(item.height || 0) >= 6).slice(0, 24);
@@ -2586,33 +2586,55 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
         // Recognition is a structured utility call; do not inherit the chat's
         // High reasoning budget, which previously ended with `max-tokens`
         // before any JSON reached the panel.
-        const requestBody = { ...current, imageData: active.dataURL, name: active.name, crops: regions, provider: modelRoute.provider || '', model: modelRoute.model || '' };
-        fetch('/api/dsh-canvas/ocr-image', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(requestBody)
-        })
+        const requestBody = { ...current, imageData: active.dataURL, name: active.name, provider: modelRoute.provider || '', model: modelRoute.model || '' };
+        const recognizeOne = async (region) => {
+          const r = await fetch('/api/dsh-canvas/ocr-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...requestBody, crops: [region] })
+          });
           // Desktop 代理在异常时可能返回 HTML 错误页；不要再抛出
           // “Unexpected token <”，把状态码和可读错误展示给用户。
-          .then(async (r) => {
             const text = await r.text();
             let data = null;
             try { data = text ? JSON.parse(text) : null; } catch (e) {
               data = { ok: false, error: '桌面端接口返回了非 JSON 响应（HTTP ' + r.status + '）' };
             }
-            return { ok: r.ok, data };
-          })
-          .then((result) => {
-            if (!result.ok || !result.data || !result.data.ok) throw new Error(result.data && result.data.error || 'OCR 识别失败');
+            if (!r.ok || !data || !data.ok) throw new Error(data && data.error || 'OCR 识别失败');
+            return data;
+        };
+        try {
+            // Multiple blue boxes in one vision request frequently cause
+            // providers to merge regions or return an empty JSON. Process
+            // selections sequentially and merge their structured results.
+            const results = [];
+            const failures = [];
+            for (let index = 0; index < regions.length; index += 1) {
+              setFeedback('正在识别文字选区 ' + (index + 1) + '/' + regions.length + '…');
+              try { results.push(await recognizeOne(regions[index])); }
+              catch (error) { failures.push('选区 ' + (index + 1) + '：' + String(error && error.message || error)); }
+            }
+            if (!results.length) throw new Error(failures.join('；') || 'OCR 识别失败');
+            const mergedBlocks = [];
+            const seen = new Set();
+            results.flatMap((item) => Array.isArray(item.blocks) ? item.blocks : []).forEach((item) => {
+              const key = [String(item && item.text || '').trim(), Math.round(Number(item && item.x || 0)), Math.round(Number(item && item.y || 0))].join('|');
+              if (!seen.has(key)) { seen.add(key); mergedBlocks.push({ ...item, id: 'vision-' + (mergedBlocks.length + 1), enabled: item.enabled !== false }); }
+            });
+            const erasePrompt = results.map((item) => String(item.erasePrompt || '').trim()).filter(Boolean).join('\n').slice(0, 2400);
+            const eraseRegions = results.flatMap((item) => item.erasePlan && Array.isArray(item.erasePlan.regions) ? item.erasePlan.regions : []);
+            const first = results[0];
+            const merged = { ...first, blocks: mergedBlocks, erasePrompt, erasePlan: { schemaVersion: 1, operation: 'remove-recognized-text', prompt: erasePrompt, preserveOutsideMask: false, forbidNewText: true, regions: eraseRegions }, warning: failures.join('；') };
             setTextRebuild((prev) => prev && prev.elementId === active.elementId
-              ? { ...prev, loading: false, hasDetected: true, blocks: Array.isArray(result.data.blocks) ? result.data.blocks : [], erasePrompt: result.data.erasePrompt || '', erasePlan: result.data.erasePlan || null, engine: result.data.engine || 'tesseract', width: Number(result.data.width || prev.width || 0), height: Number(result.data.height || prev.height || 0) }
+              ? { ...prev, loading: false, hasDetected: true, blocks: mergedBlocks, erasePrompt, erasePlan: merged.erasePlan, engine: merged.engine || 'tesseract', width: Number(merged.width || prev.width || 0), height: Number(merged.height || prev.height || 0) }
               : prev);
-            const engineLabel = result.data.engine === 'current-chat-model' ? ('当前聊天模型 ' + (result.data.model || '')) : '本地 OCR 兜底';
-            setFeedback('✓ ' + engineLabel + ' 已理解选区内 ' + Number((result.data.blocks || []).length) + ' 个文字对象，请确认后执行' + (result.data.warning ? '；' + result.data.warning : ''));
-          })
-          .catch((err) => setTextRebuild((prev) => prev && prev.elementId === active.elementId
+            const engineLabel = merged.engine === 'current-chat-model' ? ('当前聊天模型 ' + (merged.model || '')) : '本地 OCR 兜底';
+            setFeedback('✓ ' + engineLabel + ' 已逐个理解 ' + results.length + ' 个选区、共 ' + mergedBlocks.length + ' 个文字对象，请确认后执行' + (merged.warning ? '；' + merged.warning : ''));
+        } catch (err) {
+          setTextRebuild((prev) => prev && prev.elementId === active.elementId
             ? { ...prev, loading: false, error: '⚠ OCR 失败：' + String((err && err.message) || err) }
-            : prev));
+            : prev);
+        }
       };
       const updateTextRebuildSelections = (regions) => {
         const normalized = (Array.isArray(regions) ? regions : []).filter((item) => item && Number(item.width || 0) >= 6 && Number(item.height || 0) >= 6).slice(0, 24);

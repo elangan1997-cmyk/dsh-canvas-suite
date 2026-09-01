@@ -1677,9 +1677,7 @@ function apply(ctx) {
         if (pathname === '/dsh-canvas/export-text-psd' && req.method === 'POST') {
           let tempInput = '';
           let tempBlocks = '';
-          let tempMask = '';
           let tempGenerated = '';
-          let tempClean = '';
           let draftPsd = '';
           let finalPsd = '';
           let jsxPath = '';
@@ -1758,39 +1756,24 @@ function apply(ctx) {
             let cleanupEngine = '';
             let cleanupWarning = '';
             const enabledBlocks = exportBlocks.filter((item) => item && item.enabled !== false && String(item.text || '').trim());
-            // Let the image model see and edit the complete source without an
-            // inpainting mask. Afterward, composite only the user's selection
-            // rectangles back onto the source so all unselected pixels remain
-            // exact. Glyph-only masks caused embossed/ghost text remnants.
+            // Let the selected image model return the complete clean plate.
+            // Do not apply a glyph mask or a later rectangle composite: both
+            // produced visible seams/ghost text in real artwork.
             if (body.cleanBackground !== false && selections.length) {
               try {
-                const maskScript = join(pluginRoot, 'scripts', 'prepare_text_mask.py');
-                const compositeScript = join(pluginRoot, 'scripts', 'composite_edit.py');
-                await access(maskScript);
-                await access(compositeScript);
-                tempMask = join(outputDir, 'text-psd-mask-' + token + '.png');
-                const preparedMask = await runProcessWithTimeout(python.executable, [...python.prefixArgs, maskScript, '--source', tempInput, '--blocks', '[]', '--regions', JSON.stringify(selections), '--output', tempMask], pluginRoot, 120000);
-                const maskLines = String(preparedMask.stdout || '').trim().split(/\r?\n/).filter(Boolean);
-                let maskPayload = null;
-                try { maskPayload = maskLines.length ? JSON.parse(maskLines[maskLines.length - 1]) : null; } catch (err) { maskPayload = null; }
-                if (preparedMask.exitCode !== 0 || !maskPayload || maskPayload.success !== true || (Number(maskPayload.regions || 0) < 1 && Number(maskPayload.blocks || 0) < 1)) throw new Error('文字遮罩生成失败');
-
-                const width = Math.max(1, Number(body.width || 1));
-                const height = Math.max(1, Number(body.height || 1));
                 const selectedTexts = Array.from(new Set(enabledBlocks.map((item) => String(item.text || '').replace(/\s+/g, ' ').trim()).filter(Boolean))).slice(0, 40);
                 const selectedTextJson = JSON.stringify(selectedTexts, null, 0);
                 const erasePlan = body.erasePlan && typeof body.erasePlan === 'object' ? body.erasePlan : null;
                 const reasonedErasePrompt = String((erasePlan && erasePlan.prompt) || body.erasePrompt || '').trim().slice(0, 2400);
-                const cleanPrompt = '这是严格的文字擦除与背景修复任务。请直接处理整张原图；用户明确指定了 ' + selections.length + ' 个文字区域。程序会在返回后只采用这些区域内的结果。\n'
-                  + '需要擦除的已识别文字候选为：' + selectedTextJson + '。识别结果可能不完整或有错，因此仍须删除遮罩区域内所有属于原文字的内容，包括完整文字、残缺偏旁、半个字形、笔画、标点、抗锯齿边缘、描边、阴影、发光和压缩残影；不要生成任何替代文字。\n'
+                const cleanPrompt = '这是严格的文字擦除与背景修复任务。请直接处理并返回完整原图；用户明确指定了 ' + selections.length + ' 个文字区域。\n'
+                  + '需要擦除的已识别文字候选为：' + selectedTextJson + '。识别结果可能不完整或有错，因此仍须删除指定区域内所有属于原文字的内容，包括完整文字、残缺偏旁、半个字形、笔画、标点、抗锯齿边缘、描边、阴影、发光和压缩残影；不要生成任何替代文字。\n'
                   + (reasonedErasePrompt ? ('视觉模型对选区的局部理解：' + reasonedErasePrompt + '\n') : '')
                   + '擦除后，根据每个框选区域四周紧邻像素，推断并延续文字出现之前的真实背景。保持原有颜色、渐变、材质纹理、光照、噪声、透视、颗粒尺度及连续线条，形成自然 clean plate。框选区域内若存在非文字的产品、人物、图形或结构，只修补被文字覆盖的部分，不改变其形状与位置。\n'
                   + '清理完成的位置必须只呈现原背景本身，不能留下可辨认的凹字、凸字、压印、浮雕、半透明字影、轮廓或幽灵残像。若文字位于圆角按钮或色块上，只延续该按钮内部原有渐变；按钮的尺寸、圆角、边框和位置绝对不变。\n'
                   + '框选区域之外必须逐像素保持原图不变。禁止重绘、缩放、美化或锐化整图，禁止改变其他文字、产品、人物、构图、颜色和清晰度，禁止生成新文字、图标、色块或装饰。输出尺寸必须与原图完全一致，边缘自然无接缝、无白块、无光晕、无重复纹理。';
-                tempClean = join(outputDir, 'text-psd-clean-' + token + '.png');
                 // Use the image engine selected in Canvas settings for the
-                // clean plate. The recognition model supplies the semantic
-                // erase prompt; the glyph mask remains the hard edit boundary.
+                // complete clean plate. The recognition model supplies the
+                // semantic erase prompt.
                 try {
                   const engineSettings = await readImageEngineSettings();
                   const generated = await generateImage({
@@ -1803,10 +1786,8 @@ function apply(ctx) {
                   cleanupEngine = generated.engine;
                   tempGenerated = join(outputDir, 'text-psd-generated-' + token + '.png');
                   await writeFile(tempGenerated, generated.bytes);
-                  const composite = await runProcessWithTimeout(python.executable, [...python.prefixArgs, compositeScript, '--source', tempInput, '--generated', tempGenerated, '--mask', tempMask, '--output', tempClean], pluginRoot, 180000);
-                  if (composite.exitCode === 0) {
-                    try { const cleanInfo = await stat(tempClean); if (cleanInfo.isFile() && cleanInfo.size > 0) cleanInput = tempClean; } catch (err) {}
-                  }
+                  const cleanInfo = await stat(tempGenerated);
+                  if (cleanInfo.isFile() && cleanInfo.size > 0) cleanInput = tempGenerated;
                 } catch (err) {}
                 // No local scanline fallback here: it cannot reconstruct
                 // complex artwork as reliably as the selected image model.
@@ -1814,10 +1795,7 @@ function apply(ctx) {
                   cleanupWarning = '图片模型未能生成干净背景';
                 }
                 if (!cleanInput) {
-                  try { const cleanInfo = await stat(tempClean); if (cleanInfo.isFile() && cleanInfo.size > 0) cleanInput = tempClean; } catch (err) {}
-                }
-                if (!cleanInput) {
-                  cleanupWarning = '局部背景合成失败，已保留原图作为 PSD 底层';
+                  cleanupWarning = '图片模型背景修复失败，已保留原图作为 PSD 底层';
                   cleanupEngine = '';
                 }
               } catch (err) {
@@ -1921,7 +1899,7 @@ function apply(ctx) {
           } catch (err) {
             respond(res, 500, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: String((err && err.message) || err) }));
           } finally {
-            for (const path of [tempInput, tempBlocks, tempMask, tempGenerated, tempClean, draftPsd, finalPsd, jsxPath, appleScriptPath]) if (path) await unlink(path).catch(() => {});
+            for (const path of [tempInput, tempBlocks, tempGenerated, draftPsd, finalPsd, jsxPath, appleScriptPath]) if (path) await unlink(path).catch(() => {});
           }
           return;
         }
