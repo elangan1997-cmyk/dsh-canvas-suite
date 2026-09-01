@@ -969,9 +969,11 @@ window.__ModuleLoader__.load({
       const blockInSelections = (block, regions) => Array.isArray(regions) && regions.length > 0 && regions.some((region) => rectsIntersect(block, region));
       const normalizeBlocks = (value, regions) => (Array.isArray(value) ? value : []).map((item) => ({
         ...item,
-        // Full-image OCR is only a candidate list.  A row becomes an actual
-        // removal target after it intersects a user-drawn region.
-        enabled: blockInSelections(item, regions) && item.enabled !== false
+        // Recognition already receives the user's selected/blue-box image,
+        // so every returned row is an intended target. Coordinate estimates
+        // must not silently uncheck valid rows; only an explicit user action
+        // (checkbox or “排除”) disables one.
+        enabled: item.enabled !== false
       }));
       const [blocks, setBlocks] = React.useState(normalizeBlocks(data.blocks, normalizeSelections(data.selections || data.selection)));
       const [draftSelection, setDraftSelection] = React.useState(null);
