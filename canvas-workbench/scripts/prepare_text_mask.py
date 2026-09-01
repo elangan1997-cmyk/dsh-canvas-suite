@@ -29,7 +29,7 @@ def main() -> int:
     parser.add_argument("--padding", type=float, default=0.0, help="extra pixels around each OCR box")
     args = parser.parse_args()
     try:
-        from PIL import Image, ImageDraw, ImageFilter
+        from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
         image = Image.open(args.source).convert("RGBA")
         try:
@@ -72,8 +72,40 @@ def main() -> int:
             box_w = max(2.0, _number(raw.get("width"), 2.0))
             box_h = max(2.0, _number(raw.get("height"), 2.0))
             font_h = max(box_h, _number(raw.get("fontSize"), box_h))
-            pad_x = max(base_padding, min(52.0, box_h * 0.24, font_h * 0.22))
-            pad_y = max(base_padding, min(44.0, box_h * 0.38, font_h * 0.30))
+            # First try a glyph-colour mask. Rectangle masks let image models
+            # redraw buttons, labels and rounded cards beneath the text.
+            # Selecting pixels close to the model-estimated font colour keeps
+            # those background structures locked.
+            colour = str(raw.get("color") or "#111111").lstrip("#")
+            try:
+                target = tuple(int(colour[index:index + 2], 16) for index in (0, 2, 4)) if len(colour) == 6 else (17, 17, 17)
+            except ValueError:
+                target = (17, 17, 17)
+            glyph_pad = max(2.0, min(7.0, box_h * 0.06))
+            gx0 = round(max(0.0, box_x - glyph_pad))
+            gy0 = round(max(0.0, box_y - glyph_pad))
+            gx1 = round(min(width, box_x + box_w + glyph_pad))
+            gy1 = round(min(height, box_y + box_h + glyph_pad))
+            source_crop = image.convert("RGB").crop((gx0, gy0, gx1, gy1))
+            target_crop = Image.new("RGB", source_crop.size, target)
+            difference = ImageChops.difference(source_crop, target_crop)
+            dr, dg, db = difference.split()
+            maximum = ImageChops.lighter(ImageChops.lighter(dr, dg), db)
+            glyph = maximum.point(lambda value: 255 if value <= 92 else 0)
+            glyph_pixels = sum(index * amount for index, amount in enumerate(glyph.histogram())) / 255
+            glyph_ratio = glyph_pixels / max(1, source_crop.width * source_crop.height)
+            if 0.004 <= glyph_ratio <= 0.62:
+                glyph = glyph.filter(ImageFilter.MaxFilter(5)).filter(ImageFilter.GaussianBlur(1.4))
+                layer = Image.new("L", (width, height), 0)
+                layer.paste(glyph, (gx0, gy0))
+                selected = ImageChops.lighter(selected, layer)
+                count += 1
+                continue
+
+            # Geometry fallback for unusual gradients or inaccurate colour.
+            # Keep it tight so structural shapes below the text remain locked.
+            pad_x = max(2.0, min(8.0, box_h * 0.08))
+            pad_y = max(2.0, min(7.0, box_h * 0.08))
             x0 = box_x - pad_x
             y0 = box_y - pad_y
             x1 = box_x + box_w + pad_x
@@ -105,7 +137,7 @@ def main() -> int:
         if mask_count:
             # Give the image model a visibly soft transition.  The later
             # composite still restores every pixel outside this declared mask.
-            blur_radius = max(6.0, min(16.0, min(width, height) * 0.0075))
+            blur_radius = max(1.5, min(3.0, min(width, height) * 0.0025))
             selected = selected.filter(ImageFilter.GaussianBlur(blur_radius))
         alpha = selected.point(lambda value: 255 - value)
         result = Image.new("RGBA", image.size, (255, 255, 255, 255))

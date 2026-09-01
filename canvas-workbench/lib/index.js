@@ -1819,9 +1819,13 @@ function apply(ctx) {
                 if (!executable) throw new Error('未找到 Adobe Photoshop');
                 const powershell = await ctx.subprocess.resolveExecutable('powershell.exe');
                 const literal = (value) => "'" + String(value || '').replace(/'/g, "''") + "'";
-                const launchScript = 'Start-Process -FilePath ' + literal(executable) + ' -ArgumentList @(' + literal('-r') + ',' + literal(jsxPath) + ')';
-                const launched = await runProcess(powershell, ['-NoLogo', '-NoProfile', '-Command', launchScript], outputDir);
-                if (launched.exitCode !== 0) throw new Error(launched.stderr.trim() || 'Photoshop 脚本启动失败');
+                // `Photoshop.exe -r file.jsx` is ignored when an existing
+                // Photoshop process owns the single-instance window. Use its
+                // COM automation API and retry while Photoshop is starting or
+                // temporarily busy; success means the JSX actually returned.
+                const launchScript = '$deadline=(Get-Date).AddSeconds(90);$last="";do{try{$app=New-Object -ComObject Photoshop.Application;$app.DoJavaScriptFile(' + literal(jsxPath) + ');exit 0}catch{$last=$_.Exception.Message;Start-Sleep -Milliseconds 750}}while((Get-Date)-lt $deadline);Write-Error $last;exit 1';
+                const launched = await runProcessWithTimeout(powershell, ['-NoLogo', '-NoProfile', '-Command', launchScript], outputDir, 105000);
+                if (launched.exitCode !== 0 || launched.timedOut) throw new Error(launched.stderr.trim() || 'Photoshop 脚本自动化失败或超时');
                 const deadline = Date.now() + 90000;
                 while (Date.now() < deadline) {
                   try {
