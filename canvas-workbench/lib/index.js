@@ -51,6 +51,7 @@ const SOURCE_EXTENSIONS = new Set([...Object.keys(IMAGE_MIME), ...DOCUMENT_EXTEN
 // 都能看到同一个 canvas-owned imagegen shadow；关闭后立即恢复 DSH 原生工具。
 let canvasDesignMode = false;
 const canvasDesignModeListeners = new Set();
+const activeCanvasProjectsByCwd = new Map();
 function isCanvasDesignMode() { return canvasDesignMode; }
 function setCanvasDesignMode(value) {
   const next = Boolean(value);
@@ -320,12 +321,17 @@ async function writeCanvasImageOutput(toolCtx, exec, outputPath, bytes) {
   }
 }
 
-async function writeChatGeneratedImage(bytes, mediaType) {
+async function writeChatGeneratedImage(exec, bytes, mediaType) {
   try {
     // Chat output is the durable source. It must stay outside every canvas
     // project so deleting/archiving a canvas copy never breaks the chat card
     // or prevents the user from adding the same image again.
-    const outputDir = join(homedir(), 'Pictures', 'DSH聊天生成图片');
+    const header = exec.agent && exec.agent.session && exec.agent.session.header;
+    const cwd = String(header && header.cwd || '').trim();
+    const projectDir = cwd ? activeCanvasProjectsByCwd.get(pathKey(cwd)) : '';
+    const outputDir = projectDir
+      ? join(projectDir, 'DSH聊天生成图片')
+      : join(homedir(), 'Pictures', 'DSH聊天生成图片');
     await mkdir(outputDir, { recursive: true });
     const ext = mediaType === 'image/jpeg' ? 'jpg' : mediaType === 'image/webp' ? 'webp' : 'png';
     const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+$/, '').replace('T', '-');
@@ -372,7 +378,7 @@ function createCanvasImagegenTool(toolCtx, defineTool, toolName) {
       const ref = await toolCtx.attachments.saveImage({ data: generated.bytes, mediaType, name: 'canvas-generated.png' });
       // Always keep a durable chat-owned source outside the canvas project.
       // “加入画布” materializes a separate managed copy into project/assets.
-      let written = await writeChatGeneratedImage(generated.bytes, mediaType);
+      let written = await writeChatGeneratedImage(exec, generated.bytes, mediaType);
       if (!written.file && args.output_path) written = await writeCanvasImageOutput(toolCtx, exec, args.output_path, generated.bytes);
       return {
         prompt: String(args.prompt || '').trim(),
@@ -788,7 +794,7 @@ function apply(ctx) {
           // 这些目录通常是依赖/缓存，不可能是项目素材；跳过后可避免
           // 导入一个代码仓库或大目录时递归扫描数万项文件。
           if (entry.name === 'node_modules' || entry.name === '__pycache__' || entry.name === '.cache') continue;
-          if (depth === 0 && (entry.name === 'outputs' || entry.name === '画布回收站' || entry.name === '画布备份')) continue;
+          if (depth === 0 && (entry.name === 'outputs' || entry.name === '画布回收站' || entry.name === '画布备份' || entry.name === 'DSH聊天生成图片')) continue;
           await walk(full, depth + 1);
         } else if (entry.isFile() && isSourceImagePath(entry.name)) {
           const info = await stat(full);
@@ -924,6 +930,33 @@ function apply(ctx) {
         if (!quietRoutes.has(pathname)) logOperation(req.method + ' ' + pathname);
         if (pathname === '/dsh-canvas/log' && req.method === 'GET') {
           respond(res, 200, { ...CORS, 'content-type': 'application/json', 'cache-control': 'no-store' }, JSON.stringify({ ok: true, entries: operationLog.slice(0, 200) }));
+          return;
+        }
+
+        if (pathname === '/dsh-canvas/active-project' && req.method === 'POST') {
+          try {
+            const origin = String(req.headers && req.headers.origin || '').trim();
+            if (origin && new URL(origin).host !== String(req.headers && req.headers.host || '')) {
+              respond(res, 403, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: '仅允许从当前 DSH 页面同步画布项目' }));
+              return;
+            }
+            const body = JSON.parse(await readBody(req) || '{}');
+            const cwd = expandHome(String(body.cwd || '').trim());
+            const project = expandHome(String(body.project || '').trim()).replace(/[\\/]+$/, '');
+            if (!cwd) throw new Error('当前聊天没有工作目录');
+            const key = pathKey(cwd);
+            if (project) {
+              const info = await stat(project);
+              if (!info.isDirectory()) throw new Error('当前画布项目不是文件夹');
+              activeCanvasProjectsByCwd.set(key, project);
+              logOperation('聊天原图目录已同步 · ' + join(project, 'DSH聊天生成图片'));
+            } else {
+              activeCanvasProjectsByCwd.delete(key);
+            }
+            respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true }));
+          } catch (err) {
+            respond(res, 500, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: String((err && err.message) || err) }));
+          }
           return;
         }
 
@@ -1637,9 +1670,10 @@ function apply(ctx) {
             const paths = Array.isArray(body.paths) ? [...new Set(body.paths.map((item) => expandHome(String(item || ''))))].slice(0, 500) : [];
             const stamp = new Date().toISOString().replace(/[:.]/g, '-');
             const recycleDir = join(projectDir, '画布回收站');
+            const chatImagesDir = join(projectDir, 'DSH聊天生成图片');
             const records = [];
             for (const source of paths) {
-              if (!source || !isPathInside(source, projectDir) || !isSourceImagePath(source) || isPathInside(source, recycleDir)) continue;
+              if (!source || !isPathInside(source, projectDir) || !isSourceImagePath(source) || isPathInside(source, recycleDir) || isPathInside(source, chatImagesDir)) continue;
               try {
                 await access(source);
                 await mkdir(recycleDir, { recursive: true });

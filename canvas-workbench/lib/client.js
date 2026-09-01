@@ -164,6 +164,11 @@ window.__ModuleLoader__.load({
       // 保留旧键，便于尚未热更新的同页副本读取到最新绑定。
       writeStorageValue(window.sessionStorage, LEGACY_PROJECT_CHOICES_KEY, flatLegacy);
       writeStorageValue(window.sessionStorage, PROJECT_CHOICES_KEY, serialized);
+      fetch('/api/dsh-canvas/active-project', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cwd, project: value, sessionId: sessionId || '' })
+      }).catch(() => {});
     }
 
     // ---- HTTP helpers ----
