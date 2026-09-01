@@ -211,3 +211,14 @@ Secrets, chat contents, and user asset paths are intentionally omitted.
 - Archive regression: 通过真实 host 路由处理测试项目，Windows 反斜杠和 `/` 混合路径均成功把 PNG 移入“画布回收站”。
 - Real Desktop UI: 待完全退出并重新打开 DSH Desktop 后验证；当前进程早于最新插件安装启动，且无有效窗口/监听端口，不能把静态/接口结果冒充真实 UI 通过。
 - Status: 修复已安装，待重启后的真实 UI 回归
+
+## WIN-016 聊天图片生成归属画布插件并支持 Codex/API 二选一
+
+- Severity: functional capability / account compatibility
+- Requirement: 没有 Codex 会员的用户也能在聊天中生成图片，并且生成结果继续显示在聊天图片卡片、支持加入画布。
+- Fix: 画布插件新增 `canvas_imagegen` 工具，读取画布图像引擎设置并统一输出会话图片附件；选择 `api` 时不读取 Codex OAuth，直接调用配置的 OpenAI 兼容接口。API 图片引擎现在同时支持无参考图的 `/v1/images/generations` 和带参考图的 `/v1/images/edits`。
+- Compatibility: DSH 原生 `imagegen` 保持不变；画布工具使用独立名称，避免和 dsh-codex 工具注册冲突。聊天中明确说“使用画布图片生成”即可使用画布当前选择的路线。
+- Automatic check: 三个 JavaScript 语法检查、便携性检查通过；安装副本中的工具注册成功。
+- API tool regression: 在 `engine: api` 下模拟有效 PNG 返回，工具成功生成 `canvas_imagegen` 结果、保存会话附件，并实际命中 `/v1/images/generations`；无 Codex 凭据不参与该分支。
+- Real Desktop UI: 待完全退出并重新打开 DSH Desktop 后验证聊天工具是否出现在当前模型的工具列表，以及生成后的附件卡片和“加入画布”按钮。
+- Status: 代码已安装，待重启后的真实 UI 回归

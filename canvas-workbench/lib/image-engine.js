@@ -144,7 +144,7 @@ async function loadCodexModule() {
   throw new Error('未找到 dsh-codex，请先在当前 DSH profile 安装 dsh-codex');
 }
 
-function imageMediaType(bytes) {
+export function imageMediaType(bytes) {
   const b = Buffer.from(bytes);
   if (b.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return 'image/png';
   if (b.subarray(0, 3).equals(Buffer.from([255, 216, 255]))) return 'image/jpeg';
@@ -223,14 +223,14 @@ async function generateWithApi({ image, mask, prompt, settings, signal }) {
     form.append('model', String(settings.apiModel || DEFAULT_API_MODEL));
     form.append('prompt', prompt);
     form.append('quality', 'high');
-    form.append('image', new Blob([image], { type: imageMediaType(image) }), 'input.png');
-    if (mask) form.append('mask', new Blob([mask], { type: 'image/png' }), 'mask.png');
+    if (image && image.length) form.append('image', new Blob([image], { type: imageMediaType(image) }), 'input.png');
+    if (image && image.length && mask) form.append('mask', new Blob([mask], { type: 'image/png' }), 'mask.png');
     let response;
     try {
       // 图片网关在高峰期可能需要 3-5 分钟；单次调用必须小于外层任务总预算，
       // 但不能沿用旧的 180 秒，否则请求会在网关受理前/生成中途被本机主动切断。
       const timeoutSignal = AbortSignal.timeout(180000);
-      response = await fetch(`${base}/v1/images/edits`, {
+      response = await fetch(`${base}/v1/images/${image && image.length ? 'edits' : 'generations'}`, {
         method: 'POST',
         headers: {
           authorization: `Bearer ${auth.apiKey}`,
@@ -321,15 +321,16 @@ async function generateWithDshCodex({ ctx, image, prompt, signal }) {
     : module.OpenAICodexCredentialStore ? new module.OpenAICodexCredentialStore() : null;
   if (!credentials || !module.OpenAICodexImageClient) throw new Error('当前 dsh-codex 未提供图片编辑客户端，请重启 DSH 后重试');
   const client = new module.OpenAICodexImageClient(credentials);
-  return Buffer.from(await client.generate(prompt, [dataUrl(image)], signal || AbortSignal.timeout(180000)));
+  const references = image && image.length ? [dataUrl(image)] : [];
+  return Buffer.from(await client.generate(prompt, references, signal || AbortSignal.timeout(180000)));
 }
 
 export async function generateImage({ ctx, image, mask, prompt, engine, signal }) {
   const settings = await readImageEngineSettings();
   const selected = normalizeImageEngine(engine || settings.engine);
   const bytes = Buffer.from(image || []);
-  if (!bytes.length) throw new Error('图片输入为空');
   if (selected === 'dsh-codex') return { engine: selected, bytes: await generateWithDshCodex({ ctx, image: bytes, prompt, signal }) };
+  if (!bytes.length && selected !== 'api') throw new Error('图片输入为空');
   return { engine: selected, bytes: await generateWithApi({ image: bytes, mask, prompt, settings, signal }) };
 }
 

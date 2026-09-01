@@ -9,6 +9,7 @@ import {
   generateImage,
   imageEngineHealth,
   readImageEngineSettings,
+  imageMediaType,
   testImageApiConnection,
   writeLegacyApiAuth,
   writeImageEngineSettings
@@ -203,6 +204,77 @@ function respond(res, status, headers, body) {
 const name = 'canvas-workbench';
 const inject = ['webServer', 'subprocess', 'llm', 'attachments'];
 
+// The canvas-owned chat image tool deliberately has a distinct name from
+// dsh-codex's native `imagegen`.  This keeps the DSH core tool registry
+// conflict-free while allowing users without a Codex subscription to choose
+// the canvas API route from the same image-engine settings panel.
+function installCanvasImagegenTool(ctx) {
+  if (!ctx || typeof ctx.inject !== 'function') return;
+  ctx.inject(['tools', 'attachments'], (toolCtx) => {
+    void import('@deepseek-ai/dsh-tools').then(({ defineTool }) => {
+      if (!toolCtx.tools || typeof toolCtx.tools.register !== 'function') return;
+      if (typeof toolCtx.tools.get === 'function' && toolCtx.tools.get('canvas_imagegen')) return;
+      const contentOf = (value) => [
+        { type: 'text', text: `<image>${value.image.mediaType}, ${value.image.width}x${value.image.height} px, ${value.image.bytes} bytes</image>\n<canvas_image_engine>${value.engine}</canvas_image_engine>` },
+        { type: 'image', attachment: { ...value.image } },
+      ];
+      const tool = defineTool({
+        name: 'canvas_imagegen',
+        description: 'Generate or edit an image as part of the DSH Canvas. This tool follows the image engine selected in Canvas settings (Codex or the configured API), so it also works without a Codex subscription. Use it when the user asks to create an image for the canvas or explicitly says to use the canvas image engine.',
+        parameters: {
+          prompt: { type: 'string', required: true, description: 'Complete image generation or editing instruction.' },
+        },
+        output: {
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              prompt: { type: 'string', required: true },
+              engine: { type: 'string', required: true },
+              image: {
+                type: 'object',
+                required: true,
+                additionalProperties: false,
+                properties: {
+                  attachmentId: { type: 'string', required: true },
+                  mediaType: { type: 'string', required: true },
+                  bytes: { type: 'integer', required: true },
+                  width: { type: 'integer', required: true },
+                  height: { type: 'integer', required: true },
+                  name: { type: 'string' },
+                },
+              },
+            },
+          },
+          render: (_args, value) => contentOf(value),
+        },
+        timeoutMs: 900000,
+        isConcurrencySafe: () => true,
+        async execute(args, exec) {
+          const settings = await readImageEngineSettings();
+          const generated = await generateImage({ ctx: toolCtx, image: Buffer.alloc(0), prompt: args.prompt, engine: settings.engine, signal: exec.signal });
+          const mediaType = imageMediaType(generated.bytes);
+          if (!mediaType.startsWith('image/')) throw new Error('图片生成接口返回了不可识别的图片格式');
+          const ref = await toolCtx.attachments.saveImage({ data: generated.bytes, mediaType, name: 'canvas-generated.png' });
+          return {
+            prompt: args.prompt,
+            engine: generated.engine,
+            image: {
+              attachmentId: String(ref.attachmentId),
+              mediaType,
+              bytes: Number(ref.bytes),
+              width: Number(ref.width),
+              height: Number(ref.height),
+              ...(ref.name === undefined ? {} : { name: ref.name }),
+            },
+          };
+        },
+      });
+      try { toolCtx.tools.register(tool); } catch (error) { console.warn('[canvas-workbench] canvas_imagegen registration skipped:', error); }
+    }).catch((error) => console.warn('[canvas-workbench] canvas_imagegen unavailable:', error));
+  });
+}
+
 const TEXT_VISION_SYSTEM = `你是平面设计稿的文字理解与局部背景修复规划器。优先理解文字语义和版面关系，不要像传统 OCR 一样仅按单个字符猜测。
 只返回严格 JSON，不要解释、前后缀或 Markdown 代码块。格式为 {"schemaVersion":1,"blocks":[...],"erasePrompt":"..."} 。每个 block 必须包含：text,x,y,width,height,fontSize,fontFamily,fontWeight,color,textAlign,rotation,confidence,backgroundHint。
 x/y/width/height 是 0-1000 的整图归一化坐标；fontSize 是相对整图高度 0-1000 的估算值；color 用 #RRGGBB；confidence 用 0-100。
@@ -345,6 +417,7 @@ function normalizeTextLayerText(value) {
 
 function apply(ctx) {
   const fs = ctx.get('fs');
+  installCanvasImagegenTool(ctx);
   const operationLog = [];
   const logOperation = (message, level = 'info') => {
     operationLog.unshift({ time: new Date().toISOString(), level, message: String(message || '').slice(0, 500) });

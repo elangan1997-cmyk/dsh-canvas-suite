@@ -3313,6 +3313,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
                 )
               ),
               imageSettings.engine === 'dsh-codex' ? React.createElement('div', { className: 'dsh-canvas-engine-setup' },
+                React.createElement('div', { className: 'dsh-canvas-engine-note' }, '聊天中说“使用画布图片生成”会跟随这里的选择；当前选择为 Codex，需要 Codex 订阅。没有会员时切换到 API，即可改用自己的图片接口。'),
                 React.createElement('div', { className: 'dsh-canvas-engine-steps' },
                   React.createElement('div', { className: imageSettings.health && imageSettings.health.dshCodex && imageSettings.health.dshCodex.installed ? 'is-done' : '' }, React.createElement('b', null, '1'), React.createElement('span', null, '安装插件', React.createElement('small', null, imageSettings.health && imageSettings.health.dshCodex && imageSettings.health.dshCodex.installed ? '已安装 dsh-codex' : '安装到 DSH web profile'))),
                   React.createElement('div', { className: imageSettings.health && imageSettings.health.dshCodex && imageSettings.health.dshCodex.authenticated ? 'is-done' : '' }, React.createElement('b', null, '2'), React.createElement('span', null, '登录 ChatGPT', React.createElement('small', null, imageSettings.health && imageSettings.health.dshCodex && imageSettings.health.dshCodex.authenticated ? 'OAuth 已登录，令牌会自动刷新' : '在浏览器完成独立 OAuth 授权'))),
@@ -3325,7 +3326,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
                   React.createElement('button', { className: 'dsh-canvas-tb', disabled: imageSettingsBusy, onClick: () => askDshToConfigure('dsh-codex') }, '让 DSH 帮我配置')
                 )
               ) : React.createElement('div', { className: 'dsh-canvas-engine-setup' },
-                React.createElement('div', { className: 'dsh-canvas-engine-note' }, '提示：这里的 API 仅控制画布的编辑、去背景和文字清理；聊天中的 imagegen 仍由聊天输入框右下角当前模型负责，不会自动切换聊天路由。'),
+                React.createElement('div', { className: 'dsh-canvas-engine-note' }, '提示：画布图片生成工具会跟随这里的选择。选 API 可在没有 Codex 会员时生成；聊天中请说“使用画布图片生成”，结果会进入聊天附件并可加入画布。DSH 原生 imagegen 仍保持独立。'),
                 React.createElement('div', { className: 'dsh-canvas-engine-api-grid' },
                   React.createElement('label', { className: 'dsh-canvas-engine-field' }, React.createElement('span', null, 'API 地址', React.createElement('small', null, '须为 HTTPS；带或不带 /v1 均可')), React.createElement('input', { value: imageSettings.apiBaseUrl || '', onChange: (e) => setImageSettings({ ...imageSettings, apiBaseUrl: e.target.value }), placeholder: 'https://api.example.com' })),
                   React.createElement('label', { className: 'dsh-canvas-engine-field' }, React.createElement('span', null, '模型名称', React.createElement('small', null, '服务商提供的图片编辑模型 ID')), React.createElement('input', { value: imageSettings.apiModel || '', onChange: (e) => setImageSettings({ ...imageSettings, apiModel: e.target.value }), placeholder: 'gpt-image-2' })),
