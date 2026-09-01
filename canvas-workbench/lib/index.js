@@ -1700,14 +1700,13 @@ function apply(ctx) {
               const centerX = bx + bw / 2, centerY = by + bh / 2;
               return area >= blockArea * 0.35 || (centerX >= rx && centerX <= rx + rw && centerY >= ry && centerY <= ry + rh);
             };
-            // A full-image OCR pass provides the candidate list.  Only rows
-            // inside user-drawn regions are eligible for removal; without a
-            // region we generate a non-destructive PSD with the source intact.
-            const exportBlocks = selections.length
-              ? blocks.map((item) => item && typeof item === 'object'
-                ? { ...item, enabled: item.enabled !== false && selections.some((region) => intersectsSelection(item, region)) }
-                : item)
-              : blocks.map((item) => item && typeof item === 'object' ? { ...item, enabled: false } : item);
+            // Blue-box recognition already guarantees that every returned
+            // block belongs to the user's selection. Re-filtering by the
+            // model-estimated coordinates here used to disable valid rows,
+            // leaving both the draft and Photoshop PSD without text layers.
+            const exportBlocks = blocks.map((item) => item && typeof item === 'object'
+              ? { ...item, enabled: item.enabled !== false }
+              : item);
             // Photoshop ExtendScript 在部分版本中无法 app.open 中文目录下的
             // 临时文件；先在 ASCII 系统临时目录完成 JSX/PSD，再把最终字节
             // 写回项目 assets，避免路径编码导致原生文字层分支失败。
@@ -1759,21 +1758,43 @@ function apply(ctx) {
                   + (reasonedErasePrompt ? ('视觉模型对选区的局部理解：' + reasonedErasePrompt + '\n') : '')
                   + '擦除后，根据每个框选区域四周紧邻像素，推断并延续文字出现之前的真实背景。保持原有颜色、渐变、材质纹理、光照、噪声、透视、颗粒尺度及连续线条，形成自然 clean plate。框选区域内若存在非文字的产品、人物、图形或结构，只修补被文字覆盖的部分，不改变其形状与位置。\n'
                   + '框选区域之外必须逐像素保持原图不变。禁止重绘、缩放、美化或锐化整图，禁止改变其他文字、产品、人物、构图、颜色和清晰度，禁止生成新文字、图标、色块或装饰。输出尺寸必须与原图完全一致，边缘自然无接缝、无白块、无光晕、无重复纹理。';
-                const engineSettings = await readImageEngineSettings();
-                const generated = await generateImage({
-                  ctx,
-                  image: uploaded.bytes,
-                  mask: await readFile(tempMask),
-                  prompt: cleanPrompt,
-                  engine: engineSettings.engine,
-                  signal: AbortSignal.timeout(900000)
-                });
-                cleanupEngine = generated.engine;
-                tempGenerated = join(outputDir, 'text-psd-generated-' + token + '.png');
-                await writeFile(tempGenerated, generated.bytes);
                 tempClean = join(outputDir, 'text-psd-clean-' + token + '.png');
-                const composite = await runProcessWithTimeout(python.executable, [...python.prefixArgs, compositeScript, '--source', tempInput, '--generated', tempGenerated, '--mask', tempMask, '--output', tempClean], pluginRoot, 180000);
-                if (composite.exitCode === 0) {
+                // Deterministic glyph inpainting is the primary path. Image
+                // generation cannot guarantee that a button/card gradient is
+                // pixel-identical even with a strict prompt and mask.
+                const localInpaintScript = join(pluginRoot, 'scripts', 'inpaint_text_glyphs.py');
+                try {
+                  await access(localInpaintScript);
+                  const localResult = await runProcessWithTimeout(python.executable, [...python.prefixArgs, localInpaintScript, '--source', tempInput, '--mask', tempMask, '--output', tempClean], pluginRoot, 180000);
+                  const localLines = String(localResult.stdout || '').trim().split(/\r?\n/).filter(Boolean);
+                  let localPayload = null;
+                  try { localPayload = localLines.length ? JSON.parse(localLines[localLines.length - 1]) : null; } catch (err) { localPayload = null; }
+                  if (localResult.exitCode === 0 && localPayload && localPayload.success === true) {
+                    cleanInput = tempClean;
+                    cleanupEngine = localPayload.engine || 'local-glyph-inpaint';
+                  }
+                } catch (err) {}
+                // Retain image2 as a compatibility fallback only when the
+                // deterministic local repair is unavailable.
+                if (!cleanInput) {
+                  const engineSettings = await readImageEngineSettings();
+                  const generated = await generateImage({
+                    ctx,
+                    image: uploaded.bytes,
+                    mask: await readFile(tempMask),
+                    prompt: cleanPrompt,
+                    engine: engineSettings.engine,
+                    signal: AbortSignal.timeout(900000)
+                  });
+                  cleanupEngine = generated.engine;
+                  tempGenerated = join(outputDir, 'text-psd-generated-' + token + '.png');
+                  await writeFile(tempGenerated, generated.bytes);
+                  const composite = await runProcessWithTimeout(python.executable, [...python.prefixArgs, compositeScript, '--source', tempInput, '--generated', tempGenerated, '--mask', tempMask, '--output', tempClean], pluginRoot, 180000);
+                  if (composite.exitCode === 0) {
+                    try { const cleanInfo = await stat(tempClean); if (cleanInfo.isFile() && cleanInfo.size > 0) cleanInput = tempClean; } catch (err) {}
+                  }
+                }
+                if (!cleanInput) {
                   try { const cleanInfo = await stat(tempClean); if (cleanInfo.isFile() && cleanInfo.size > 0) cleanInput = tempClean; } catch (err) {}
                 }
                 if (!cleanInput) {
@@ -1823,7 +1844,7 @@ function apply(ctx) {
                 // Photoshop process owns the single-instance window. Use its
                 // COM automation API and retry while Photoshop is starting or
                 // temporarily busy; success means the JSX actually returned.
-                const launchScript = '$deadline=(Get-Date).AddSeconds(90);$last="";do{try{$app=New-Object -ComObject Photoshop.Application;$app.DoJavaScriptFile(' + literal(jsxPath) + ');exit 0}catch{$last=$_.Exception.Message;Start-Sleep -Milliseconds 750}}while((Get-Date)-lt $deadline);Write-Error $last;exit 1';
+                const launchScript = '$deadline=(Get-Date).AddSeconds(90);$last="";do{try{$app=New-Object -ComObject Photoshop.Application;$app.Visible=$true;$app.DoJavaScriptFile(' + literal(jsxPath) + ');exit 0}catch{$last=$_.Exception.Message;Start-Sleep -Milliseconds 750}}while((Get-Date)-lt $deadline);Write-Error $last;exit 1';
                 const launched = await runProcessWithTimeout(powershell, ['-NoLogo', '-NoProfile', '-Command', launchScript], outputDir, 105000);
                 if (launched.exitCode !== 0 || launched.timedOut) throw new Error(launched.stderr.trim() || 'Photoshop 脚本自动化失败或超时');
                 const deadline = Date.now() + 90000;

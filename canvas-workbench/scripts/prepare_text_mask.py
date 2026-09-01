@@ -29,6 +29,8 @@ def main() -> int:
     parser.add_argument("--padding", type=float, default=0.0, help="extra pixels around each OCR box")
     args = parser.parse_args()
     try:
+        import cv2
+        import numpy as np
         from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
         image = Image.open(args.source).convert("RGBA")
@@ -92,6 +94,20 @@ def main() -> int:
             dr, dg, db = difference.split()
             maximum = ImageChops.lighter(ImageChops.lighter(dr, dg), db)
             glyph = maximum.point(lambda value: 255 if value <= 92 else 0)
+            # Remove colour-matched background/card borders. They form large
+            # components touching the crop edge; actual glyph components stay
+            # inside the padded OCR box.
+            glyph_array = np.asarray(glyph, dtype=np.uint8)
+            component_count, labels, stats, _ = cv2.connectedComponentsWithStats((glyph_array > 0).astype(np.uint8), 8)
+            filtered = np.zeros_like(glyph_array)
+            crop_h, crop_w = glyph_array.shape
+            for component in range(1, component_count):
+                cx, cy, cw, ch, area = stats[component]
+                touches_edge = cx <= 0 or cy <= 0 or cx + cw >= crop_w or cy + ch >= crop_h
+                structural = cw >= crop_w * 0.82 or ch >= crop_h * 0.82
+                if area >= 4 and not touches_edge and not structural:
+                    filtered[labels == component] = 255
+            glyph = Image.fromarray(filtered, mode="L")
             glyph_pixels = sum(index * amount for index, amount in enumerate(glyph.histogram())) / 255
             glyph_ratio = glyph_pixels / max(1, source_crop.width * source_crop.height)
             if 0.004 <= glyph_ratio <= 0.62:
