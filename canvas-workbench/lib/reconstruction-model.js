@@ -7,6 +7,8 @@
  * model, which keeps routing and validation deterministic and testable.
  */
 
+import { clusterSelections } from './text-reconstruction.js';
+
 const REMOVAL_MODES = new Set(['text_only', 'text_container', 'component']);
 
 function number(value, fallback = 0) {
@@ -122,6 +124,8 @@ export function buildTextObjects(blocks, selections = [], imageWidth = 1, imageH
         trackingHint: String(item && item.letterSpacing != null ? item.letterSpacing : ''),
       },
       fontSize: Math.max(1, number(item && item.fontSize, geometry.height * 0.9)),
+      fontCategory: String(item && (item.fontCategory || item.fontFamily) || 'sans-serif'),
+      fontCandidates: Array.isArray(item && item.fontCandidates) ? item.fontCandidates.slice(0, 5) : [],
       fontFamily: String(item && item.fontFamily || 'sans-serif'),
       fontPostScript: String(item && item.fontPostScript || ''),
       fontWeight: String(item && item.fontWeight || 'normal'),
@@ -195,7 +199,11 @@ export function buildComponentMasks(textObjects, components, imageWidth, imageHe
     const includeContainer = rows.some((item) => item.removalMode === 'text_container' || item.removalMode === 'component');
     const includeComponent = rows.some((item) => item.removalMode === 'component');
     const componentRect = rect(component.bbox && component.bbox.width ? component.bbox : textRect);
-    const mask = (role, bounds, enabled) => ({ role, enabled, ownerSelectionIds, hardBinary: true, bbox: bounds, dilatePx, featherPx: 0 });
+    const mask = (role, bounds, enabled) => ({
+      role, enabled, ownerSelectionIds, hardBinary: true, bbox: bounds,
+      normalizedBBox: { x: bounds.x / width, y: bounds.y / height, width: bounds.width / width, height: bounds.height / height },
+      dilatePx, featherPx: 0, seamBlend: role === 'M_repair' ? 'narrow-ring-after-inpaint' : 'none'
+    });
     return {
       componentId: component.id,
       ownerSelectionIds,
@@ -225,31 +233,70 @@ export function chooseBackgroundRoute(textObjects = [], component = {}) {
 }
 
 export function buildReconstructionPlan({ selections = [], blocks = [], width = 1, height = 1, clusterThreshold = 96 } = {}) {
-  const textObjects = buildTextObjects(blocks, selections, width, height);
-  const components = buildVisualComponents(textObjects, selections, clusterThreshold);
+  const normalizedSelections = (Array.isArray(selections) ? selections : []).map((item, index) => {
+    const source = item && typeof item === 'object' ? item : {};
+    const original = source.originalImageRect && typeof source.originalImageRect === 'object' ? source.originalImageRect : source;
+    const x = Math.max(0, number(original.x));
+    const y = Math.max(0, number(original.y));
+    const itemWidth = Math.max(0, number(original.width));
+    const itemHeight = Math.max(0, number(original.height));
+    return {
+      ...source,
+      id: String(source.id || source.selectionId || `selection-${String(index + 1).padStart(3, '0')}`),
+      x, y, width: itemWidth, height: itemHeight,
+      originalImageRect: { x, y, width: itemWidth, height: itemHeight },
+      normalizedRect: {
+        x: x / Math.max(1, number(width, 1)), y: y / Math.max(1, number(height, 1)),
+        width: itemWidth / Math.max(1, number(width, 1)), height: itemHeight / Math.max(1, number(height, 1))
+      },
+      enabled: source.enabled !== false,
+      selected: source.selected !== false,
+      status: String(source.status || 'idle')
+    };
+  });
+  const textObjects = buildTextObjects(blocks, normalizedSelections, width, height);
+  const components = buildVisualComponents(textObjects, normalizedSelections, clusterThreshold);
   const masks = buildComponentMasks(textObjects, components, width, height);
-  const selectionClusters = [];
-  for (const selection of selections || []) {
-    const existing = selectionClusters.find((item) => gap(rect(item.cropRect), rect(selection)) <= Math.max(0, clusterThreshold));
-    if (existing) { existing.selectionIds.push(selection.id); existing.cropRect = unionRect([existing.cropRect, selection]); }
-    else selectionClusters.push({ id: `repair-cluster-${String(selectionClusters.length + 1).padStart(3, '0')}`, selectionIds: [selection.id], cropRect: rect(selection) });
-  }
+  // Reuse the DSU-based clustering implementation used by the OCR route so
+  // transitive/overlapping selections (A touches B, B touches C) are kept in
+  // one repair cluster instead of depending on insertion order.
+  const selectionClusters = clusterSelections(normalizedSelections, Math.max(0, number(clusterThreshold, 96)));
   const repairClusters = selectionClusters.map((cluster) => {
     const related = components.filter((item) => item.sourceSelectionIds.some((id) => cluster.selectionIds.includes(id)));
     const crop = expandRect(cluster.cropRect, width, height, Math.max(16, Math.min(256, Math.min(width, height) * 0.08)));
     const routes = related.map((item) => chooseBackgroundRoute(textObjects, item));
-    return { ...cluster, componentIds: related.map((item) => item.id), cropRect: crop, repairType: routes.includes('generative') ? 'generative' : routes[0] || 'generative', status: 'pending' };
+    const clusterMasks = masks.filter((item) => (item.ownerSelectionIds || []).some((id) => cluster.selectionIds.includes(id)));
+    const repairMaskRect = unionRect(clusterMasks.map((item) => item.repairMask && item.repairMask.bbox).filter(Boolean));
+    const seamRingPx = Math.max(4, Math.min(24, Math.round(Math.min(width, height) * 0.0025)));
+    return {
+      ...cluster,
+      componentIds: related.map((item) => item.id),
+      cropRect: crop,
+      maskRect: repairMaskRect.width > 0 ? repairMaskRect : rect(cluster.cropRect),
+      contextMarginPx: Math.max(16, Math.round(Math.min(width, height) * 0.08)),
+      seamRingPx,
+      repairType: routes.includes('generative') ? 'generative' : routes[0] || 'generative',
+      source: 'original-image',
+      composition: 'unified-after-independent-repair',
+      status: 'pending'
+    };
   });
-  const jobs = repairClusters.flatMap((cluster) => ['vision', 'detection', 'fusion', 'component', 'mask', 'repair', 'validation'].map((type) => ({ id: `${cluster.id}:${type}`, selectionIds: cluster.selectionIds, type, status: 'pending', retries: 0 })));
+  const jobs = repairClusters.flatMap((cluster) => ['vision', 'detection', 'fusion', 'component', 'mask', 'repair', 'font_match', 'typography', 'validation'].map((type) => ({ id: `${cluster.id}:${type}`, selectionIds: cluster.selectionIds, type, status: 'pending', retries: 0 })));
   return {
     schemaVersion: 1,
     image: { width: Math.max(1, number(width, 1)), height: Math.max(1, number(height, 1)) },
-    selections,
+    selections: normalizedSelections,
     textObjects,
     components,
     masks,
     repairClusters,
     jobs,
+    validation: {
+      status: 'pending',
+      thresholds: { center: 0.05, width: 0.1, height: 0.1, residue: 0.08, seamDelta: 0.12 },
+      text: textObjects.map((item) => ({ textObjectId: item.id, status: item.needsReview ? 'needs_review' : 'pending' })),
+      repair: repairClusters.map((item) => ({ repairClusterId: item.id, status: 'pending' }))
+    },
     status: textObjects.some((item) => item.needsReview) ? 'partial_error' : 'idle',
   };
 }
@@ -271,9 +318,40 @@ export function validateRepair({ residue = 0, seamDelta = 0, thresholds = {} } =
   return { ok: residue <= residueLimit && seamDelta <= seamLimit, residue, seamDelta, needsRetry: residue > residueLimit || seamDelta > seamLimit };
 }
 
+/**
+ * Turn optional post-render measurements into a non-destructive validation
+ * report.  Missing measurements stay `pending`—a preview must never be
+ * labelled failed merely because Photoshop or a pixel validator is absent.
+ * Callers may pass `{ typography: [{ textObjectId, actual }], repair: [{
+ * repairClusterId, residue, seamDelta }] }` after a real render.
+ */
+export function validateReconstruction(plan, measurements = {}) {
+  const source = plan && typeof plan === 'object' ? plan : {};
+  const thresholds = source.validation && source.validation.thresholds || { center: 0.05, width: 0.1, height: 0.1, residue: 0.08, seamDelta: 0.12 };
+  const textRows = Array.isArray(source.textObjects) ? source.textObjects : [];
+  const typographyMeasurements = new Map((Array.isArray(measurements.typography) ? measurements.typography : []).map((item) => [String(item && item.textObjectId || ''), item]));
+  const typography = textRows.map((item) => {
+    const measured = typographyMeasurements.get(String(item.id));
+    if (!measured || !measured.actual) return { textObjectId: item.id, status: 'pending' };
+    const result = validateTypography(item.geometry && item.geometry.bbox || item, measured.actual, thresholds);
+    return { textObjectId: item.id, status: result.ok ? 'completed' : 'needs_retry', ...result };
+  });
+  const repairMeasurements = new Map((Array.isArray(measurements.repair) ? measurements.repair : []).map((item) => [String(item && item.repairClusterId || ''), item]));
+  const repair = (Array.isArray(source.repairClusters) ? source.repairClusters : []).map((item) => {
+    const measured = repairMeasurements.get(String(item.id));
+    if (!measured) return { repairClusterId: item.id, status: 'pending' };
+    const result = validateRepair({ residue: measured.residue, seamDelta: measured.seamDelta, thresholds });
+    return { repairClusterId: item.id, status: result.ok ? 'completed' : 'needs_retry', ...result };
+  });
+  const hasRetry = typography.some((item) => item.status === 'needs_retry') || repair.some((item) => item.status === 'needs_retry');
+  const hasPending = typography.some((item) => item.status === 'pending') || repair.some((item) => item.status === 'pending');
+  return { status: hasRetry ? 'failed' : hasPending ? 'pending' : 'completed', thresholds, typography, repair, needsRetry: hasRetry };
+}
+
 export function sessionStatus(plan, failedSelectionIds = []) {
   const failed = new Set((Array.isArray(failedSelectionIds) ? failedSelectionIds : []).map(String));
   if (failed.size) return 'partial_error';
   if (plan && Array.isArray(plan.textObjects) && plan.textObjects.some((item) => item.needsReview)) return 'partial_error';
+  if (plan && plan.validation && (plan.validation.status === 'failed' || plan.validation.needsRetry)) return 'partial_error';
   return 'completed';
 }

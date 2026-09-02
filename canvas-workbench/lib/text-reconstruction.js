@@ -74,8 +74,33 @@ export function clusterSelections(values, threshold = 96) {
 export function fuseTextGeometry(textObjects, detectedRegions) {
   const rows = Array.isArray(textObjects) ? textObjects : [];
   const regions = (Array.isArray(detectedRegions) ? detectedRegions : []).slice().sort((a, b) => number(a && a.bbox && a.bbox.y) - number(b && b.bbox && b.bbox.y) || number(a && a.bbox && a.bbox.x) - number(b && b.bbox && b.bbox.x));
+  const used = new Set();
+  const pickDetector = (row, index) => {
+    // When the VLM did return a useful hint, prefer the detector box that
+    // overlaps it.  Only fall back to reading order when the hint is a
+    // placeholder or the detector has no spatial relation to it.  This
+    // avoids the fragile “array index = text line” binding on mixed layouts.
+    const hint = row && row.geometry && row.geometry.bbox ? row.geometry.bbox : row;
+    const hx = number(hint && hint.x), hy = number(hint && hint.y), hw = number(hint && hint.width), hh = number(hint && hint.height);
+    let best = null, bestScore = 0;
+    if (hw > 2 && hh > 2) {
+      regions.forEach((candidate, candidateIndex) => {
+        if (used.has(candidateIndex) || !candidate || !candidate.bbox) return;
+        const box = candidate.bbox;
+        const ix = Math.max(0, Math.min(hx + hw, number(box.x) + number(box.width)) - Math.max(hx, number(box.x)));
+        const iy = Math.max(0, Math.min(hy + hh, number(box.y) + number(box.height)) - Math.max(hy, number(box.y)));
+        const score = (ix * iy) / Math.max(1, hw * hh);
+        if (score > bestScore) { bestScore = score; best = { candidate, candidateIndex }; }
+      });
+    }
+    if (best && bestScore >= 0.12) return best;
+    const fallback = regions.map((candidate, candidateIndex) => ({ candidate, candidateIndex })).find((item) => !used.has(item.candidateIndex));
+    return fallback || { candidate: regions[index], candidateIndex: index };
+  };
   return rows.map((row, index) => {
-    const detector = regions[index];
+    const picked = pickDetector(row, index);
+    const detector = picked && picked.candidate;
+    if (picked && Number.isInteger(picked.candidateIndex)) used.add(picked.candidateIndex);
     if (!detector || !detector.bbox) return { ...row, geometryConfidence: number(row.geometryConfidence, 0.35), needsReview: true };
     const bbox = detector.bbox;
     const measuredHeight = Math.max(1, number(bbox.height));

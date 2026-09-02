@@ -7,6 +7,7 @@ import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm';
 import { recognizeWithTesseractJs } from './ocr-engine.js';
 import { clusterSelections, fuseTextGeometry, normalizeSelections } from './text-reconstruction.js';
 import { buildReconstructionPlan, sessionStatus } from './reconstruction-model.js';
+import { rankFontCandidates, scanWindowsFonts } from './font-matcher.js';
 import {
   generateImage,
   imageEngineHealth,
@@ -54,6 +55,11 @@ const SOURCE_EXTENSIONS = new Set([...Object.keys(IMAGE_MIME), ...DOCUMENT_EXTEN
 let canvasDesignMode = false;
 const canvasDesignModeListeners = new Set();
 const activeCanvasProjectsByCwd = new Map();
+let windowsFontInventoryPromise = null;
+function windowsFontInventory() {
+  if (!windowsFontInventoryPromise) windowsFontInventoryPromise = scanWindowsFonts().catch(() => []);
+  return windowsFontInventoryPromise;
+}
 function isCanvasDesignMode() { return canvasDesignMode; }
 function setCanvasDesignMode(value) {
   const next = Boolean(value);
@@ -455,8 +461,8 @@ function installCanvasImagegenTool(ctx) {
 }
 
 const TEXT_VISION_SYSTEM = `你是平面设计稿的文字理解与局部背景修复规划器。优先理解文字语义和版面关系，不要像传统 OCR 一样仅按单个字符猜测。
-只返回严格 JSON，不要解释、前后缀或 Markdown 代码块。格式为 {"schemaVersion":1,"blocks":[...],"erasePrompt":"..."} 。每个 block 必须包含：text,x,y,width,height,fontSize,fontFamily,fontWeight,fontStyle,color,textAlign,rotation,letterSpacing,lineHeight,confidence,backgroundHint；可以补充 role、readingOrder、componentType、containerType、fontWidth、fontGeometry、fontCorners、spatialHint。
-x/y/width/height 是 0-1000 的整图归一化坐标；fontSize 是相对整图高度 0-1000 的估算值；color 用 #RRGGBB；confidence 用 0-100。
+只返回严格 JSON，不要解释、前后缀或 Markdown 代码块。格式为 {"schemaVersion":1,"blocks":[...],"erasePrompt":"..."} 。每个 block 必须包含 text、confidence、backgroundHint；可以补充 x/y/width/height/fontSize 作为粗略空间提示，但这些不是最终像素几何，禁止把它们当作 Photoshop 的可信坐标。还可以补充 fontFamily、fontWeight、fontStyle、color、textAlign、rotation、letterSpacing、lineHeight、role、readingOrder、componentType、containerType、fontWidth、fontGeometry、fontCorners、spatialHint。
+如果提供 x/y/width/height，使用 0-1000 的整图归一化提示；fontSize 只是视觉大小提示，不是最终字号。最终 bbox/rotation 必须由本地 Text Detector、Canvas 原图变换和 Fusion Engine 测量；最终字号、baseline、tracking 由 Typography Solver/Photoshop bounds 校准确定。color 用 #RRGGBB；confidence 用 0-100。
 按视觉上的一行或一个连续文字对象输出，不要把同一行无故拆分。结合品牌名、品类、规格和上下文纠正易混字符，但不得臆造图中不存在的文字；不确定时保留最可信原文并降低 confidence。backgroundHint 必须描述文字下方的真实底色、渐变、纹理、光照、边缘和附近结构。erasePrompt 必须根据所有 backgroundHint 动态生成可直接用于图片编辑模型的中文提示词，并明确列出只允许删除的原文字。提示词必须要求：仅擦除这些指定文字的字形、描边、阴影和抗锯齿残边；以文字紧邻像素延续其下方原有背景；不得改变底部圆角矩形、按钮、边框、渐变、产品、人物、其他文字、尺寸、位置、颜色、光照和清晰度；未被指定的所有内容逐像素保持一致；禁止生成新文字、符号、色块或装饰。componentType 只用 text_only/badge/label/button/text_with_icon/graphic_group/unknown，containerType 只用 rectangle/rounded_rectangle/circle/ribbon/bubble/custom_shape/unknown。fontFamily 只用 sans-serif/serif/rounded/display/monospace/handwriting，fontWeight 只用 normal/medium/bold，fontStyle 只用 normal/italic，textAlign 只用 left/center/right；letterSpacing 使用 Photoshop tracking 的近似值（-200 到 1000），lineHeight 使用相对当前裁剪图高度 0-1000 的值。`;
 
 function parseModelJson(text) {
@@ -515,6 +521,7 @@ function visionBlocks(value, width, height) {
       } : undefined,
       readingOrder: Number.isFinite(Number(item.readingOrder)) ? Number(item.readingOrder) : undefined,
       fontSize: Math.max(8, Math.round(clamp(Number(item.fontSize || 0) * coordinateScale, 1, 1000) * height / 1000)),
+      fontCategory: family,
       fontFamily: cjk ? (windowsFonts ? (serif ? 'SimSun' : 'Microsoft YaHei') : (serif ? 'Songti SC' : 'PingFang SC')) : (serif ? 'Times New Roman' : family === 'monospace' ? (windowsFonts ? 'Consolas' : 'Menlo') : 'Arial'),
       fontPostScript: cjk ? (windowsFonts ? (serif ? 'SimSun' : (bold ? 'MicrosoftYaHei-Bold' : 'MicrosoftYaHei')) : (serif ? (bold ? 'SongtiSC-Bold' : 'SongtiSC-Regular') : (bold ? 'PingFangSC-Semibold' : 'PingFangSC-Regular'))) : (serif ? (bold ? 'TimesNewRomanPS-BoldMT' : 'TimesNewRomanPSMT') : family === 'monospace' ? (windowsFonts ? (bold ? 'Consolas-Bold' : 'Consolas') : (bold ? 'Menlo-Bold' : 'Menlo-Regular')) : (bold ? 'Arial-BoldMT' : 'ArialMT')),
       fontWeight: weight,
@@ -568,9 +575,9 @@ async function analyzeTextWithCurrentModel(ctx, uploaded, body) {
     width: Math.round(Math.max(0, Number(item.width || 0)) * 1000 / imageWidth),
     height: Math.round(Math.max(0, Number(item.height || 0)) * 1000 / imageHeight) }));
   const instruction = body.selectionAnnotated
-    ? '这是一张完整原图，用户框选区域已用清晰的蓝色矩形边框标出。只识别蓝色矩形框内部的文字，框外文字仅用于理解语义，绝对不要输出。蓝色框是界面添加的识别引导线，不属于原始设计内容。严格返回 JSON；每个 block 包含文字、相对于整张图片的 0-1000 坐标、字体类别、字重、字号、颜色、对齐、旋转、字距、行距、置信度和文字下方背景描述，并尽量提供 role、readingOrder、componentType、containerType、fontWidth 和 spatialHint。erasePrompt 必须说明：删除蓝框内部识别到的原文字并恢复被文字遮挡的真实背景，同时去除识别预览中的蓝色引导框，禁止生成新文字，蓝框外原图保持不变。不得返回空 blocks。'
+    ? '这是一张完整原图，用户框选区域已用清晰的蓝色矩形边框标出。只识别蓝色矩形框内部的文字，框外文字仅用于理解语义，绝对不要输出。蓝色框是界面添加的识别引导线，不属于原始设计内容。严格返回 JSON；每个 block 返回文字内容、视觉层级、字体类别/字重/颜色/对齐/旋转/字距/行距、置信度和文字下方背景描述；如返回坐标和字号，只能作为粗略空间提示，最终几何由本地检测器测量。erasePrompt 必须说明：删除蓝框内部识别到的原文字并恢复被文字遮挡的真实背景，同时去除识别预览中的蓝色引导框，禁止生成新文字，蓝框外原图保持不变。不得返回空 blocks。'
     : body.selectionCrop
-    ? '这张图片是用户刚刚框选区域的直接截图，已经按原图像素裁剪并清晰放大；图片边界就是识别范围。请逐行读取截图中的全部可见文字，包括白字、描边字、贴近边缘或轻微裁切的字，不要分析截图外内容，不得返回空 blocks。blocks 坐标相对于当前截图，以 0-1000 表示。严格返回 JSON；每个文字对象包含内容、位置、字体类别、字重、字号、颜色、对齐、旋转、字距、行距、置信度及文字下方背景描述，并尽量提供 role、readingOrder、componentType、containerType、fontWidth 和 spatialHint。erasePrompt 只描述清除这些文字并自然延展其下方背景，禁止生成任何新文字。'
+    ? '这张图片是用户刚刚框选区域的直接截图，已经按原图像素裁剪并清晰放大；图片边界就是识别范围。请逐行读取截图中的全部可见文字，包括白字、描边字、贴近边缘或轻微裁切的字，不要分析截图外内容，不得返回空 blocks。严格返回 JSON；每个文字对象包含内容、字体类别、字重、颜色、对齐、旋转、字距、行距、置信度及文字下方背景描述，并尽量提供 role、readingOrder、componentType、containerType、fontWidth 和 spatialHint。坐标、字号只作为视觉提示，不能替代本地检测器的像素测量。erasePrompt 只描述清除这些文字并自然延展其下方背景，禁止生成任何新文字。'
     : normalized.length
     ? '用户框选区域（0-1000 整图归一化坐标）为：' + JSON.stringify(normalized)
       + '。只输出这些矩形内准备移除并重建为图层的文字；框外文字仅可作为语义校对依据，不得输出。请结合完整图片理解品牌、品类和规格，返回严格 JSON、每个文字块下方的背景特征，以及可直接用于局部修复的动态 erasePrompt。'
@@ -1521,10 +1528,12 @@ function apply(ctx) {
                 let coordinateMode = cropMapping ? 'upscaled-selection-crop' : 'full-image';
                 let geometryDetector = 'vlm';
                 const geometryInvalid = understood.length > 0 && understood.every((block) => Number(block.width || 0) <= 2 || Number(block.height || 0) <= 2);
-                // Use the local OCR engine only as a geometry detector when
-                // the VLM returned semantic text with placeholder geometry.
-                // Its recognized strings are deliberately ignored.
-                if (geometryInvalid && tempInput && requestedCrops.length === 1) {
+                // Use the local OCR engine as a geometry-only detector.  VLM
+                // geometry is retained as a hint, never treated as the final
+                // PSD rectangle; its recognized strings are deliberately
+                // ignored.  Exact-count detector results can also correct a
+                // plausible-looking but systematically shifted VLM box.
+                if (tempInput && requestedCrops.length === 1 && understood.length) {
                   try {
                     const detector = await recognizeWithTesseractJs({
                       ctx, runProcessWithTimeout, cwd: dirname(dirname(fileURLToPath(import.meta.url))),
@@ -1535,7 +1544,7 @@ function apply(ctx) {
                       bbox: { x: Number(item.x || 0), y: Number(item.y || 0), width: Number(item.width || 0), height: Number(item.height || 0) },
                       rotation: Number(item.rotation || 0), detectorConfidence: Math.max(0, Math.min(1, Number(item.confidence || 0) / 100))
                     }));
-                    if (detectorRegions.length) {
+                    if (detectorRegions.length && (geometryInvalid || detectorRegions.length === understood.length)) {
                       understood = fuseTextGeometry(understood, detectorRegions);
                       geometryDetector = 'local-text-detector';
                       coordinateMode = 'detector-fused';
@@ -1846,6 +1855,23 @@ function apply(ctx) {
               }
               return item;
             });
+            // Build an installed-font candidate list for review and for the
+            // Photoshop calibration loop.  The VLM supplies only a coarse
+            // visual category; the scanner never overwrites user-edited
+            // fontPostScript/fontFamily values.
+            const fontInventory = await windowsFontInventory();
+            if (fontInventory.length) {
+              exportBlocks = exportBlocks.map((item) => {
+                if (!item || typeof item !== 'object' || item.enabled === false || !String(item.text || '').trim()) return item;
+                const style = {
+                  category: item.fontCategory || (item.appearance && item.appearance.fontStyle && item.appearance.fontStyle.category) || 'sans-serif',
+                  width: item.fontWidth || (item.appearance && item.appearance.fontStyle && item.appearance.fontStyle.width) || 'normal',
+                  weight: item.fontWeight || (item.appearance && item.appearance.fontStyle && item.appearance.fontStyle.weight) || 'normal',
+                  italic: String(item.fontStyle || 'normal') === 'italic'
+                };
+                return { ...item, fontCandidates: rankFontCandidates(fontInventory, style, 5) };
+              });
+            }
             const reconstructionPlan = buildReconstructionPlan({
               selections: normalizeSelections(selections, Number(body.width || 1), Number(body.height || 1)),
               blocks: exportBlocks,
@@ -1940,9 +1966,21 @@ function apply(ctx) {
 
             let photoshop = false;
             let photoshopWarning = '';
+            const photoshopBlocks = exportBlocks.map((item) => {
+              if (!item || typeof item !== 'object' || item.enabled === false) return item;
+              const topCandidate = Array.isArray(item.fontCandidates) && item.fontCandidates[0];
+              // A user-selected PostScript name wins.  A scanner candidate is
+              // only used when the model supplied a coarse family or marked
+              // the font match as low-confidence.
+              const weakMatch = Number(item.fontMatchConfidence || 0) < 0.45;
+              if (topCandidate && topCandidate.postScriptName && (!item.fontPostScript || weakMatch)) {
+                return { ...item, fontPostScript: topCandidate.postScriptName, fontMatchConfidence: topCandidate.score };
+              }
+              return item;
+            });
             // Keep the JSX ASCII-only so Windows Photoshop never decodes
             // Chinese text/path metadata through a legacy code page.
-            const jsxPayload = JSON.stringify({ input: draftPsd, output: finalPsd, blocks: exportBlocks, cleanBackground: Boolean(cleanInput) })
+            const jsxPayload = JSON.stringify({ input: draftPsd, output: finalPsd, blocks: photoshopBlocks, cleanBackground: Boolean(cleanInput) })
               .replace(/[\u007f-\uffff]/g, (character) => '\\u' + character.charCodeAt(0).toString(16).padStart(4, '0'));
             const jsx = '#target photoshop\n(function(){\n'
               + 'var cfg=' + jsxPayload + ';\n'

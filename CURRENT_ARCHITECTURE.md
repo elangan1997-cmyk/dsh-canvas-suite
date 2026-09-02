@@ -19,6 +19,7 @@
 - `lib/ocr-engine.js`：Tesseract.js 本地 OCR 和候选几何。
 - `lib/text-reconstruction.js`：选区规范化、修复簇和检测几何融合。
 - `lib/reconstruction-model.js`：TextObject、VisualComponent、四层 Mask、RepairCluster、Job 和验收数据模型。
+- `lib/font-matcher.js`：Windows 字体目录扫描、视觉风格候选排序；不擅自覆盖用户字体选择。
 - `scripts/prepare_text_vision_crop.py`：选区放大、蓝框标注和辅助图。
 - `scripts/export_text_psd.py`：PSD 草稿和隐藏 OCR 预览层。
 - `scripts/prepare_text_mask.py`、`composite_edit.py`：历史遮罩/局部合成工具；当前文字导出已不再使用硬矩形合成。
@@ -30,6 +31,8 @@
 - `selections` 已数组化，元素为原图像素 `x/y/width/height`；旧版 `selection` 仍兼容。
 - `blocks` 是 `TextObject` 的兼容扁平表示，包含 `text/x/y/width/height/fontSize/fontPostScript/color/enabled/sourceSelectionId`。
 - `reconstruction` 现在包含 `textObjects/components/masks/repairClusters/jobs/status`；每个 mask 明确区分 `M_text/M_container/M_component/M_repair`，并保留 `ownerSelectionIds`。
+- 每个 RepairCluster 明确保存 `maskRect/contextMarginPx/seamRingPx/source/composition`；Job 队列覆盖 vision/detection/fusion/component/mask/repair/font_match/typography/validation。
+- `reconstruction.validation` 默认是 `pending`；可在 Photoshop/像素验收完成后写入 Typography、Residue、Seam 结果，缺少测量不会误报失败。
 - `erasePlan.regions` 保存 `textObjectId/sourceSelectionId/componentId`、删除范围和背景描述。
 
 ## 坐标链
@@ -56,11 +59,11 @@ Python 先创建 8-bit RGB PSD，始终保留隐藏 `Original artwork (preserved
 
 1. VLM 可能返回 0–1 坐标，旧换算会导致 `0,0、1×1、字号8`；已加入自动尺度检测。
 2. VLM 返回的坐标不能作为最终几何真值；当前已在占位几何场景引入 Tesseract.js detector/Fusion，仍需接入更强的 DBNet/CRAFT 以覆盖艺术字。
-3. 单个请求发送多个蓝框时，部分模型会合并区域或返回空 JSON；当前前端已按选区顺序串行调用并合并结果，后续应升级为邻近区域 Context Cluster。
-4. 字体目前是视觉类别到本机字体的启发式映射，尚未有 Windows 字体扫描、候选渲染和 IoU 拟合。
-5. Photoshop 文字层已有一次 bounds 校准，但尚未做多轮 Typography Solver/Validation。
+3. 单个请求发送多个蓝框时，部分模型会合并区域或返回空 JSON；当前前端已按选区顺序串行调用并合并结果，RepairCluster 数据已支持后续邻近区域 Context Cluster。
+4. 已加入 Windows 字体扫描和候选排序；候选渲染、glyph IoU/Chamfer 拟合仍需接入 Photoshop/字体运行时。
+5. Photoshop 文字层已有一次 bounds 校准，并暴露 Typography/Repair Validation 数据接口；多轮 Typography Solver/像素验收仍需在真实 Photoshop 会话中执行。
 6. Selection、TextObject、VisualComponent、RepairCluster 已有独立 ID；当前 UI 提供失败选区单独重试，仍需把 Detection/Mask/Repair/Validation 重试按钮全部展开。
-7. `reconstruction-model.js` 已提供纯色/渐变/纹理/生成路由和验收阈值描述；实际像素级 Background Router/残留检测仍需接入现有图像脚本。
+7. `reconstruction-model.js` 已提供纯色/渐变/纹理/生成路由、原图基准的局部 Repair Crop、硬 Mask/窄 Seam Ring 和验收阈值描述；当前产品路径仍按用户要求直接采用图片模型完整 clean plate，不做后期矩形合成。实际像素级 Solid/Gradient/PatchMatch Router、残留检测仍需接入现有图像脚本。
 
 ## 可复用能力
 

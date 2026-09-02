@@ -9,6 +9,7 @@ const required = [
   'canvas-workbench/lib/ocr-engine.js',
   'canvas-workbench/lib/text-reconstruction.js',
   'canvas-workbench/lib/reconstruction-model.js',
+  'canvas-workbench/lib/font-matcher.js',
   'canvas-workbench/lib/image-engine.js',
   'canvas-workbench/lib/platform.js',
   'canvas-workbench/scripts/render_psd_preview.py',
@@ -35,6 +36,9 @@ if (!host.includes('schemaVersion: 1, erasePrompt') || !host.includes('body.prov
 }
 if (!host.includes('buildReconstructionPlan') || !host.includes('geometryDetector')) {
   throw new Error('text recognition must expose traceable reconstruction and detector-fusion metadata');
+}
+if (!host.includes('windowsFontInventory') || !host.includes('fontCandidates')) {
+  throw new Error('PSD export must expose installed-font candidates for typography calibration');
 }
 if (!host.includes("'--blocks-file'")) throw new Error('text tools must pass CJK JSON through UTF-8 files on Windows');
 if (!host.includes("pathname === '/dsh-canvas/pick-adobe'")) throw new Error('host lacks native Adobe executable picker endpoint');
