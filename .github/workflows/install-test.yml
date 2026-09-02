@@ -3,7 +3,7 @@ name: Windows 安装器验证
 on:
   workflow_dispatch:
   push:
-    branches: [ci/windows-installer-smoke]
+    branches: [ci/windows-installer-smoke-20260903]
     paths:
       - 'windows-installer/sfx-stub.cs'
       - '.github/workflows/install-test.yml'
