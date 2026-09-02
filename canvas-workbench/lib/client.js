@@ -948,7 +948,23 @@ window.__ModuleLoader__.load({
       const data = props.data || {};
       const normalizeSelections = (value) => {
         const list = Array.isArray(value) ? value : (value ? [value] : []);
-        return list.filter((item) => item && Number(item.width || 0) >= 6 && Number(item.height || 0) >= 6);
+        const baseWidth = Math.max(1, Number(data.width || 1)), baseHeight = Math.max(1, Number(data.height || 1));
+        return list.filter((item) => item && Number(item.width || 0) >= 6 && Number(item.height || 0) >= 6).map((item, index) => {
+          const width = Number(item.width || 0), height = Number(item.height || 0);
+          const x = Number(item.x || 0), y = Number(item.y || 0);
+          return {
+            ...item,
+            id: String(item.id || item.selectionId || ('selection-' + String(index + 1).padStart(3, '0'))),
+            order: Number(item.order || index + 1),
+            originalImageRect: item.originalImageRect || { x, y, width, height },
+            normalizedRect: item.normalizedRect || { x: x / baseWidth, y: y / baseHeight, width: width / baseWidth, height: height / baseHeight },
+            rotation: Number(item.rotation || 0),
+            selected: item.selected !== false,
+            enabled: item.enabled !== false,
+            status: item.status || 'idle',
+            createdAt: Number(item.createdAt || Date.now())
+          };
+        });
       };
       const [selections, setSelections] = React.useState(normalizeSelections(data.selections || data.selection));
       const rectsIntersect = (a, b) => {
@@ -1106,9 +1122,14 @@ window.__ModuleLoader__.load({
         draftSelectionRef.current = null;
         setDraftSelection(null);
         if (next.width >= 6 && next.height >= 6) {
-          const nextRegions = selections.concat([next]);
+          const imageWidth = Math.max(1, Number(imageSize.width || 1));
+          const imageHeight = Math.max(1, Number(imageSize.height || 1));
+          const nextRegion = { ...next, id: 'selection-' + String(selections.length + 1).padStart(3, '0'), order: selections.length + 1,
+            originalImageRect: { ...next }, normalizedRect: { x: next.x / imageWidth, y: next.y / imageHeight, width: next.width / imageWidth, height: next.height / imageHeight },
+            selected: true, enabled: true, status: 'idle', createdAt: Date.now() };
+          const nextRegions = selections.concat([nextRegion]);
           setSelections(nextRegions);
-          setBlocks((rows) => rows.map((item) => ({ ...item, enabled: blockInSelections(item, nextRegions) })));
+          setBlocks((rows) => rows.map((item) => ({ ...item, enabled: item.enabled !== false })));
           if (typeof props.onSelectionsChange === 'function') props.onSelectionsChange(nextRegions);
         }
       };
@@ -1131,6 +1152,7 @@ window.__ModuleLoader__.load({
         height: (item.height / imageSize.height * 100) + '%'
       } : null;
       const visualSelections = draftSelection ? selections.concat([draftSelection]) : selections;
+      const selectionStatusLabel = (status) => status === 'recognized' ? '✓' : status === 'analyzing' ? '…' : status === 'error' ? '!' : '';
       return React.createElement('div', { className: 'dsh-text-rebuild-overlay', onPointerDown: (event) => event.stopPropagation() },
         React.createElement('div', { className: 'dsh-text-rebuild-panel', role: 'dialog', 'aria-modal': 'true' },
           React.createElement('div', { className: 'dsh-text-rebuild-head' },
@@ -1145,7 +1167,7 @@ window.__ModuleLoader__.load({
               data.dataURL ? React.createElement('div', { className: 'dsh-text-select-wrap' },
                 React.createElement('img', { ref: imageRef, src: data.dataURL, alt: data.name || '图片预览', decoding: 'async', onLoad: (event) => { const next = { width: event.currentTarget.naturalWidth || 1, height: event.currentTarget.naturalHeight || 1, source: String(data.dataURL || '') }; naturalImageSizeRef.current = next; setImageSize({ width: next.width, height: next.height }); } }),
                 React.createElement('div', { className: 'dsh-text-select-overlay', onPointerDown: beginSelection, onPointerMove: moveSelection, onPointerUp: endSelection, onPointerCancel: endSelection },
-                  visualSelections.map((item, index) => React.createElement('div', { key: 'selection-' + index, className: 'dsh-text-select-box', style: visualSelectionStyle(item) })),
+                  visualSelections.map((item, index) => React.createElement('div', { key: item.id || 'selection-' + index, className: 'dsh-text-select-box', style: visualSelectionStyle(item) }, !draftSelection || index < selections.length ? React.createElement('span', { className: 'dsh-text-select-label' }, (item.order || index + 1) + ' ' + selectionStatusLabel(item.status)) : null)),
                   !selections.length && !draftSelection && !data.loading ? React.createElement('div', { className: 'dsh-text-select-hint' }, '拖拽框选要移除的文字，可连续添加多个区域') : null
                 )
               ) : null,
@@ -1217,7 +1239,7 @@ window.__ModuleLoader__.load({
                 React.createElement('div', { className: 'dsh-text-select-wrap dsh-text-select-wrap-large', style: { transform: 'translate(' + pan.x + 'px,' + pan.y + 'px) scale(' + zoom + ')' } },
                   React.createElement('img', { ref: imageRef, src: data.dataURL, alt: data.name || '图片放大预览', decoding: 'async', onLoad: (event) => { const next = { width: event.currentTarget.naturalWidth || 1, height: event.currentTarget.naturalHeight || 1, source: String(data.dataURL || '') }; naturalImageSizeRef.current = next; setImageSize({ width: next.width, height: next.height }); } }),
                   React.createElement('div', { className: 'dsh-text-select-overlay', onPointerDown: beginSelection, onPointerMove: moveSelection, onPointerUp: endSelection, onPointerCancel: endSelection },
-                    visualSelections.map((item, index) => React.createElement('div', { key: 'zoom-selection-' + index, className: 'dsh-text-select-box', style: visualSelectionStyle(item) }))
+                    visualSelections.map((item, index) => React.createElement('div', { key: 'zoom-' + (item.id || index), className: 'dsh-text-select-box', style: visualSelectionStyle(item) }, !draftSelection || index < selections.length ? React.createElement('span', { className: 'dsh-text-select-label' }, (item.order || index + 1) + ' ' + selectionStatusLabel(item.status)) : null))
                   )
                 )
               ),
@@ -2579,7 +2601,8 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
         }
         const current = projectRef.current;
         setTextRebuild((prev) => prev && prev.elementId === active.elementId
-          ? { ...prev, loading: true, hasDetected: false, error: '', blocks: [], erasePrompt: '', erasePlan: null }
+          ? { ...prev, loading: true, hasDetected: false, error: '', blocks: [], erasePrompt: '', erasePlan: null,
+            selections: (prev.selections || []).map((item) => regions.some((region) => region.id === item.id) ? { ...item, status: 'analyzing' } : item) }
           : prev);
         setFeedback('正在让当前聊天模型理解 ' + regions.length + ' 个文字选区…');
         const modelRoute = activeChatModelSelection || {};
@@ -2609,24 +2632,27 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
             // selections sequentially and merge their structured results.
             const results = [];
             const failures = [];
+            const successfulRegionIds = [];
+            const failedRegionIds = [];
             for (let index = 0; index < regions.length; index += 1) {
               setFeedback('正在识别文字选区 ' + (index + 1) + '/' + regions.length + '…');
-              try { results.push(await recognizeOne(regions[index])); }
-              catch (error) { failures.push('选区 ' + (index + 1) + '：' + String(error && error.message || error)); }
+              try { results.push(await recognizeOne(regions[index])); successfulRegionIds.push(regions[index].id); }
+              catch (error) { failedRegionIds.push(regions[index].id); failures.push('选区 ' + (index + 1) + '：' + String(error && error.message || error)); }
             }
             if (!results.length) throw new Error(failures.join('；') || 'OCR 识别失败');
             const mergedBlocks = [];
             const seen = new Set();
-            results.flatMap((item) => Array.isArray(item.blocks) ? item.blocks : []).forEach((item) => {
+            results.forEach((result, resultIndex) => (Array.isArray(result.blocks) ? result.blocks : []).forEach((item) => {
               const key = [String(item && item.text || '').trim(), Math.round(Number(item && item.x || 0)), Math.round(Number(item && item.y || 0))].join('|');
-              if (!seen.has(key)) { seen.add(key); mergedBlocks.push({ ...item, id: 'vision-' + (mergedBlocks.length + 1), enabled: item.enabled !== false }); }
-            });
+              if (!seen.has(key)) { seen.add(key); mergedBlocks.push({ ...item, id: 'vision-' + (mergedBlocks.length + 1), sourceSelectionId: regions[resultIndex] && regions[resultIndex].id || null, enabled: item.enabled !== false }); }
+            }));
             const erasePrompt = results.map((item) => String(item.erasePrompt || '').trim()).filter(Boolean).join('\n').slice(0, 2400);
             const eraseRegions = results.flatMap((item) => item.erasePlan && Array.isArray(item.erasePlan.regions) ? item.erasePlan.regions : []);
             const first = results[0];
             const merged = { ...first, blocks: mergedBlocks, erasePrompt, erasePlan: { schemaVersion: 1, operation: 'remove-recognized-text', prompt: erasePrompt, preserveOutsideMask: false, forbidNewText: true, regions: eraseRegions }, warning: failures.join('；') };
             setTextRebuild((prev) => prev && prev.elementId === active.elementId
-              ? { ...prev, loading: false, hasDetected: true, blocks: mergedBlocks, erasePrompt, erasePlan: merged.erasePlan, engine: merged.engine || 'tesseract', width: Number(merged.width || prev.width || 0), height: Number(merged.height || prev.height || 0) }
+              ? { ...prev, loading: false, hasDetected: true, blocks: mergedBlocks, erasePrompt, erasePlan: merged.erasePlan, engine: merged.engine || 'tesseract', width: Number(merged.width || prev.width || 0), height: Number(merged.height || prev.height || 0),
+                selections: (prev.selections || []).map((item) => successfulRegionIds.includes(item.id) ? { ...item, status: 'recognized' } : failedRegionIds.includes(item.id) ? { ...item, status: 'error' } : item) }
               : prev);
             const engineLabel = merged.engine === 'current-chat-model' ? ('当前聊天模型 ' + (merged.model || '')) : '本地 OCR 兜底';
             setFeedback('✓ ' + engineLabel + ' 已逐个理解 ' + results.length + ' 个选区、共 ' + mergedBlocks.length + ' 个文字对象，请确认后执行' + (merged.warning ? '；' + merged.warning : ''));
@@ -3632,7 +3658,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
       '.dsh-text-rebuild-close{width:30px;height:30px;border:1px solid rgba(255,255,255,.12);border-radius:8px;background:#252932;color:#e5e7eb;font-size:20px;line-height:1;cursor:pointer}.dsh-text-rebuild-close:disabled{opacity:.4;cursor:wait}',
       '.dsh-text-rebuild-body{display:grid;grid-template-columns:minmax(240px,.9fr) minmax(0,1.1fr);gap:12px;min-height:0;overflow:hidden;padding:12px}',
       '.dsh-text-rebuild-preview{display:flex;align-items:flex-start;justify-content:center;min-height:200px;max-height:min(48vh,440px);overflow:auto;padding:10px;border:1px solid rgba(255,255,255,.1);border-radius:10px;background:#0d1015}.dsh-text-rebuild-preview img{display:block;max-width:100%;height:auto;object-fit:contain}',
-      '.dsh-text-select-wrap{position:relative;display:inline-block;width:100%;max-width:100%;line-height:0;user-select:none}.dsh-text-select-wrap img{display:block;width:100%;max-width:100%;height:auto;object-fit:contain}.dsh-text-select-overlay{position:absolute;inset:0;cursor:crosshair;touch-action:none}.dsh-text-select-box{position:absolute;border:2px solid #60a5fa;background:rgba(59,130,246,.18);box-shadow:0 0 0 1px rgba(255,255,255,.35);pointer-events:none}.dsh-text-select-hint{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);padding:8px 10px;border-radius:8px;background:rgba(15,23,42,.82);color:#e5e7eb;font-size:12px;white-space:nowrap;pointer-events:none}.dsh-text-select-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:8px}.dsh-text-select-coords{flex:1;min-width:120px;color:#94a3b8;font-size:11px}.dsh-text-select-actions button{padding:5px 8px;border:1px solid rgba(255,255,255,.14);border-radius:7px;background:#252932;color:#e5e7eb;font:11px system-ui,sans-serif;cursor:pointer}.dsh-text-select-actions button:hover:not(:disabled){background:#303640}.dsh-text-select-actions button:disabled{opacity:.45;cursor:not-allowed}.dsh-text-select-empty{margin-top:8px;color:#9ca3af;font-size:11px;line-height:1.4}',
+      '.dsh-text-select-wrap{position:relative;display:inline-block;width:100%;max-width:100%;line-height:0;user-select:none}.dsh-text-select-wrap img{display:block;width:100%;max-width:100%;height:auto;object-fit:contain}.dsh-text-select-overlay{position:absolute;inset:0;cursor:crosshair;touch-action:none}.dsh-text-select-box{position:absolute;border:2px solid #60a5fa;background:rgba(59,130,246,.18);box-shadow:0 0 0 1px rgba(255,255,255,.35);pointer-events:none}.dsh-text-select-label{position:absolute;left:-2px;top:-21px;min-width:18px;padding:2px 5px;border-radius:4px;background:#2563eb;color:#fff;font:700 11px/1.2 system-ui,sans-serif;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.22)}.dsh-text-select-hint{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);padding:8px 10px;border-radius:8px;background:rgba(15,23,42,.82);color:#e5e7eb;font-size:12px;white-space:nowrap;pointer-events:none}.dsh-text-select-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:8px}.dsh-text-select-coords{flex:1;min-width:120px;color:#94a3b8;font-size:11px}.dsh-text-select-actions button{padding:5px 8px;border:1px solid rgba(255,255,255,.14);border-radius:7px;background:#252932;color:#e5e7eb;font:11px system-ui,sans-serif;cursor:pointer}.dsh-text-select-actions button:hover:not(:disabled){background:#303640}.dsh-text-select-actions button:disabled{opacity:.45;cursor:not-allowed}.dsh-text-select-empty{margin-top:8px;color:#9ca3af;font-size:11px;line-height:1.4}',
       '.dsh-text-select-zoom{display:block;width:100%;box-sizing:border-box;margin:8px 0 0;padding:7px 9px;border:1px solid rgba(96,165,250,.42);border-radius:7px;background:rgba(37,99,235,.13);color:#bfdbfe;font:11px system-ui,sans-serif;cursor:pointer;white-space:nowrap}.dsh-text-select-zoom:hover{background:rgba(37,99,235,.25)}.dsh-text-zoom-overlay{position:absolute;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;padding:18px;box-sizing:border-box;background:rgba(5,8,14,.78);backdrop-filter:blur(5px)}.dsh-text-zoom-dialog{display:flex;flex-direction:column;width:min(1100px,100%);height:min(92%,860px);overflow:hidden;border:1px solid rgba(255,255,255,.16);border-radius:14px;background:#11151c;box-shadow:0 24px 80px rgba(0,0,0,.55)}.dsh-text-zoom-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.1);color:#e5e7eb;font-size:12px}.dsh-text-zoom-head-main{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}.dsh-text-zoom-head-main strong{font-size:13px;color:#f8fafc}.dsh-text-zoom-head-main span{color:#9ca3af;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dsh-text-zoom-tools{display:flex;align-items:center;gap:5px;flex:none}.dsh-text-zoom-tools button{min-width:28px;height:28px;padding:0 8px;border:1px solid rgba(255,255,255,.15);border-radius:7px;background:#252932;color:#e5e7eb;font:600 13px/1 system-ui,sans-serif;cursor:pointer}.dsh-text-zoom-tools button:hover{background:#303640}.dsh-text-zoom-value{min-width:42px;text-align:center;color:#d1d5db;font:11px ui-monospace,SFMono-Regular,monospace}.dsh-text-zoom-tools .dsh-text-zoom-fit{font-size:11px}.dsh-text-zoom-tools .dsh-text-zoom-close{font-size:19px;font-weight:400}.dsh-text-zoom-stage{display:flex;align-items:center;justify-content:center;min-height:0;flex:1;overflow:hidden;padding:14px;background:#0b0f16;touch-action:none}.dsh-text-select-wrap-large{width:auto;max-width:none;line-height:0;flex:none;transform-origin:center center;will-change:transform}.dsh-text-select-wrap-large img{display:block;width:auto;max-width:calc(100vw - 96px);max-height:calc(100vh - 250px);object-fit:contain}.dsh-text-zoom-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 14px;border-top:1px solid rgba(255,255,255,.1)}.dsh-text-zoom-actions button{padding:6px 10px;border:1px solid rgba(255,255,255,.15);border-radius:7px;background:#252932;color:#e5e7eb;font:11px system-ui,sans-serif;cursor:pointer}.dsh-text-zoom-actions button:hover:not(:disabled){background:#303640}.dsh-text-zoom-actions button:disabled{opacity:.45;cursor:not-allowed}.dsh-text-zoom-empty{padding:10px 14px;border-top:1px solid rgba(255,255,255,.1);color:#9ca3af;font-size:11px}',
       '.dsh-text-rebuild-info{min-width:0;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:8px}.dsh-text-rebuild-empty{padding:22px 10px;border:1px dashed rgba(255,255,255,.18);border-radius:10px;color:#9ca3af;font-size:12px;text-align:center}',
       '.dsh-text-rebuild-row{padding:9px;border:1px solid rgba(255,255,255,.1);border-radius:10px;background:#22262e}.dsh-text-rebuild-row-top{display:flex;align-items:center;gap:7px;flex-wrap:wrap;min-width:0;color:#aab2c0;font-size:10px}.dsh-text-rebuild-row-top input{accent-color:#3b82f6}.dsh-text-rebuild-confidence{color:#86efac}.dsh-text-rebuild-box{margin-left:auto;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#8b95a7;font-family:ui-monospace,SFMono-Regular,monospace}.dsh-text-rebuild-row textarea{box-sizing:border-box;width:100%;min-height:48px;margin-top:6px;resize:vertical;padding:7px 8px;border:1px solid rgba(255,255,255,.12);border-radius:7px;background:#11141a;color:#f8fafc;font:13px/1.45 system-ui,sans-serif;outline:none}.dsh-text-rebuild-row textarea:focus{border-color:#3b82f6}.dsh-text-rebuild-row-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px}.dsh-text-rebuild-row-controls label{display:flex;align-items:center;gap:4px;color:#9ca3af;font-size:10px}.dsh-text-rebuild-row-controls input[type=number]{width:54px;padding:4px 5px;border:1px solid rgba(255,255,255,.12);border-radius:6px;background:#11141a;color:#e5e7eb;font-size:11px}.dsh-text-rebuild-row-controls input[type=color]{width:26px;height:24px;padding:1px;border:1px solid rgba(255,255,255,.12);border-radius:6px;background:#11141a}.dsh-text-rebuild-row-controls select{max-width:108px;min-width:0;padding:4px 5px;border:1px solid rgba(255,255,255,.12);border-radius:6px;background:#11141a;color:#e5e7eb;font-size:11px}.dsh-text-rebuild-row-controls button,.dsh-text-rebuild-add{margin-left:auto;padding:4px 8px;border:1px solid rgba(255,255,255,.12);border-radius:6px;background:#2a303a;color:#d1d5db;font:11px system-ui,sans-serif;cursor:pointer}.dsh-text-rebuild-row-controls button:hover,.dsh-text-rebuild-add:hover{background:#374151;color:#fff}.dsh-text-rebuild-add{margin:0 0 2px;align-self:flex-start}.dsh-text-rebuild-foot{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;padding:12px 14px;border-top:1px solid rgba(255,255,255,.1)}.dsh-text-rebuild-note{flex:1;min-width:0;color:#9ca3af;font-size:11px;line-height:1.45}.dsh-text-rebuild-actions{display:flex;gap:8px;flex:none}.dsh-text-rebuild-actions button{padding:8px 12px;border-radius:8px;font:650 12px system-ui,sans-serif;cursor:pointer}.dsh-text-rebuild-cancel{border:1px solid rgba(255,255,255,.14);background:#252932;color:#e5e7eb}.dsh-text-rebuild-export{border:1px solid #2563eb;background:#2563eb;color:#fff}.dsh-text-rebuild-export:hover{background:#3b82f6}.dsh-text-rebuild-actions button:disabled{opacity:.45;cursor:not-allowed}',

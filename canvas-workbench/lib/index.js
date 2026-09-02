@@ -5,6 +5,7 @@ import { basename, dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm';
 import { recognizeWithTesseractJs } from './ocr-engine.js';
+import { clusterSelections, normalizeSelections } from './text-reconstruction.js';
 import {
   generateImage,
   imageEngineHealth,
@@ -498,11 +499,15 @@ function visionBlocks(value, width, height) {
     const bold = weight !== 'normal';
     return {
       text, x, y, width: Math.min(w, Math.max(1, width - x)), height: Math.min(h, Math.max(1, height - y)),
+      sourceSelectionId: String(item.sourceSelectionId || item.selectionId || '').trim() || null,
+      role: String(item.role || '').trim().slice(0, 80) || undefined,
+      readingOrder: Number.isFinite(Number(item.readingOrder)) ? Number(item.readingOrder) : undefined,
       fontSize: Math.max(8, Math.round(clamp(Number(item.fontSize || 0) * coordinateScale, 1, 1000) * height / 1000)),
       fontFamily: cjk ? (windowsFonts ? (serif ? 'SimSun' : 'Microsoft YaHei') : (serif ? 'Songti SC' : 'PingFang SC')) : (serif ? 'Times New Roman' : family === 'monospace' ? (windowsFonts ? 'Consolas' : 'Menlo') : 'Arial'),
       fontPostScript: cjk ? (windowsFonts ? (serif ? 'SimSun' : (bold ? 'MicrosoftYaHei-Bold' : 'MicrosoftYaHei')) : (serif ? (bold ? 'SongtiSC-Bold' : 'SongtiSC-Regular') : (bold ? 'PingFangSC-Semibold' : 'PingFangSC-Regular'))) : (serif ? (bold ? 'TimesNewRomanPS-BoldMT' : 'TimesNewRomanPSMT') : family === 'monospace' ? (windowsFonts ? (bold ? 'Consolas-Bold' : 'Consolas') : (bold ? 'Menlo-Bold' : 'Menlo-Regular')) : (bold ? 'Arial-BoldMT' : 'ArialMT')),
       fontWeight: weight,
       fontStyle: styles.has(item.fontStyle) ? item.fontStyle : 'normal',
+      styleConfidence: Number.isFinite(Number(item.styleConfidence)) ? clamp(item.styleConfidence, 0, 1) : null,
       letterSpacing: Math.round(clamp(item.letterSpacing, -200, 1000)),
       lineHeight: Math.max(0, Math.round(clamp(Number(item.lineHeight || 0) * coordinateScale, 0, 1000) * height / 1000)),
       color: /^#[0-9a-f]{6}$/i.test(String(item.color || '')) ? String(item.color).toUpperCase() : '#111111',
@@ -1416,14 +1421,18 @@ function apply(ctx) {
             const uploaded = decodeImageData(body.imageData);
             if (!uploaded) throw new Error('图片数据无效或超过 32MB');
             let visionWarning = '';
+            const sourceWidth = Math.max(1, Number(body.width || 1));
+            const sourceHeight = Math.max(1, Number(body.height || 1));
             const validCrop = (item) => item && typeof item === 'object' && Number(item.width || 0) >= 6 && Number(item.height || 0) >= 6;
-            const requestedCrops = Array.isArray(body.crops) ? body.crops.filter(validCrop).slice(0, 24) : (validCrop(body.crop) ? [body.crop] : []);
+            const requestedCrops = normalizeSelections(Array.isArray(body.crops) ? body.crops.filter(validCrop).slice(0, 24) : (validCrop(body.crop) ? [body.crop] : []), sourceWidth, sourceHeight)
+              .map((item) => ({ ...item, status: item.status || 'analyzing' }));
+            const repairClusters = clusterSelections(requestedCrops, Math.max(24, Number(body.clusterThreshold || 96)));
+            const clusterBySelection = new Map(repairClusters.flatMap((cluster) => cluster.selectionIds.map((id) => [id, cluster.id])));
+            requestedCrops.forEach((item) => { item.clusterId = clusterBySelection.get(item.id) || null; });
             // A box drawn exactly on the glyph bounds clips antialiasing,
             // ascenders/descenders and the neighbouring context required by
             // both vision models and OCR. Expand only the recognition crop;
             // the original user rectangle remains the eligibility boundary.
-            const sourceWidth = Math.max(1, Number(body.width || 1));
-            const sourceHeight = Math.max(1, Number(body.height || 1));
             const recognitionCrops = requestedCrops.map((crop) => {
               const x = Number(crop.x || 0), y = Number(crop.y || 0);
               const width = Number(crop.width || 0), height = Number(crop.height || 0);
@@ -1523,6 +1532,9 @@ function apply(ctx) {
                   }
                 }
                 if (!blocks.length) throw new Error('模型未识别到可用文字');
+                if (requestedCrops.length === 1) {
+                  blocks = blocks.map((block) => ({ ...block, sourceSelectionId: requestedCrops[0].id }));
+                }
                 const hints = Array.from(new Set(blocks.map((block) => String(block.backgroundHint || '').trim()).filter(Boolean))).slice(0, 12);
                 const modelErasePrompt = String(analyzed.value.erasePrompt || '').trim();
                 const erasePrompt = ((modelErasePrompt || ('仅擦除所选文字并按邻近真实背景连续补全。局部背景特征：' + hints.join('；')))
@@ -1541,7 +1553,7 @@ function apply(ctx) {
                 };
                 logOperation('文字识别：聊天模型完成 · ' + blocks.length + ' 个文字对象 · ' + analyzed.model);
                 respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({
-                  ok: true, width: sourceWidth, height: sourceHeight, blocks, crops: requestedCrops,
+                  ok: true, width: sourceWidth, height: sourceHeight, blocks, crops: requestedCrops, repairClusters,
                   schemaVersion: 1, erasePrompt, erasePlan, coordinateMode,
                   engine: 'current-chat-model', provider: analyzed.provider, model: analyzed.model, styleEngine: 'current-chat-model'
                 }));
@@ -1661,7 +1673,7 @@ function apply(ctx) {
             blocks.forEach((item, index) => { if (item && typeof item === 'object') item.id = 'ocr-' + (index + 1); });
             const localEngine = payloads.some((entry) => entry && entry.engine === 'tesseract') ? 'tesseract' : 'tesseract.js';
             logOperation('文字识别：本地兜底完成 · ' + blocks.length + ' 个文字对象 · ' + localEngine);
-            respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true, width: payload.width, height: payload.height, blocks, crops: requestedCrops, engine: localEngine, styleEngine, warning: visionWarning }));
+            respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true, width: payload.width, height: payload.height, blocks, crops: requestedCrops, repairClusters, engine: localEngine, styleEngine, warning: visionWarning }));
           } catch (err) {
             respond(res, 500, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: String((err && err.message) || err) }));
           } finally {
