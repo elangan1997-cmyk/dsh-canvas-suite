@@ -961,6 +961,7 @@ window.__ModuleLoader__.load({
             rotation: Number(item.rotation || 0),
             selected: item.selected !== false,
             enabled: item.enabled !== false,
+            removalMode: item.removalMode || 'text_only',
             status: item.status || 'idle',
             createdAt: Number(item.createdAt || Date.now())
           };
@@ -1028,7 +1029,7 @@ window.__ModuleLoader__.load({
       React.useEffect(() => { panRef.current = pan; }, [pan]);
       const update = (index, patch) => setBlocks((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item));
       const enabledCount = blocks.filter((item) => item && item.enabled !== false && String(item.text || '').trim()).length;
-      const addRow = () => setBlocks((current) => current.concat([{ id: 'manual-' + Date.now(), text: '', originalText: '', x: 24, y: 24, width: 320, height: 48, fontSize: 32, fontFamily: 'PingFang SC', fontPostScript: 'PingFangSC-Regular', fontWeight: 'normal', color: '#111827', confidence: null, enabled: selections.length > 0 }]));
+      const addRow = () => setBlocks((current) => current.concat([{ id: 'manual-' + Date.now(), text: '', originalText: '', x: 24, y: 24, width: 320, height: 48, fontSize: 32, fontFamily: 'PingFang SC', fontPostScript: 'PingFangSC-Regular', fontWeight: 'normal', color: '#111827', confidence: null, removalMode: 'text_only', enabled: selections.length > 0 }]));
       const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
       const clampZoom = (value) => clamp(Number(value) || 1, 0.25, 4);
       const setPreviewZoom = (value) => {
@@ -1207,6 +1208,11 @@ window.__ModuleLoader__.load({
                     React.createElement('option', { value: 'HelveticaNeue' }, 'Helvetica Neue')
                   )),
                   React.createElement('label', null, '颜色', React.createElement('input', { type: 'color', value: /^#[0-9a-f]{6}$/i.test(String(item.color || '')) ? item.color : '#111827', disabled: !!data.busy, onChange: (event) => update(index, { color: event.target.value }) })),
+                  React.createElement('label', null, '删除范围', React.createElement('select', { value: item.removalMode || 'text_only', disabled: !!data.busy, onChange: (event) => update(index, { removalMode: event.target.value }) },
+                    React.createElement('option', { value: 'text_only' }, '仅文字'),
+                    React.createElement('option', { value: 'text_container' }, '文字+容器'),
+                    React.createElement('option', { value: 'component' }, '整个组件')
+                  )),
                   React.createElement('button', { type: 'button', disabled: !!data.busy, onClick: () => update(index, { enabled: false }) }, '排除')
                 )
               )),

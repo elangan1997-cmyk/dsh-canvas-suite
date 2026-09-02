@@ -1553,7 +1553,7 @@ function apply(ctx) {
                   preserveOutsideMask: true,
                   forbidNewText: true,
                   regions: blocks.map((block) => ({
-                    text: block.text, x: block.x, y: block.y, width: block.width, height: block.height,
+                    text: block.text, x: block.x, y: block.y, width: block.width, height: block.height, removalMode: block.removalMode || 'text_only',
                     backgroundHint: block.backgroundHint || ''
                   }))
                 };
@@ -1779,7 +1779,11 @@ function apply(ctx) {
             // produced visible seams/ghost text in real artwork.
             if (body.cleanBackground !== false && selections.length) {
               try {
-                const selectedTexts = Array.from(new Set(enabledBlocks.map((item) => String(item.text || '').replace(/\s+/g, ' ').trim()).filter(Boolean))).slice(0, 40);
+                const selectedTexts = Array.from(new Map(enabledBlocks.map((item) => {
+                  const text = String(item.text || '').replace(/\s+/g, ' ').trim();
+                  const mode = String(item.removalMode || 'text_only');
+                  return [text, text + '（删除范围：' + (mode === 'component' ? '整个视觉组件' : mode === 'text_container' ? '文字及其容器' : '仅文字') + '）'];
+                }).filter(([text]) => text)).values()).slice(0, 40);
                 const selectedTextJson = JSON.stringify(selectedTexts, null, 0);
                 const erasePlan = body.erasePlan && typeof body.erasePlan === 'object' ? body.erasePlan : null;
                 const reasonedErasePrompt = String((erasePlan && erasePlan.prompt) || body.erasePrompt || '').trim().slice(0, 2400);
