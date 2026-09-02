@@ -1610,6 +1610,10 @@ function apply(ctx) {
                   }))
                 };
                 const reconstructionPlan = buildReconstructionPlan({ selections: requestedCrops, blocks, width: sourceWidth, height: sourceHeight, clusterThreshold: Number(body.clusterThreshold || 96) });
+                requestedCrops.forEach((selection) => {
+                  selection.status = blocks.some((block) => block.sourceSelectionId === selection.id) ? 'recognized' : 'error';
+                });
+                reconstructionPlan.status = sessionStatus(reconstructionPlan, requestedCrops.filter((selection) => selection.status === 'error').map((selection) => selection.id));
                 const componentByText = new Map(reconstructionPlan.components.flatMap((component) => component.textObjectIds.map((id) => [id, component.id])));
                 erasePlan.regions = erasePlan.regions.map((region, index) => ({
                   ...region,
@@ -1622,7 +1626,7 @@ function apply(ctx) {
                   ok: true, width: sourceWidth, height: sourceHeight, blocks, crops: requestedCrops, repairClusters,
                   schemaVersion: 1, erasePrompt, erasePlan, coordinateMode,
                   engine: 'current-chat-model', provider: analyzed.provider, model: analyzed.model, styleEngine: 'current-chat-model', geometryDetector,
-                  reconstruction: reconstructionPlan, status: sessionStatus(reconstructionPlan)
+                  reconstruction: reconstructionPlan, status: sessionStatus(reconstructionPlan, requestedCrops.filter((selection) => selection.status === 'error').map((selection) => selection.id))
                 }));
                 return;
               } catch (err) {
@@ -1751,8 +1755,12 @@ function apply(ctx) {
               return { ...block, sourceSelectionId: owner ? owner.id : null };
             });
             const reconstructionPlan = buildReconstructionPlan({ selections: requestedCrops, blocks, width: Number(payload.width || sourceWidth), height: Number(payload.height || sourceHeight), clusterThreshold: Number(body.clusterThreshold || 96) });
+            requestedCrops.forEach((selection) => {
+              selection.status = blocks.some((block) => block.sourceSelectionId === selection.id) ? 'recognized' : 'error';
+            });
+            reconstructionPlan.status = sessionStatus(reconstructionPlan, requestedCrops.filter((selection) => selection.status === 'error').map((selection) => selection.id));
             logOperation('文字识别：本地兜底完成 · ' + blocks.length + ' 个文字对象 · ' + localEngine);
-            respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true, width: payload.width, height: payload.height, blocks, crops: requestedCrops, repairClusters, engine: localEngine, styleEngine, warning: visionWarning, reconstruction: reconstructionPlan, status: sessionStatus(reconstructionPlan) }));
+            respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true, width: payload.width, height: payload.height, blocks, crops: requestedCrops, repairClusters, engine: localEngine, styleEngine, warning: visionWarning, reconstruction: reconstructionPlan, status: sessionStatus(reconstructionPlan, requestedCrops.filter((selection) => selection.status === 'error').map((selection) => selection.id)) }));
           } catch (err) {
             respond(res, 500, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: String((err && err.message) || err) }));
           } finally {
