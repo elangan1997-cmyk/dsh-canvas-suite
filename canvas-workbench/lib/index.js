@@ -455,9 +455,9 @@ function installCanvasImagegenTool(ctx) {
 }
 
 const TEXT_VISION_SYSTEM = `你是平面设计稿的文字理解与局部背景修复规划器。优先理解文字语义和版面关系，不要像传统 OCR 一样仅按单个字符猜测。
-只返回严格 JSON，不要解释、前后缀或 Markdown 代码块。格式为 {"schemaVersion":1,"blocks":[...],"erasePrompt":"..."} 。每个 block 必须包含：text,x,y,width,height,fontSize,fontFamily,fontWeight,fontStyle,color,textAlign,rotation,letterSpacing,lineHeight,confidence,backgroundHint。
+只返回严格 JSON，不要解释、前后缀或 Markdown 代码块。格式为 {"schemaVersion":1,"blocks":[...],"erasePrompt":"..."} 。每个 block 必须包含：text,x,y,width,height,fontSize,fontFamily,fontWeight,fontStyle,color,textAlign,rotation,letterSpacing,lineHeight,confidence,backgroundHint；可以补充 role、readingOrder、componentType、containerType、fontWidth、fontGeometry、fontCorners、spatialHint。
 x/y/width/height 是 0-1000 的整图归一化坐标；fontSize 是相对整图高度 0-1000 的估算值；color 用 #RRGGBB；confidence 用 0-100。
-按视觉上的一行或一个连续文字对象输出，不要把同一行无故拆分。结合品牌名、品类、规格和上下文纠正易混字符，但不得臆造图中不存在的文字；不确定时保留最可信原文并降低 confidence。backgroundHint 必须描述文字下方的真实底色、渐变、纹理、光照、边缘和附近结构。erasePrompt 必须根据所有 backgroundHint 动态生成可直接用于图片编辑模型的中文提示词，并明确列出只允许删除的原文字。提示词必须要求：仅擦除这些指定文字的字形、描边、阴影和抗锯齿残边；以文字紧邻像素延续其下方原有背景；不得改变底部圆角矩形、按钮、边框、渐变、产品、人物、其他文字、尺寸、位置、颜色、光照和清晰度；未被指定的所有内容逐像素保持一致；禁止生成新文字、符号、色块或装饰。fontFamily 只用 sans-serif/serif/rounded/display/monospace/handwriting，fontWeight 只用 normal/medium/bold，fontStyle 只用 normal/italic，textAlign 只用 left/center/right；letterSpacing 使用 Photoshop tracking 的近似值（-200 到 1000），lineHeight 使用相对当前裁剪图高度 0-1000 的值。`;
+按视觉上的一行或一个连续文字对象输出，不要把同一行无故拆分。结合品牌名、品类、规格和上下文纠正易混字符，但不得臆造图中不存在的文字；不确定时保留最可信原文并降低 confidence。backgroundHint 必须描述文字下方的真实底色、渐变、纹理、光照、边缘和附近结构。erasePrompt 必须根据所有 backgroundHint 动态生成可直接用于图片编辑模型的中文提示词，并明确列出只允许删除的原文字。提示词必须要求：仅擦除这些指定文字的字形、描边、阴影和抗锯齿残边；以文字紧邻像素延续其下方原有背景；不得改变底部圆角矩形、按钮、边框、渐变、产品、人物、其他文字、尺寸、位置、颜色、光照和清晰度；未被指定的所有内容逐像素保持一致；禁止生成新文字、符号、色块或装饰。componentType 只用 text_only/badge/label/button/text_with_icon/graphic_group/unknown，containerType 只用 rectangle/rounded_rectangle/circle/ribbon/bubble/custom_shape/unknown。fontFamily 只用 sans-serif/serif/rounded/display/monospace/handwriting，fontWeight 只用 normal/medium/bold，fontStyle 只用 normal/italic，textAlign 只用 left/center/right；letterSpacing 使用 Photoshop tracking 的近似值（-200 到 1000），lineHeight 使用相对当前裁剪图高度 0-1000 的值。`;
 
 function parseModelJson(text) {
   let raw = String(text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
@@ -504,6 +504,15 @@ function visionBlocks(value, width, height) {
       text, x, y, width: Math.min(w, Math.max(1, width - x)), height: Math.min(h, Math.max(1, height - y)),
       sourceSelectionId: String(item.sourceSelectionId || item.selectionId || '').trim() || null,
       role: String(item.role || '').trim().slice(0, 80) || undefined,
+      componentType: /^(text_only|badge|label|button|text_with_icon|graphic_group|unknown)$/.test(String(item.componentType || '')) ? String(item.componentType) : undefined,
+      containerType: /^(rectangle|rounded_rectangle|circle|ribbon|bubble|custom_shape|unknown)$/.test(String(item.containerType || '')) ? String(item.containerType) : undefined,
+      fontWidth: String(item.fontWidth || '').trim().slice(0, 32) || undefined,
+      fontGeometry: String(item.fontGeometry || '').trim().slice(0, 48) || undefined,
+      fontCorners: String(item.fontCorners || '').trim().slice(0, 48) || undefined,
+      spatialHint: item.spatialHint && typeof item.spatialHint === 'object' ? {
+        horizontal: String(item.spatialHint.horizontal || '').slice(0, 32),
+        vertical: String(item.spatialHint.vertical || '').slice(0, 32),
+      } : undefined,
       readingOrder: Number.isFinite(Number(item.readingOrder)) ? Number(item.readingOrder) : undefined,
       fontSize: Math.max(8, Math.round(clamp(Number(item.fontSize || 0) * coordinateScale, 1, 1000) * height / 1000)),
       fontFamily: cjk ? (windowsFonts ? (serif ? 'SimSun' : 'Microsoft YaHei') : (serif ? 'Songti SC' : 'PingFang SC')) : (serif ? 'Times New Roman' : family === 'monospace' ? (windowsFonts ? 'Consolas' : 'Menlo') : 'Arial'),
@@ -559,9 +568,9 @@ async function analyzeTextWithCurrentModel(ctx, uploaded, body) {
     width: Math.round(Math.max(0, Number(item.width || 0)) * 1000 / imageWidth),
     height: Math.round(Math.max(0, Number(item.height || 0)) * 1000 / imageHeight) }));
   const instruction = body.selectionAnnotated
-    ? '这是一张完整原图，用户框选区域已用清晰的蓝色矩形边框标出。只识别蓝色矩形框内部的文字，框外文字仅用于理解语义，绝对不要输出。蓝色框是界面添加的识别引导线，不属于原始设计内容。严格返回 JSON；每个 block 包含文字、相对于整张图片的 0-1000 坐标、字体类别、字重、字号、颜色、对齐、旋转、字距、行距、置信度和文字下方背景描述。erasePrompt 必须说明：删除蓝框内部识别到的原文字并恢复被文字遮挡的真实背景，同时去除识别预览中的蓝色引导框，禁止生成新文字，蓝框外原图保持不变。不得返回空 blocks。'
+    ? '这是一张完整原图，用户框选区域已用清晰的蓝色矩形边框标出。只识别蓝色矩形框内部的文字，框外文字仅用于理解语义，绝对不要输出。蓝色框是界面添加的识别引导线，不属于原始设计内容。严格返回 JSON；每个 block 包含文字、相对于整张图片的 0-1000 坐标、字体类别、字重、字号、颜色、对齐、旋转、字距、行距、置信度和文字下方背景描述，并尽量提供 role、readingOrder、componentType、containerType、fontWidth 和 spatialHint。erasePrompt 必须说明：删除蓝框内部识别到的原文字并恢复被文字遮挡的真实背景，同时去除识别预览中的蓝色引导框，禁止生成新文字，蓝框外原图保持不变。不得返回空 blocks。'
     : body.selectionCrop
-    ? '这张图片是用户刚刚框选区域的直接截图，已经按原图像素裁剪并清晰放大；图片边界就是识别范围。请逐行读取截图中的全部可见文字，包括白字、描边字、贴近边缘或轻微裁切的字，不要分析截图外内容，不得返回空 blocks。blocks 坐标相对于当前截图，以 0-1000 表示。严格返回 JSON；每个文字对象包含内容、位置、字体类别、字重、字号、颜色、对齐、旋转、字距、行距、置信度及文字下方背景描述。erasePrompt 只描述清除这些文字并自然延展其下方背景，禁止生成任何新文字。'
+    ? '这张图片是用户刚刚框选区域的直接截图，已经按原图像素裁剪并清晰放大；图片边界就是识别范围。请逐行读取截图中的全部可见文字，包括白字、描边字、贴近边缘或轻微裁切的字，不要分析截图外内容，不得返回空 blocks。blocks 坐标相对于当前截图，以 0-1000 表示。严格返回 JSON；每个文字对象包含内容、位置、字体类别、字重、字号、颜色、对齐、旋转、字距、行距、置信度及文字下方背景描述，并尽量提供 role、readingOrder、componentType、containerType、fontWidth 和 spatialHint。erasePrompt 只描述清除这些文字并自然延展其下方背景，禁止生成任何新文字。'
     : normalized.length
     ? '用户框选区域（0-1000 整图归一化坐标）为：' + JSON.stringify(normalized)
       + '。只输出这些矩形内准备移除并重建为图层的文字；框外文字仅可作为语义校对依据，不得输出。请结合完整图片理解品牌、品类和规格，返回严格 JSON、每个文字块下方的背景特征，以及可直接用于局部修复的动态 erasePrompt。'

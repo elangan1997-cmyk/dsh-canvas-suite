@@ -62,6 +62,8 @@ function expandRect(value, width, height, margin) {
 }
 
 export function inferComponentType(textObject = {}) {
+  const declared = String(textObject.componentType || '').trim();
+  if (['text_only', 'badge', 'label', 'button', 'text_with_icon', 'graphic_group', 'unknown'].includes(declared) && declared !== 'unknown') return declared;
   const mode = String(textObject.removalMode || 'text_only');
   if (mode === 'component') return 'graphic_group';
   if (mode === 'text_container') {
@@ -106,6 +108,8 @@ export function buildTextObjects(blocks, selections = [], imageWidth = 1, imageH
       },
       // Keep the flat fields for the existing PSD and review UI.
       x: geometry.x, y: geometry.y, width: geometry.width, height: geometry.height,
+      componentType: String(item && item.componentType || '').trim() || undefined,
+      containerType: String(item && item.containerType || '').trim() || undefined,
       appearance: {
         color: String(item && item.color || '#111111'),
         fontStyle: {
