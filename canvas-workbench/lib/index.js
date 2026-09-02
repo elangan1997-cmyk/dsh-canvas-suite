@@ -497,6 +497,8 @@ function visionBlocks(value, width, height) {
     const cjk = /[\u3400-\u9fff]/.test(text);
     const serif = family === 'serif';
     const bold = weight !== 'normal';
+    const recognitionConfidence = clamp(item.confidence, 0, 100) / 100;
+    const polygon = Array.isArray(item.polygon) ? item.polygon : [];
     return {
       text, x, y, width: Math.min(w, Math.max(1, width - x)), height: Math.min(h, Math.max(1, height - y)),
       sourceSelectionId: String(item.sourceSelectionId || item.selectionId || '').trim() || null,
@@ -513,7 +515,11 @@ function visionBlocks(value, width, height) {
       color: /^#[0-9a-f]{6}$/i.test(String(item.color || '')) ? String(item.color).toUpperCase() : '#111111',
       textAlign: aligns.has(item.textAlign) ? item.textAlign : 'left',
       rotation: clamp(item.rotation, -180, 180), confidence: clamp(item.confidence, 0, 100),
-      backgroundHint: String(item.backgroundHint || '').trim().slice(0, 500), enabled: true
+      backgroundHint: String(item.backgroundHint || '').trim().slice(0, 500),
+      geometry: { polygon, bbox: { x, y, width: Math.min(w, Math.max(1, width - x)), height: Math.min(h, Math.max(1, height - y)) }, normalizedBBox: { x: x / Math.max(1, width), y: y / Math.max(1, height), width: w / Math.max(1, width), height: h / Math.max(1, height) }, rotation: clamp(item.rotation, -180, 180) },
+      appearance: { color: /^#[0-9a-f]{6}$/i.test(String(item.color || '')) ? String(item.color).toUpperCase() : '#111111', fontStyle: { category: family, weight, italic: styles.has(item.fontStyle) && item.fontStyle === 'italic' }, alignment: aligns.has(item.textAlign) ? item.textAlign : 'left' },
+      confidence: { recognition: recognitionConfidence, geometry: Number.isFinite(Number(item.geometryConfidence)) ? clamp(item.geometryConfidence, 0, 1) : recognitionConfidence, fontMatch: Number.isFinite(Number(item.fontMatchConfidence)) ? clamp(item.fontMatchConfidence, 0, 1) : 0 },
+      enabled: true
     };
   }).filter(Boolean).sort((a, b) => a.y - b.y || a.x - b.x);
 }
