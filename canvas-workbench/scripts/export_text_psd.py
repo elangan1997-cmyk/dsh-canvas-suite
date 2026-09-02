@@ -107,7 +107,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         ensure_runtime()
-        from PIL import Image, ImageDraw, ImageFont
+        from PIL import Image, ImageDraw, ImageFont, ImageOps
         from psd_tools import PSDImage
         from psd_tools.api.layers import PixelLayer
 
@@ -125,7 +125,9 @@ def main() -> int:
         if clean_path and clean_path.is_file() and clean_path.stat().st_size > 0:
             clean_image = Image.open(clean_path).convert("RGBA")
             if clean_image.size != image.size:
-                clean_image = clean_image.resize(image.size, Image.Resampling.LANCZOS)
+                # Never non-uniformly stretch a model response: circles,
+                # rounded labels and product proportions must stay intact.
+                clean_image = ImageOps.fit(clean_image, image.size, method=Image.Resampling.LANCZOS, centering=(0.5, 0.5))
             clean_rgb = Image.new("RGB", clean_image.size, (255, 255, 255))
             clean_rgb.paste(clean_image, mask=clean_image.getchannel("A"))
         # The original is always kept for recovery.  When a clean plate is

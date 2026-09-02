@@ -1190,7 +1190,11 @@ window.__ModuleLoader__.load({
                   React.createElement('input', { type: 'checkbox', checked: item.enabled !== false, disabled: !!data.busy, onChange: (event) => update(index, { enabled: event.target.checked }) }),
                   React.createElement('span', { className: 'dsh-text-rebuild-confidence' }, item.confidence == null ? '手动' : '置信度 ' + item.confidence + '%'),
                   item.styleConfidence != null ? React.createElement('span', { className: 'dsh-text-rebuild-confidence' }, '样式推测 ' + Math.round(Number(item.styleConfidence) * 100) + '%') : null,
-                  React.createElement('span', { className: 'dsh-text-rebuild-box' }, Math.round(Number(item.x || 0)) + ', ' + Math.round(Number(item.y || 0)) + ' · ' + Math.round(Number(item.width || 0)) + '×' + Math.round(Number(item.height || 0)))
+                  item.sourceSelectionId ? React.createElement('span', { className: 'dsh-text-rebuild-confidence' }, '选区 ' + item.sourceSelectionId) : null,
+                  React.createElement('span', { className: 'dsh-text-rebuild-box' }, Math.round(Number(item.x || 0)) + ', ' + Math.round(Number(item.y || 0)) + ' · ' + Math.round(Number(item.width || 0)) + '×' + Math.round(Number(item.height || 0))),
+                  item.sourceSelectionId && selections.some((region) => region.id === item.sourceSelectionId && region.status === 'error')
+                    ? React.createElement('button', { type: 'button', disabled: !!data.busy || !!data.loading, onClick: () => { const region = selections.find((candidate) => candidate.id === item.sourceSelectionId); if (region && typeof props.onDetect === 'function') props.onDetect([region]); } }, '重试选区')
+                    : null
                 ),
                 React.createElement('textarea', { value: item.text || '', disabled: !!data.busy, placeholder: '输入要保留或替换的文字', onChange: (event) => update(index, { text: event.target.value }) }),
                 React.createElement('div', { className: 'dsh-text-rebuild-row-controls' },
@@ -1220,7 +1224,7 @@ window.__ModuleLoader__.load({
             )
           ),
           React.createElement('div', { className: 'dsh-text-rebuild-foot' },
-            React.createElement('div', { className: 'dsh-text-rebuild-note' }, data.error ? data.error : (enabledCount ? ('模型已理解 ' + enabledCount + ' 个文字对象；框外文字与图像保持不变。') : '先框选，再让当前聊天模型理解选区，确认后由工具执行清理。')),
+              React.createElement('div', { className: 'dsh-text-rebuild-note' }, data.error ? data.error : (data.status === 'partial_error' ? '部分选区失败，可单独重试标记为“!”的区域。' : (enabledCount ? ('模型已理解 ' + enabledCount + ' 个文字对象；框外文字与图像保持不变。') : '先框选，再让当前聊天模型理解选区，确认后由工具执行清理。'))),
             React.createElement('div', { className: 'dsh-text-rebuild-actions' },
               React.createElement('button', { className: 'dsh-text-rebuild-cancel', disabled: !!data.busy, onClick: props.onClose }, '取消'),
               React.createElement('button', { className: 'dsh-text-rebuild-export', disabled: !!data.busy || data.loading || enabledCount === 0, onClick: () => props.onExport(blocks, true, selections) }, data.busy ? '正在清理并生成…' : '清理背景并生成 PSD')
@@ -2606,8 +2610,10 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
           return;
         }
         const current = projectRef.current;
+        const retryOnly = regions.length === 1 && (active.selections || []).some((item) => item.id === regions[0].id && item.status === 'error');
+        const previousBlocks = retryOnly ? (active.blocks || []).filter((item) => item && item.sourceSelectionId !== regions[0].id) : [];
         setTextRebuild((prev) => prev && prev.elementId === active.elementId
-          ? { ...prev, loading: true, hasDetected: false, error: '', blocks: [], erasePrompt: '', erasePlan: null,
+          ? { ...prev, loading: true, hasDetected: false, error: '', blocks: previousBlocks, erasePrompt: retryOnly ? (prev.erasePrompt || '') : '', erasePlan: retryOnly ? prev.erasePlan : null, status: 'analyzing',
             selections: (prev.selections || []).map((item) => regions.some((region) => region.id === item.id) ? { ...item, status: 'analyzing' } : item) }
           : prev);
         setFeedback('正在让当前聊天模型理解 ' + regions.length + ' 个文字选区…');
@@ -2646,7 +2652,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
               catch (error) { failedRegionIds.push(regions[index].id); failures.push('选区 ' + (index + 1) + '：' + String(error && error.message || error)); }
             }
             if (!results.length) throw new Error(failures.join('；') || 'OCR 识别失败');
-            const mergedBlocks = [];
+            const mergedBlocks = previousBlocks.slice();
             const seen = new Set();
             results.forEach((result, resultIndex) => (Array.isArray(result.blocks) ? result.blocks : []).forEach((item) => {
               const key = [String(item && item.text || '').trim(), Math.round(Number(item && item.x || 0)), Math.round(Number(item && item.y || 0))].join('|');
@@ -2655,9 +2661,32 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
             const erasePrompt = results.map((item) => String(item.erasePrompt || '').trim()).filter(Boolean).join('\n').slice(0, 2400);
             const eraseRegions = results.flatMap((item) => item.erasePlan && Array.isArray(item.erasePlan.regions) ? item.erasePlan.regions : []);
             const first = results[0];
-            const merged = { ...first, blocks: mergedBlocks, erasePrompt, erasePlan: { schemaVersion: 1, operation: 'remove-recognized-text', prompt: erasePrompt, preserveOutsideMask: false, forbidNewText: true, regions: eraseRegions }, warning: failures.join('；') };
+            const reconstructionParts = results.map((item, resultIndex) => {
+              const plan = item && item.reconstruction && typeof item.reconstruction === 'object' ? item.reconstruction : {};
+              const sourceId = regions[resultIndex] && regions[resultIndex].id || ('selection-' + (resultIndex + 1));
+              const idMap = new Map((Array.isArray(plan.components) ? plan.components : []).map((component, componentIndex) => [component.id, 'component-' + sourceId + '-' + String(componentIndex + 1).padStart(3, '0')]));
+              return {
+                ...plan,
+                components: (plan.components || []).map((component) => ({ ...component, id: idMap.get(component.id) || component.id })),
+                masks: (plan.masks || []).map((mask) => ({ ...mask, componentId: idMap.get(mask.componentId) || mask.componentId })),
+                repairClusters: (plan.repairClusters || []).map((cluster) => ({ ...cluster, id: 'repair-' + sourceId + '-' + cluster.id, componentIds: (cluster.componentIds || []).map((id) => idMap.get(id) || id) })),
+                jobs: (plan.jobs || []).map((job) => ({ ...job, id: sourceId + ':' + job.id }))
+              };
+            });
+            const mergedReconstruction = {
+              ...(first.reconstruction || {}),
+              textObjects: mergedBlocks,
+              selections: regions,
+              components: reconstructionParts.flatMap((item) => Array.isArray(item.components) ? item.components : []),
+              masks: reconstructionParts.flatMap((item) => Array.isArray(item.masks) ? item.masks : []),
+              repairClusters: reconstructionParts.flatMap((item) => Array.isArray(item.repairClusters) ? item.repairClusters : []),
+              jobs: reconstructionParts.flatMap((item) => Array.isArray(item.jobs) ? item.jobs : []),
+              status: failures.length ? 'partial_error' : (first.status || 'completed')
+            };
+            const merged = { ...first, blocks: mergedBlocks, reconstruction: mergedReconstruction, status: mergedReconstruction.status, erasePrompt, erasePlan: { schemaVersion: 1, operation: 'remove-recognized-text', prompt: erasePrompt, preserveOutsideMask: true, forbidNewText: true, regions: eraseRegions }, warning: failures.join('；') };
             setTextRebuild((prev) => prev && prev.elementId === active.elementId
               ? { ...prev, loading: false, hasDetected: true, blocks: mergedBlocks, erasePrompt, erasePlan: merged.erasePlan, engine: merged.engine || 'tesseract', width: Number(merged.width || prev.width || 0), height: Number(merged.height || prev.height || 0),
+                reconstruction: mergedReconstruction, status: merged.status,
                 selections: (prev.selections || []).map((item) => successfulRegionIds.includes(item.id) ? { ...item, status: 'recognized' } : failedRegionIds.includes(item.id) ? { ...item, status: 'error' } : item) }
               : prev);
             const engineLabel = merged.engine === 'current-chat-model' ? ('当前聊天模型 ' + (merged.model || '')) : '本地 OCR 兜底';
@@ -2819,7 +2848,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
             })
             .catch((err) => setFeedback('⚠ Illustrator 打开失败：' + String((err && err.message) || err)));
         } else if (d.type === 'request-text-rebuild') {
-          const base = { elementId: d.elementId, name: d.name || '当前图片', dataURL: d.imageData || '', loading: false, busy: false, hasDetected: false, blocks: [], erasePrompt: '', erasePlan: null, selection: null, selections: [], width: 0, height: 0, error: '' };
+          const base = { elementId: d.elementId, name: d.name || '当前图片', dataURL: d.imageData || '', loading: false, busy: false, hasDetected: false, blocks: [], reconstruction: null, status: 'idle', erasePrompt: '', erasePlan: null, selection: null, selections: [], width: 0, height: 0, error: '' };
           setTextRebuild(base);
           setFeedback('请先框选需要移除并重建的文字区域，再点击“识别选区”');
         } else if (d.type === 'request-text-rebuild-export') {
@@ -3766,7 +3795,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
       ,'.dsh-canvas-log-item time{flex:none;color:#94a3b8}.dsh-canvas-log-item span{overflow-wrap:anywhere;color:#dbeafe}'
       ,'@media(max-width:560px){.dsh-canvas-title,.dsh-canvas-status,.dsh-canvas-hint,.dsh-canvas-feedback{display:none}.dsh-canvas-toolbar{flex-wrap:wrap;gap:4px;padding:6px}.dsh-canvas-project{max-width:90px}.dsh-canvas-tb{padding:4px 6px;font-size:11px}.dsh-canvas-more-menu{right:6px}.dsh-canvas-log-dialog{inset:48px 0 0;padding:8px}}'
       ,'/* 平面化界面：避免桌面端全屏时阴影与宿主右上角控件叠加 */'
-      ,'.dsh-canvas-overlay,.dsh-canvas-more-menu,.dsh-canvas-engine-card,.dsh-canvas-project-dialog,.dsh-canvas-log-card,.dsh-image-editor-panel,.dsh-text-rebuild-panel,.dsh-text-zoom-dialog,.dsh-canvas-lightbox-inner{box-shadow:none!important}'
+      ,'.dsh-canvas-overlay,.dsh-canvas-more-menu,.dsh-canvas-engine-card,.dsh-canvas-project-dialog,.dsh-canvas-log-card,.dsh-selection-toolbar,.dsh-image-editor-panel,.dsh-image-editor-media,.dsh-text-rebuild-panel,.dsh-text-zoom-dialog,.dsh-canvas-lightbox-inner{box-shadow:none!important}'
       ,'@media (prefers-color-scheme:light){.dsh-canvas-adobe-setup{background:#f8fafc;border-color:#e2e8f0}.dsh-canvas-adobe-heading strong{color:#1f2937}.dsh-canvas-adobe-heading small{color:#64748b}.dsh-canvas-adobe-clear{color:#64748b}.dsh-canvas-adobe-clear:hover:not(:disabled){color:#b91c1c}}'
       ,'@media (prefers-color-scheme:dark){.dsh-canvas-overlay{color-scheme:dark}}'
       ,'@media (prefers-color-scheme:light){.dsh-canvas-engine-badge{background:#fff7ed;color:#c2410c}.dsh-canvas-engine-badge.is-ready{background:#ecfdf5;color:#047857}.dsh-canvas-engine-setup{background:#f8fafc;border-color:#e2e8f0}.dsh-canvas-engine-steps>div{background:#fff;color:#334155;border:1px solid #e5e7eb}.dsh-canvas-engine-steps b{background:#e5e7eb;color:#475569}.dsh-canvas-engine-steps .is-done b{background:#dcfce7;color:#166534}.dsh-canvas-engine-steps small,.dsh-canvas-engine-field small{color:#64748b}.dsh-canvas-engine-notice{background:#ecfdf5;color:#047857}}'
@@ -3775,7 +3804,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
       ,'@container (max-width:680px){.dsh-canvas-status{display:none}.dsh-canvas-title{font-size:13px}.dsh-canvas-project{max-width:92px}.dsh-canvas-toolbar{gap:6px;padding:7px 9px}.dsh-canvas-tb{padding:5px 7px;font-size:11px}}'
       ,'/* Electron places the native minimize/maximize/close controls over the top-right content. The browser build does not reserve this space. */'
       ,'.dsh-canvas-desktop-host .dsh-canvas-toolbar{padding-right:152px}'
-      ,'.dsh-canvas-overlay,.dsh-canvas-more-menu,.dsh-canvas-engine-card,.dsh-canvas-project-dialog,.dsh-canvas-log-card,.dsh-image-editor-panel,.dsh-text-rebuild-panel,.dsh-text-zoom-dialog,.dsh-canvas-lightbox-inner{box-shadow:none!important}'
+      ,'.dsh-canvas-overlay,.dsh-canvas-more-menu,.dsh-canvas-engine-card,.dsh-canvas-project-dialog,.dsh-canvas-log-card,.dsh-selection-toolbar,.dsh-image-editor-panel,.dsh-image-editor-media,.dsh-text-rebuild-panel,.dsh-text-zoom-dialog,.dsh-canvas-lightbox-inner{box-shadow:none!important}'
     ].join('\n');
 
     // ---- plugin ----

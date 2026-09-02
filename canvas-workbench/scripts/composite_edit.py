@@ -3,7 +3,18 @@
 
 import argparse
 import pathlib
-from PIL import Image
+from PIL import Image, ImageOps
+
+
+def resize_preserving_aspect(image, size):
+    """Map a model result to the source canvas without non-uniform stretching."""
+    if image.size == size:
+        return image
+    # Image models normally preserve the requested aspect ratio.  When a
+    # provider returns a square/legacy response, fit (crop) rather than
+    # stretching the product or text; this keeps circles and rounded labels
+    # geometrically correct at the cost of only the provider's excess border.
+    return ImageOps.fit(image, size, method=Image.Resampling.LANCZOS, centering=(0.5, 0.5))
 
 
 def main():
@@ -17,7 +28,7 @@ def main():
     source = Image.open(args.source).convert("RGBA")
     generated = Image.open(args.generated).convert("RGBA")
     if generated.size != source.size:
-        generated = generated.resize(source.size, Image.Resampling.LANCZOS)
+        generated = resize_preserving_aspect(generated, source.size)
 
     if args.mask:
         mask_rgba = Image.open(args.mask).convert("RGBA")

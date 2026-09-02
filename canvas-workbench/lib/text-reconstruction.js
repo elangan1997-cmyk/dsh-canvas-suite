@@ -78,7 +78,13 @@ export function fuseTextGeometry(textObjects, detectedRegions) {
     const detector = regions[index];
     if (!detector || !detector.bbox) return { ...row, geometryConfidence: number(row.geometryConfidence, 0.35), needsReview: true };
     const bbox = detector.bbox;
-    return { ...row, x: number(bbox.x), y: number(bbox.y), width: Math.max(1, number(bbox.width)), height: Math.max(1, number(bbox.height)), rotation: number(detector.rotation, number(row.rotation)), geometryConfidence: number(detector.detectorConfidence, 0), needsReview: number(detector.detectorConfidence, 0) < 0.55 };
+    const measuredHeight = Math.max(1, number(bbox.height));
+    // VLMs sometimes emit the schema minimum (fontSize=1/8) even when the
+    // text is legible.  Once a detector has measured the glyph region, use a
+    // cap-height-aware estimate rather than carrying the placeholder into
+    // Photoshop. The user can still override it in the review panel.
+    const suppliedFontSize = number(row.fontSize);
+    const fontSize = suppliedFontSize > 8 ? suppliedFontSize : Math.max(8, Math.round(measuredHeight * 0.82));
+    return { ...row, x: number(bbox.x), y: number(bbox.y), width: Math.max(1, number(bbox.width)), height: measuredHeight, fontSize, lineHeight: number(row.lineHeight) > 8 ? number(row.lineHeight) : Math.round(fontSize * 1.15), rotation: number(detector.rotation, number(row.rotation)), geometryConfidence: number(detector.detectorConfidence, 0), needsReview: number(detector.detectorConfidence, 0) < 0.55 };
   });
 }
-

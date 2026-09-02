@@ -5,7 +5,8 @@ import { basename, dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm';
 import { recognizeWithTesseractJs } from './ocr-engine.js';
-import { clusterSelections, normalizeSelections } from './text-reconstruction.js';
+import { clusterSelections, fuseTextGeometry, normalizeSelections } from './text-reconstruction.js';
+import { buildReconstructionPlan, sessionStatus } from './reconstruction-model.js';
 import {
   generateImage,
   imageEngineHealth,
@@ -1508,6 +1509,33 @@ function apply(ctx) {
                     fontSize: Math.max(8, Math.round(Number(block.fontSize || 8) / scaleY)),
                   }));
                 }
+                let coordinateMode = cropMapping ? 'upscaled-selection-crop' : 'full-image';
+                let geometryDetector = 'vlm';
+                const geometryInvalid = understood.length > 0 && understood.every((block) => Number(block.width || 0) <= 2 || Number(block.height || 0) <= 2);
+                // Use the local OCR engine only as a geometry detector when
+                // the VLM returned semantic text with placeholder geometry.
+                // Its recognized strings are deliberately ignored.
+                if (geometryInvalid && tempInput && requestedCrops.length === 1) {
+                  try {
+                    const detector = await recognizeWithTesseractJs({
+                      ctx, runProcessWithTimeout, cwd: dirname(dirname(fileURLToPath(import.meta.url))),
+                      inputPath: tempInput, width: sourceWidth, height: sourceHeight,
+                      lang: String(body.lang || 'chi_sim+eng'), psm: String(body.psm || '11'), crop: requestedCrops[0]
+                    });
+                    const detectorRegions = (Array.isArray(detector.blocks) ? detector.blocks : []).map((item) => ({
+                      bbox: { x: Number(item.x || 0), y: Number(item.y || 0), width: Number(item.width || 0), height: Number(item.height || 0) },
+                      rotation: Number(item.rotation || 0), detectorConfidence: Math.max(0, Math.min(1, Number(item.confidence || 0) / 100))
+                    }));
+                    if (detectorRegions.length) {
+                      understood = fuseTextGeometry(understood, detectorRegions);
+                      geometryDetector = 'local-text-detector';
+                      coordinateMode = 'detector-fused';
+                      logOperation('文字识别：VLM 内容与本地检测几何融合 · ' + detectorRegions.length + ' 个 bbox');
+                    }
+                  } catch (detectorError) {
+                    logOperation('文字识别：本地几何检测不可用，保留 VLM 内容 · ' + String(detectorError && detectorError.message || detectorError), 'warn');
+                  }
+                }
                 // The annotated-image prompt already restricts output to the
                 // blue rectangle. Do not discard valid recognized text a
                 // second time based on model-estimated geometry: providers
@@ -1517,7 +1545,6 @@ function apply(ctx) {
                   : requestedCrops.length
                   ? understood.filter((block) => requestedCrops.some((region) => intersects(block, region)))
                   : understood;
-                let coordinateMode = cropMapping ? 'upscaled-selection-crop' : 'full-image';
                 // Some vision adapters correctly read the selected text but
                 // express 0-1000 coordinates relative to the selected crop,
                 // despite being asked for full-image coordinates. Reproject
@@ -1540,6 +1567,22 @@ function apply(ctx) {
                 if (!blocks.length) throw new Error('模型未识别到可用文字');
                 if (requestedCrops.length === 1) {
                   blocks = blocks.map((block) => ({ ...block, sourceSelectionId: requestedCrops[0].id }));
+                } else {
+                  // A direct multi-region caller may omit source IDs. Keep
+                  // traceability by assigning each row to the selection whose
+                  // measured bbox contains its centre; ambiguous rows remain
+                  // linked to the nearest selection instead of being dropped.
+                  blocks = blocks.map((block) => {
+                    if (block.sourceSelectionId) return block;
+                    const cx = Number(block.x || 0) + Number(block.width || 0) / 2;
+                    const cy = Number(block.y || 0) + Number(block.height || 0) / 2;
+                    const owner = requestedCrops.slice().sort((left, right) => {
+                      const ld = Math.hypot(cx - (Number(left.x || 0) + Number(left.width || 0) / 2), cy - (Number(left.y || 0) + Number(left.height || 0) / 2));
+                      const rd = Math.hypot(cx - (Number(right.x || 0) + Number(right.width || 0) / 2), cy - (Number(right.y || 0) + Number(right.height || 0) / 2));
+                      return ld - rd;
+                    })[0];
+                    return { ...block, sourceSelectionId: owner ? owner.id : null };
+                  });
                 }
                 const hints = Array.from(new Set(blocks.map((block) => String(block.backgroundHint || '').trim()).filter(Boolean))).slice(0, 12);
                 const modelErasePrompt = String(analyzed.value.erasePrompt || '').trim();
@@ -1557,11 +1600,20 @@ function apply(ctx) {
                     backgroundHint: block.backgroundHint || ''
                   }))
                 };
+                const reconstructionPlan = buildReconstructionPlan({ selections: requestedCrops, blocks, width: sourceWidth, height: sourceHeight, clusterThreshold: Number(body.clusterThreshold || 96) });
+                const componentByText = new Map(reconstructionPlan.components.flatMap((component) => component.textObjectIds.map((id) => [id, component.id])));
+                erasePlan.regions = erasePlan.regions.map((region, index) => ({
+                  ...region,
+                  textObjectId: reconstructionPlan.textObjects[index] ? reconstructionPlan.textObjects[index].id : null,
+                  sourceSelectionId: reconstructionPlan.textObjects[index] ? reconstructionPlan.textObjects[index].sourceSelectionId : null,
+                  componentId: reconstructionPlan.textObjects[index] ? componentByText.get(reconstructionPlan.textObjects[index].id) || null : null
+                }));
                 logOperation('文字识别：聊天模型完成 · ' + blocks.length + ' 个文字对象 · ' + analyzed.model);
                 respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({
                   ok: true, width: sourceWidth, height: sourceHeight, blocks, crops: requestedCrops, repairClusters,
                   schemaVersion: 1, erasePrompt, erasePlan, coordinateMode,
-                  engine: 'current-chat-model', provider: analyzed.provider, model: analyzed.model, styleEngine: 'current-chat-model'
+                  engine: 'current-chat-model', provider: analyzed.provider, model: analyzed.model, styleEngine: 'current-chat-model', geometryDetector,
+                  reconstruction: reconstructionPlan, status: sessionStatus(reconstructionPlan)
                 }));
                 return;
               } catch (err) {
@@ -1678,8 +1730,20 @@ function apply(ctx) {
             } catch (err) {}
             blocks.forEach((item, index) => { if (item && typeof item === 'object') item.id = 'ocr-' + (index + 1); });
             const localEngine = payloads.some((entry) => entry && entry.engine === 'tesseract') ? 'tesseract' : 'tesseract.js';
+            // Local OCR is a fallback for text content, but its measured boxes
+            // are still useful as a detector. Attach every row to a source
+            // selection before exposing the same reconstruction schema used by
+            // the current-chat-model path.
+            blocks = blocks.map((block) => {
+              if (block.sourceSelectionId || requestedCrops.length <= 1) return { ...block, sourceSelectionId: requestedCrops.length === 1 ? requestedCrops[0].id : block.sourceSelectionId || null };
+              const cx = Number(block.x || 0) + Number(block.width || 0) / 2;
+              const cy = Number(block.y || 0) + Number(block.height || 0) / 2;
+              const owner = requestedCrops.slice().sort((left, right) => Math.hypot(cx - (Number(left.x || 0) + Number(left.width || 0) / 2), cy - (Number(left.y || 0) + Number(left.height || 0) / 2)) - Math.hypot(cx - (Number(right.x || 0) + Number(right.width || 0) / 2), cy - (Number(right.y || 0) + Number(right.height || 0) / 2)))[0];
+              return { ...block, sourceSelectionId: owner ? owner.id : null };
+            });
+            const reconstructionPlan = buildReconstructionPlan({ selections: requestedCrops, blocks, width: Number(payload.width || sourceWidth), height: Number(payload.height || sourceHeight), clusterThreshold: Number(body.clusterThreshold || 96) });
             logOperation('文字识别：本地兜底完成 · ' + blocks.length + ' 个文字对象 · ' + localEngine);
-            respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true, width: payload.width, height: payload.height, blocks, crops: requestedCrops, repairClusters, engine: localEngine, styleEngine, warning: visionWarning }));
+            respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true, width: payload.width, height: payload.height, blocks, crops: requestedCrops, repairClusters, engine: localEngine, styleEngine, warning: visionWarning, reconstruction: reconstructionPlan, status: sessionStatus(reconstructionPlan) }));
           } catch (err) {
             respond(res, 500, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: String((err && err.message) || err) }));
           } finally {
@@ -1750,8 +1814,28 @@ function apply(ctx) {
                 if (!item || item.enabled === false || !String(item.text || '').trim()) return item;
                 const y = Number(region.y || 0) + rowHeight * row++;
                 return { ...item, x: Number(region.x || 0), y, width: Number(region.width || 0), height: rowHeight, fontSize: Math.max(10, rowHeight * 0.72), lineHeight: Math.max(12, rowHeight * 0.9) };
-              });
+                });
             }
+            // Treat the schema minimum as an unknown value, not an actual
+            // 8px instruction. This is the last safety net for PSD exports
+            // produced by a model that read the text correctly but omitted
+            // typography measurements.
+            exportBlocks = exportBlocks.map((item) => {
+              if (!item || item.enabled === false || !String(item.text || '').trim()) return item;
+              const measuredHeight = Number(item.height || 0);
+              if (measuredHeight > 12 && Number(item.fontSize || 0) <= 8) {
+                const size = Math.max(10, Math.round(measuredHeight * 0.82));
+                return { ...item, fontSize: size, lineHeight: Number(item.lineHeight || 0) > 8 ? item.lineHeight : Math.round(size * 1.15) };
+              }
+              return item;
+            });
+            const reconstructionPlan = buildReconstructionPlan({
+              selections: normalizeSelections(selections, Number(body.width || 1), Number(body.height || 1)),
+              blocks: exportBlocks,
+              width: Number(body.width || 1),
+              height: Number(body.height || 1),
+              clusterThreshold: Number(body.clusterThreshold || 96)
+            });
             // Photoshop ExtendScript 在部分版本中无法 app.open 中文目录下的
             // 临时文件；先在 ASCII 系统临时目录完成 JSX/PSD，再把最终字节
             // 写回项目 assets，避免路径编码导致原生文字层分支失败。
@@ -1917,7 +2001,7 @@ function apply(ctx) {
             }
             const info = await stat(saved.path);
             const warnings = [cleanupWarning, photoshopWarning].filter(Boolean).join('；');
-            respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true, image: { path: saved.path, name: saved.name, mtime: info.mtimeMs, kind: 'psd', managed: true, url: previewUrl(saved.path, info.mtimeMs) }, photoshop, opened, cleanedBackground: Boolean(cleanInput), cleanupEngine: cleanupEngine || 'none', styleEngine: 'local-font-heuristic', warning: warnings, blockCount: enabledBlocks.length, selectionCount: selections.length }));
+            respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true, image: { path: saved.path, name: saved.name, mtime: info.mtimeMs, kind: 'psd', managed: true, url: previewUrl(saved.path, info.mtimeMs) }, photoshop, opened, cleanedBackground: Boolean(cleanInput), cleanupEngine: cleanupEngine || 'none', styleEngine: 'local-font-heuristic', warning: warnings, blockCount: enabledBlocks.length, selectionCount: selections.length, reconstruction: reconstructionPlan, status: sessionStatus(reconstructionPlan) }));
           } catch (err) {
             respond(res, 500, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: String((err && err.message) || err) }));
           } finally {

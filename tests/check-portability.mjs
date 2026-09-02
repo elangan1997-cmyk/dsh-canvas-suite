@@ -7,6 +7,8 @@ const required = [
   'canvas-workbench/lib/index.js',
   'canvas-workbench/lib/client.js',
   'canvas-workbench/lib/ocr-engine.js',
+  'canvas-workbench/lib/text-reconstruction.js',
+  'canvas-workbench/lib/reconstruction-model.js',
   'canvas-workbench/lib/image-engine.js',
   'canvas-workbench/lib/platform.js',
   'canvas-workbench/scripts/render_psd_preview.py',
@@ -30,6 +32,9 @@ if (!host.includes('platformCapabilities()')) throw new Error('health endpoint l
 if (!host.includes('recognizeWithTesseractJs')) throw new Error('OCR route lacks self-contained Tesseract.js fallback');
 if (!host.includes('schemaVersion: 1, erasePrompt') || !host.includes('body.provider && body.model')) {
   throw new Error('text recognition must prefer the current chat model and return structured dynamic cleanup JSON');
+}
+if (!host.includes('buildReconstructionPlan') || !host.includes('geometryDetector')) {
+  throw new Error('text recognition must expose traceable reconstruction and detector-fusion metadata');
 }
 if (!host.includes("'--blocks-file'")) throw new Error('text tools must pass CJK JSON through UTF-8 files on Windows');
 if (!host.includes("pathname === '/dsh-canvas/pick-adobe'")) throw new Error('host lacks native Adobe executable picker endpoint');
@@ -64,6 +69,9 @@ if (!client.includes('DSH_CANVAS_HTML_FALLBACK') || !client.includes("fetchCanva
 }
 if (!client.includes('photoshopWheel') || !client.includes('Alt + 滚轮缩放 · 空格拖动画布')) {
   throw new Error('canvas lacks Photoshop-style wheel zoom controls');
+}
+if (!client.includes('重试选区') || !client.includes("data.status === 'partial_error'")) {
+  throw new Error('text rebuild UI lacks independent region retry/partial failure state');
 }
 if (!client.includes('projectPrefixLower') || !client.includes('normalizeProjectPath')) {
   throw new Error('project polling lacks Windows separator/case normalization');
