@@ -1,5 +1,53 @@
 # DSH画布工作台
 
+## 先从设计师的工作开始看
+
+DSH 画布工作台不是把网页工具搬到桌面上，而是把设计师每天反复做的几件事连起来：找素材、生成图片、挑选区域、修改、确认效果、保留原图、交给 Photoshop/Illustrator 继续细化。
+
+你可以把它理解为一个“项目文件夹 + 无限画布 + 当前聊天模型 + 本地设计软件”的工作台：
+- 不必为了让模型看图而反复上传和下载；项目里的素材、聊天原图和画布元素有明确的落盘位置。
+- 不必在多个网页之间复制提示词；图片生成、编辑、识别和加入画布都围绕当前项目完成。
+- 不必猜测失败在哪里；操作日志会告诉你是选区、模型请求、响应解析、预览转换还是落盘阶段出错。
+- 不必牺牲后期编辑；文字重建可以输出 PSD 背景和可编辑文字层，原图尺寸和比例尽量保持。
+
+## 设计师最容易感受到的便利
+
+| 设计工作 | DSH 画布工作台的做法 |
+| --- | --- |
+| 找图和整理 | 打开项目文件夹即可看到实时更新的素材，画布和文件夹保持同一项目关系 |
+| 试几个方案 | 聊天生成的原图保留在项目目录，加入画布只是建立一个可排版的副本 |
+| 局部修改 | 框选后编辑、擦除或去字，未选区域作为“保持不变”的约束 |
+| 做交付文件 | 背景修复图、文字层和原图分开保留，可继续进 PSD 或 Adobe 软件 |
+| 处理失败 | “更多 → 操作日志”记录每一步，不需要把整段聊天或账号信息发给别人 |
+| 日常操作 | Alt + 滚轮缩放、拖拽平移、多选对齐，习惯接近 Photoshop |
+
+## 和网页第三方设计 Agent 的区别
+
+网页第三方工具适合临时试用、快速做一张图；DSH 更适合长期项目、批量素材和需要交付源文件的设计工作。主要差异在于：
+- **本地项目优先**：素材和生成原图在自己的项目文件夹中管理，不依赖网页会话是否还在、网页链接是否过期。
+- **模型路由可选择**：设计模式开启时统一走画布设置的 Codex 或 API；没有 Codex 会员时仍可以使用自己的 API。
+- **从生成到交付连贯**：网页工具通常停在一张扁平图片，DSH 可以继续做选区编辑、文字识别、PSD 分层、文件夹归档和 Adobe 衔接。
+- **对原始素材更友好**：编辑器使用原始分辨率，结果保留原图和独立文件，减少网页预览压缩、重复下载和版本混乱。
+- **更容易追责和复现**：项目路径、模型路由、失败步骤和输出文件都能在本机核对，便于团队复盘。
+- **隐私边界更清楚**：登录、API 凭据、项目内容和聊天原图留在使用者自己的电脑；只有调用所选模型服务时才发送必要的图片请求。
+
+这并不意味着网页工具没有价值：网页服务通常免安装、适合快速试用或协作展示；如果你需要长期保留设计资产、可编辑交付和稳定的本地工作流，DSH 画布工作台会更合适。
+
+## 推荐的设计工作流
+
+1. **生成方向**：在当前聊天中描述方向，选择画布图像引擎，生成图片后点击“加入画布”。
+2. **整理方案**：在无限画布中排列多个版本，使用文件夹实时刷新的素材补充版面。
+3. **局部修改**：选中需要调整的区域，调用编辑图片、智能擦除或去除背景；未选区域保持原样。
+4. **文字重建**：框选文字，让视觉模型返回 JSON 和背景修复提示词，确认后输出背景图和 PSD 文字层。
+5. **交付和归档**：保留原图、修复背景、PSD 和操作日志；需要精修时从画布直接交给 Photoshop/Illustrator。
+
+## 快速选择下载包
+
+- **新电脑、没有 DSH Desktop**：下载完整 Windows 安装包，安装后登录自己的账号。
+- **已经有 DSH Desktop，只想更新画布**：下载独立插件 ZIP，退出 DSH 后运行安装脚本。
+- **macOS 用户**：使用独立插件包中的 macOS 安装脚本；macOS 完整桌面安装包会单独发布。
+
+
 面向设计人员的 DSH Desktop 画布工作台，把图片生成、项目文件、无限画布、图片处理和 Photoshop/Illustrator 协作集中在一个工作区。你不需要先了解 Agent：按下面的下载说明安装后，就可以像使用普通设计工具一样开始工作。
 
 > 当前 Windows Preview：`v1.4.0-windows-preview.3`  ｜  [下载完整安装包和独立插件](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/tag/v1.4.0-windows-preview.3)
@@ -115,3 +163,188 @@ dist/                   本地构建产物（不提交个人配置）
 ## 开发与反馈
 
 源码位于 `canvas-workbench/`。报告问题时请附：操作步骤、系统版本、插件版本、操作日志中的失败步骤，以及是否使用 Codex 或 API 路由。请不要粘贴 API Key、OAuth Token 或个人项目文件。
+
+
+---
+
+# DSH Canvas Workbench (English)
+
+DSH Canvas Workbench is a design-focused canvas plugin for DSH Desktop. It brings image generation, project files, an infinite canvas, image editing, and Photoshop/Illustrator handoff into one workspace. You can use it without learning Agent concepts first.
+
+> Current Windows preview: `v1.4.0-windows-preview.3`  |  [Download the Windows release](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/tag/v1.4.0-windows-preview.3)
+
+## What the canvas plugin does
+
+### Infinite canvas and project management
+- Drag and drop or paste assets, zoom, pan, multi-select, align, duplicate, delete, manage layers, and export PNG.
+- Projects are saved independently. Open the project folder from More and file assets refresh as the folder changes.
+- The More menu provides project-folder access, image-engine settings, and an operation log for troubleshooting.
+- Deleting an item from the canvas does not delete the chat original. Chat-generated originals stay under `TUPIAN/<project-name>/DSH聊天生成图片`.
+
+### Image generation and chat routing
+- With Design Mode enabled, image generation follows the canvas image-engine setting: Codex uses the Codex route; API uses the configured API route.
+- With Design Mode disabled, chat uses DSH’s normal image-generation channel.
+- Chat-generated images expose Add to canvas and Show in folder while keeping an independent original file.
+- API calls detect timeouts, empty responses, and HTML responses and write the failed step to the operation log.
+
+### Image editing, erase, and background removal
+- Edit Image accepts a natural-language request and an optional selection. Without a selection, the whole image is edited.
+- Smart Erase processes the selected region while preserving the subject, dimensions, proportions, and unselected areas as much as possible.
+- Background removal preserves the source dimensions and aspect ratio, supports transparency, expands and feathers selections to reduce rectangular seams.
+- Repeated edits use the original master as the composition source to reduce ghosting, misalignment, and quality loss from stacked masks.
+- Generated results are saved into the project while the original file remains untouched.
+
+### Text recognition and layered PSD output
+- The model receives the full source image together with the blue selection outline, rather than only a small crop.
+- The vision model returns structured JSON with text, position, color, font-size estimate, font suggestion, alignment, and confidence.
+- It also returns a repair prompt that removes only the selected text and keeps every other area consistent.
+- PSD output contains the repaired background and editable text layers with coordinates converted from the source image.
+- Recognized text items are selected by default and can be edited or unchecked before generation.
+
+### Preview and external editing
+- Supports common PNG, JPG/JPEG, WebP, SVG, PSD, PDF, and AI assets.
+- PDF/AI preview first tries a local converter. If unavailable, the file card remains usable and can be opened in Illustrator or the system viewer.
+- Photoshop and Illustrator can be detected from common installation locations or selected manually in settings.
+- Alt + mouse wheel zoom follows a Photoshop-like workflow. Image editing keeps the original-resolution source instead of shrinking it for the editor.
+
+### Operation log
+More → Operation Log records project loading, file refresh, disk writes, model requests, response parsing, preview conversion, PSD generation, and failure reasons. Logs are safe to share after removing any user-specific paths; never include API keys.
+
+## Choose the right download
+
+### Full installer — for computers without DSH Desktop
+Use the Windows x64 single-file installer for a new computer or a design teammate who does not already have DSH Desktop. It includes DSH Desktop, the canvas plugin, the file browser, and the required local runtime.
+
+1. Open the [Windows Release](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/tag/v1.4.0-windows-preview.3).
+2. Download `DSH-Setup-x64-*.exe` and its matching `.sha256` file.
+3. Double-click the EXE and wait for the installation to finish.
+4. Start DSH Desktop, sign in with your own account, or configure your own API under More → Image Engine Settings.
+
+Requirements: Windows 10 or Windows 11, 64-bit. Node.js, Python, Git, and administrator rights are not required. Photoshop and Illustrator are optional.
+
+### Standalone canvas plugin — for computers that already have DSH Desktop
+This is the lightweight canvas update package. It does not include DSH Desktop and cannot run by itself.
+
+1. Download `DSH-Canvas-Workbench-*.zip` and its matching `.sha256` file.
+2. Fully quit DSH Desktop, including the system tray process.
+3. Extract the ZIP. On Windows run `install-windows.cmd`; on macOS run `bash install-macos.sh`.
+4. Restart DSH Desktop. If needed, run `install-windows.cmd -CheckOnly` to verify the installation.
+
+The installer updates only the `@local/canvas-workbench` runtime copies and backs up the previous copy under `.dsh/canvas-suite/plugin-backups`. It does not remove sign-in data, API credentials, project files, or canvas snapshots.
+
+## Environment and compatibility
+
+**Windows full installer**
+- Windows 10/11 x64.
+- No preinstalled Node.js, Python, Git, or admin account required.
+- Network access is needed only for online sign-in and remote image/vision APIs; the canvas and project files remain local.
+
+**Windows standalone plugin**
+- Existing DSH Desktop installation that has been started at least once.
+- DSH must be closed during installation.
+- Optional local capabilities (OCR, background removal, vector conversion, PDF/AI preview, Adobe automation) are enabled according to the tools available on the computer.
+
+**macOS standalone plugin**
+- macOS with DSH Desktop already installed and started once.
+- `~/.dsh/profiles` must exist; quit DSH before running the installer.
+- The canvas core does not require Python or Node.js. Optional conversion and Adobe capabilities depend on local tools.
+
+## Updating without rebuilding the EXE
+
+- Canvas feature iterations: publish a new standalone plugin ZIP only. This is the fast update path.
+- DSH Desktop, bundled runtime, or installer changes: rebuild and publish a new full EXE.
+- Windows and macOS can be released independently. Existing releases remain available for rollback and comparison.
+
+## API, proxy, and image-engine notes
+
+The canvas itself opens locally. Image generation and vision recognition require the selected service to be reachable. Check the route, endpoint, timeout, and proxy under More → Image Engine Settings. If a response is slow or empty, the operation log records the exact stage.
+
+## Troubleshooting
+
+**The installer flashes a black or blue window and exits**
+On a computer without DSH, retry the full installer. On a computer with DSH, quit DSH including the tray and use the standalone plugin installer. Use the Windows environment check and installation log when the problem persists.
+
+**The plugin still looks old after installation**
+Quit DSH completely, run the installer again, then run the check-only option and restart DSH.
+
+**PDF or AI preview is unavailable**
+The file can still be placed on the canvas. Install a local PDF converter or open the file with Illustrator for the richest preview.
+
+## Release documentation
+
+- [Windows full-install guide](windows-installer/INSTALL-WINDOWS.md)
+- [Windows standalone-plugin guide](docs/DSH-CANVAS-WORKBENCH-WINDOWS.md)
+- [macOS standalone-plugin guide](docs/DSH-CANVAS-WORKBENCH-MACOS.md)
+- [Release, checksums, and version policy](docs/RELEASE-DISTRIBUTION.md)
+
+## Privacy and security
+
+Release packages do not contain developer accounts, OAuth tokens, API keys, personal projects, chat history, or canvas snapshots. Build outputs remove logs, source maps, Python bytecode, and developer paths. API credentials are read only from the user’s own computer.
+
+## Validation
+
+- Windows installer payload ZIP: 27,981 entries, fully read and verified.
+- Isolated Windows installation simulation: application, manifest, receipt, and four plugin runtime layers created successfully; repeat check passed.
+- Standalone plugin simulation: Windows runtime layers and Cordis configuration injection passed; Node.js syntax checks passed.
+
+## Repository layout
+
+```text
+canvas-workbench/       Canvas plugin source
+standalone-plugin/      Standalone installers and release manifest
+windows-installer/      Windows full installer and health checks
+docs/                   Windows/macOS installation and release notes
+dist/                   Local build outputs (no personal configuration)
+```
+
+## Feedback
+
+When reporting a problem, include the steps, OS version, plugin version, selected Codex/API route, and the relevant operation-log step. Do not paste API keys, OAuth tokens, or personal project files.
+
+
+---
+
+## A designer-first view
+
+DSH Canvas Workbench is built around the way designers actually work: collect references, test several directions, adjust only the part that needs work, keep the source safe, and deliver an editable file. It connects the project folder, chat model, canvas, and Adobe tools so you can stay focused on the visual result instead of moving files between tabs.
+
+### Practical advantages you notice immediately
+
+- **One project, one source of truth.** Local files, generated originals, canvas items, repaired backgrounds, and PSD exports stay tied to the same project.
+- **Less upload and download work.** A chat image can be added to the canvas while its original remains in the project folder for later use.
+- **Selective edits.** A blue selection tells the model what to change and what to leave alone; this is useful for product copy, labels, buttons, and small cleanup tasks.
+- **Editable delivery.** Text reconstruction can produce a repaired background plus editable PSD text layers instead of a single flattened image.
+- **Readable failure feedback.** The operation log identifies the step that failed, so a designer can report a concrete problem without sharing an entire chat session.
+- **Familiar interaction.** Alt + mouse wheel zoom, drag-to-pan, multi-select, and alignment follow established Photoshop-like habits.
+- **Local-first organization.** The project folder remains visible and usable even when a remote image service is unavailable; only the selected model request needs network access.
+
+### DSH compared with web-based third-party design agents
+
+Web tools are useful for quick experiments and zero-install demos. DSH is designed for long-running design projects and source-file delivery:
+
+| Design need | DSH Canvas Workbench | Typical web-only workflow |
+| --- | --- | --- |
+| Asset management | Local project folder with live refresh and independent originals | Upload/download files between sessions |
+| Model choice | Project-level Codex or API route, selectable for each team setup | Depends on the website plan and account |
+| Editing depth | Selection-aware edit, erase, text JSON, repaired background, PSD layers, Adobe handoff | Often ends at a flattened generated image |
+| Reproducibility | Operation log, local paths, saved outputs, and versioned releases | Depends on history retention and service availability |
+| Privacy boundary | Credentials and project files stay on the user computer unless a model request is sent | Assets are commonly processed in the provider workspace |
+| Best fit | Reusable production workflow and editable deliverables | Fast trial, inspiration, or quick sharing |
+
+The goal is not to replace every web service. Use a web tool when you need a quick preview; use DSH when the work needs local assets, repeatable edits, editable layers, clear file ownership, and a reliable handoff to the rest of the design pipeline.
+
+### A simple production workflow
+
+1. Start from a project and place references on the canvas.
+2. Generate a few directions in chat using the image engine selected in the canvas settings.
+3. Keep the original, compare variations on the canvas, and edit only the selected area.
+4. Rebuild text when needed: review the model JSON, confirm the repair prompt, and generate the PSD layers.
+5. Archive the original, repaired background, PSD, and operation log in the project folder.
+
+## English installation summary
+
+**Full Windows installer** — for a new computer without DSH Desktop. Windows 10/11 x64; no Node.js, Python, Git, or admin account is required. It includes DSH Desktop, the canvas plugin, the file browser, and the local runtime.
+
+**Standalone canvas plugin** — for a computer that already has DSH Desktop. It is intentionally small and fast to update, but it is not a standalone application and cannot run without DSH Desktop. Quit DSH, extract the ZIP, run `install-windows.cmd` on Windows or `bash install-macos.sh` on macOS, then restart DSH.
+
+For detailed system requirements and troubleshooting, see the [Windows guide](docs/DSH-CANVAS-WORKBENCH-WINDOWS.md), [macOS guide](docs/DSH-CANVAS-WORKBENCH-MACOS.md), and [release policy](docs/RELEASE-DISTRIBUTION.md).
