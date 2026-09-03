@@ -1,0 +1,8 @@
+# Direct runtime requirements bundled into the macOS installer.
+# Transitive dependencies are resolved at build time and then shipped locally;
+# the target computer never needs pip, GitHub or Hugging Face for core tools.
+rembg[cpu]==2.0.61
+pillow==11.3.0
+psd-tools==1.11.0
+pytesseract==0.3.13
+vtracer==0.6.15

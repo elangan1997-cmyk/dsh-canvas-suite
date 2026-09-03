@@ -12,6 +12,7 @@ import {
   writeLegacyApiAuth,
   writeImageEngineSettings
 } from './image-engine.js';
+import { installChatImageRouter } from './chat-image-router.js';
 import {
   expandUserPath,
   isAbsolutePath,
@@ -34,6 +35,7 @@ import {
  *   POST /dsh-canvas/state            → 保存画布状态 JSON
  *   GET/POST /dsh-canvas/image-settings → 图像引擎选择（脱敏）
  *   GET  /dsh-canvas/health           → 插件与图像引擎健康状态（脱敏）
+ *   GET  /dsh-canvas/list-directories → 项目选择器所需的子目录列表
  *
  * 客户端（lib/client.js）全部走同源 HTTP，无需 RPC。
  */
@@ -284,6 +286,10 @@ function apply(ctx) {
   // 按项目路径串行处理，并在串行队列内比较客户端快照时间戳，防止迟到的
   // 旧快照覆盖刚保存的新快照（典型表现就是删除后切聊天又恢复）。
   const stateWriteChains = new Map();
+  // 浏览器侧把“当前会话 + 当前画布项目 + 设计模式”发布到 Host。
+  // 只保存在本次 DSH 进程内，不写聊天记录；重启后由画布客户端重新发布。
+  const chatContexts = new Map();
+  const chatContextFor = (sessionId) => chatContexts.get(String(sessionId || '')) || null;
   const previewUrl = (path, mtimeMs) => '/dsh-canvas/preview?path=' + encodeURIComponent(path) + '&v=' + encodeURIComponent(String(Math.round(mtimeMs || 0)));
   const progressPathFor = (projectDir, jobId) => join(projectDir, 'outputs', '.图片编辑临时', '.rembg-progress-' + cleanJobId(jobId) + '.json');
   const writeProgressFile = async (path, payload) => {
@@ -401,7 +407,7 @@ function apply(ctx) {
           // 这些目录通常是依赖/缓存，不可能是项目素材；跳过后可避免
           // 导入一个代码仓库或大目录时递归扫描数万项文件。
           if (entry.name === 'node_modules' || entry.name === '__pycache__' || entry.name === '.cache') continue;
-          if (depth === 0 && (entry.name === 'outputs' || entry.name === '画布回收站' || entry.name === '画布备份')) continue;
+          if (depth === 0 && (entry.name === 'outputs' || entry.name === '画布回收站' || entry.name === '画布备份' || entry.name === 'DSH聊天生成图片')) continue;
           await walk(full, depth + 1);
         } else if (entry.isFile() && isSourceImagePath(entry.name)) {
           const info = await stat(full);
@@ -541,6 +547,30 @@ function apply(ctx) {
           try { return new URL(origin).host === String(req.headers && req.headers.host || ''); } catch { return false; }
         };
 
+        // 仅保留画布“选择项目目录”所需的最小目录枚举能力。
+        // 独立 home-explorer 文件浏览器已移除，避免额外 UI 和重复注入。
+        if (pathname === '/dsh-canvas/list-directories' && req.method === 'GET') {
+          if (!sameOriginRequest()) {
+            respond(res, 403, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ error: 'forbidden' }));
+            return;
+          }
+          const path = normalizeLocalPath(parseQuery(query).path || '');
+          if (!path || !isAbsolutePath(path)) {
+            respond(res, 400, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ error: 'missing-or-invalid-path' }));
+            return;
+          }
+          try {
+            const entries = await readdir(path, { withFileTypes: true });
+            const directories = entries
+              .filter((entry) => entry.isDirectory())
+              .map((entry) => ({ name: entry.name, type: 'directory', path: join(path, entry.name) }));
+            respond(res, 200, { ...CORS, 'content-type': 'application/json', 'cache-control': 'no-store' }, JSON.stringify({ entries: directories }));
+          } catch (err) {
+            respond(res, 500, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ error: String((err && err.message) || err) }));
+          }
+          return;
+        }
+
         // 图像生成/编辑只允许在画布设置中显式选择一个引擎：
         // dsh-codex（独立 OAuth）或 API（读取本机已有 image2 凭据）。
         // 返回值始终脱敏，绝不把 API key 发送到前端或写入项目。
@@ -604,14 +634,15 @@ function apply(ctx) {
               return;
             }
             if (action === 'install-dsh-codex') {
-              const executable = await ctx.subprocess.resolveExecutable('dsh');
-              const result = await runProcessWithTimeout(executable, ['plugin', '--profile', 'web', 'add', 'dsh-codex'], process.env.HOME || process.cwd(), 180000);
-              if (!result.ok) throw new Error(result.stderr || result.stdout || 'dsh-codex 安装失败');
+              const health = await imageEngineHealth(ctx);
+              if (!health.dshCodex.installed) {
+                throw new Error('当前 DSH 2.x 需要随画布套件提供的 dsh-codex 兼容版。请运行画布套件的“安装/修复”，不要安装公开仓库中的旧版。');
+              }
               respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({
                 ok: true,
-                message: 'dsh-codex 已安装到 web profile。请重启 DSH，使登录页面和图像能力生效。',
-                restartRequired: true,
-                health: await imageEngineHealth(ctx)
+                message: '当前 DSH profile 已安装兼容版 dsh-codex；聊天推理与画布图片现使用同一路由。',
+                restartRequired: false,
+                health
               }));
               return;
             }
@@ -630,7 +661,7 @@ function apply(ctx) {
             respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({
               ok: true,
               plugin: name,
-              version: '1.4.0-windows-preview.1',
+              version: '1.5.3',
               platform: platformCapabilities(),
               capabilities: {
                 webServer: Boolean(ctx.webServer),
@@ -1693,6 +1724,21 @@ function apply(ctx) {
           return;
         }
 
+        if (pathname === '/dsh-canvas/chat-context' && req.method === 'POST') {
+          try {
+            const body = JSON.parse(await readBody(req) || '{}');
+            const sessionId = String(body.sessionId || '').trim();
+            if (!sessionId) throw new Error('缺少聊天会话 ID');
+            const cwd = expandHome(String(body.cwd || '')).replace(/[\\/]+$/, '');
+            const project = body.project ? projectDirectory(cwd, body.project) : '';
+            chatContexts.set(sessionId, { sessionId, cwd, project, designMode: body.designMode === true, updatedAt: Date.now() });
+            respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true }));
+          } catch (err) {
+            respond(res, 400, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: String((err && err.message) || err) }));
+          }
+          return;
+        }
+
         if (pathname === '/dsh-canvas/state') {
           if (req.method === 'GET') {
             const path = projectStatePath(query);
@@ -1761,6 +1807,15 @@ function apply(ctx) {
       }
     }
   });
+  // imagegen 只在具体 Agent 作用域内覆盖。设计模式关闭时代理回原始工具，
+  // 因而不会修改 DSH 或 dsh-codex 的全局注册，也便于插件卸载/更新。
+  try {
+    ctx.inject(['tools', 'fs', 'attachments', 'agents'], (toolCtx) => {
+      installChatImageRouter(toolCtx, chatContextFor);
+    });
+  } catch (err) {
+    // 老版本 DSH 缺少工具注入能力时，基础画布仍应正常加载。
+  }
   // 注意：ctx.effect 会立即执行回调，返回的 disposer 才是清理函数。
   // 这里回调只返回 dispose（不执行），fiber 卸载时才真正销毁路由。
   ctx.effect(() => dispose);

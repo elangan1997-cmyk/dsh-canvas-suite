@@ -1,6 +1,6 @@
 import { access, chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { homedir } from 'node:os';
 
 const DEFAULT_API_BASE_URL = 'https://ai-pixel.online';
@@ -104,12 +104,22 @@ export async function writeLegacyApiAuth({ apiKey, baseUrl, clear = false } = {}
 
 async function moduleCandidates() {
   const root = dshHome();
-  const candidates = [
+  const candidates = [];
+  // Resolve from the canvas plugin that is currently loaded by DSH first. This
+  // keeps chat inference and canvas image generation on the exact same
+  // dsh-codex build/profile instead of accidentally finding another profile's
+  // stale copy during the fallback directory scan below.
+  try {
+    const resolved = import.meta.resolve('dsh-codex');
+    if (resolved && resolved.startsWith('file:')) candidates.push(fileURLToPath(resolved));
+  } catch {}
+  candidates.push(
     process.env.DSH_CODEX_MODULE_PATH,
+    join(process.cwd(), 'node_modules', 'dsh-codex', 'lib', 'index.js'),
     join(root, 'profiles', 'web', 'node_modules', 'dsh-codex', 'lib', 'index.js'),
     join(root, 'profiles', 'desktop', 'node_modules', 'dsh-codex', 'lib', 'index.js'),
     join(root, 'profiles', 'node_modules', 'dsh-codex', 'lib', 'index.js'),
-  ].filter(Boolean);
+  );
   try {
     const profiles = await (await import('node:fs/promises')).readdir(join(root, 'profiles'), { withFileTypes: true });
     for (const profile of profiles) {
@@ -117,7 +127,7 @@ async function moduleCandidates() {
       candidates.push(join(root, 'profiles', profile.name, 'node_modules', 'dsh-codex', 'lib', 'index.js'));
     }
   } catch {}
-  return [...new Set(candidates)];
+  return [...new Set(candidates.filter(Boolean))];
 }
 
 async function loadCodexModule() {
@@ -195,33 +205,49 @@ function waitForImageApiRetry(ms, signal) {
   });
 }
 
-async function generateWithApi({ image, mask, prompt, settings, signal }) {
+async function generateWithApi({ image, images, mask, prompt, settings, signal }) {
   const auth = await readLegacyApiAuth();
   if (!auth.configured) throw new Error(`未配置 image2 API 密钥：${auth.filename}`);
   // 保留旧版 auth.json 中的自定义网关；只有设置文件明确改过默认地址时才覆盖它。
   const base = effectiveApiBase(settings, auth);
   const maxAttempts = 4;
   let lastFailure = '';
+  const inputImages = Array.isArray(images) && images.length
+    ? images.map((item) => Buffer.from(item || [])).filter((item) => item.length)
+    : image && Buffer.from(image).length ? [Buffer.from(image)] : [];
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const form = new FormData();
-    form.append('model', String(settings.apiModel || DEFAULT_API_MODEL));
-    form.append('prompt', prompt);
-    form.append('quality', 'high');
-    form.append('image', new Blob([image], { type: imageMediaType(image) }), 'input.png');
-    if (mask) form.append('mask', new Blob([mask], { type: 'image/png' }), 'mask.png');
+    let body;
+    const headers = {
+      authorization: `Bearer ${auth.apiKey}`,
+      accept: 'application/json',
+      'user-agent': PIXEL_BROWSER_USER_AGENT,
+    };
+    let endpoint = `${base}/v1/images/generations`;
+    if (inputImages.length) {
+      endpoint = `${base}/v1/images/edits`;
+      const form = new FormData();
+      form.append('model', String(settings.apiModel || DEFAULT_API_MODEL));
+      form.append('prompt', prompt);
+      form.append('quality', 'high');
+      for (let index = 0; index < inputImages.length; index += 1) {
+        const bytes = inputImages[index];
+        form.append(inputImages.length > 1 ? 'image[]' : 'image', new Blob([bytes], { type: imageMediaType(bytes) }), `input-${index + 1}.png`);
+      }
+      if (mask) form.append('mask', new Blob([mask], { type: 'image/png' }), 'mask.png');
+      body = form;
+    } else {
+      headers['content-type'] = 'application/json';
+      body = JSON.stringify({ model: String(settings.apiModel || DEFAULT_API_MODEL), prompt, quality: 'high', size: '2048x2048' });
+    }
     let response;
     try {
       // 图片网关在高峰期可能需要 3-5 分钟；单次调用必须小于外层任务总预算，
       // 但不能沿用旧的 180 秒，否则请求会在网关受理前/生成中途被本机主动切断。
       const timeoutSignal = AbortSignal.timeout(360000);
-      response = await fetch(`${base}/v1/images/edits`, {
+      response = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-          authorization: `Bearer ${auth.apiKey}`,
-          accept: 'application/json',
-          'user-agent': PIXEL_BROWSER_USER_AGENT,
-        },
-        body: form,
+        headers,
+        body,
         signal: signal && typeof AbortSignal.any === 'function' ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal,
       });
     } catch (error) {
@@ -302,7 +328,8 @@ async function generateWithDshCodex({ ctx, image, prompt, signal }) {
     : module.OpenAICodexCredentialStore ? new module.OpenAICodexCredentialStore() : null;
   if (!credentials || !module.OpenAICodexImageClient) throw new Error('当前 dsh-codex 未提供图片编辑客户端，请重启 DSH 后重试');
   const client = new module.OpenAICodexImageClient(credentials);
-  return Buffer.from(await client.generate(prompt, [dataUrl(image)], signal || AbortSignal.timeout(180000)));
+  const images = Array.isArray(image) ? image : image ? [image] : [];
+  return Buffer.from(await client.generate(prompt, images.map(dataUrl), signal || AbortSignal.timeout(360000)));
 }
 
 export async function generateImage({ ctx, image, mask, prompt, engine, signal }) {
@@ -310,8 +337,20 @@ export async function generateImage({ ctx, image, mask, prompt, engine, signal }
   const selected = normalizeImageEngine(engine || settings.engine);
   const bytes = Buffer.from(image || []);
   if (!bytes.length) throw new Error('图片输入为空');
-  if (selected === 'dsh-codex') return { engine: selected, bytes: await generateWithDshCodex({ ctx, image: bytes, prompt, signal }) };
+  if (selected === 'dsh-codex') return { engine: selected, bytes: await generateWithDshCodex({ ctx, image: [bytes], prompt, signal }) };
   return { engine: selected, bytes: await generateWithApi({ image: bytes, mask, prompt, settings, signal }) };
+}
+
+/** Generate or edit an image for the chat imagegen tool using the same route selected by the canvas. */
+export async function generateChatImage({ ctx, images = [], prompt, engine, signal }) {
+  const settings = await readImageEngineSettings();
+  const selected = normalizeImageEngine(engine || settings.engine);
+  const inputs = images.map((item) => Buffer.from(item || [])).filter((item) => item.length);
+  if (!String(prompt || '').trim()) throw new Error('图片生成提示词不能为空');
+  if (selected === 'dsh-codex') {
+    return { engine: selected, bytes: await generateWithDshCodex({ ctx, image: inputs, prompt: String(prompt).trim(), signal }) };
+  }
+  return { engine: selected, bytes: await generateWithApi({ images: inputs, prompt: String(prompt).trim(), settings, signal }) };
 }
 
 export async function imageEngineHealth(ctx) {

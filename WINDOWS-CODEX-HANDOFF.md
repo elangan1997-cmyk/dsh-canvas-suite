@@ -11,7 +11,7 @@
 这是 DSH Desktop 内的可插拔设计画布套件：
 
 - `canvas-workbench`：无限画布、项目持久化、聊天图片交互、图片编辑及渐进增强工具。
-- `home-explorer`：DSH 内的本地文件浏览器。
+- 项目目录操作：由 `canvas-workbench` 直接调用系统资源管理器；独立 `home-explorer` 已移除。
 
 以下规则属于产品契约，修 Bug 时不能为了省事破坏：
 
@@ -67,8 +67,6 @@ git switch -c $branch
 ```text
 %USERPROFILE%\.dsh\profiles\node_modules\@local\canvas-workbench
 %USERPROFILE%\.dsh\profiles\desktop\node_modules\@local\canvas-workbench
-%USERPROFILE%\.dsh\profiles\node_modules\@local\home-explorer
-%USERPROFILE%\.dsh\profiles\desktop\node_modules\@local\home-explorer
 ```
 
 相关 Profile：
@@ -108,7 +106,7 @@ Get-ChildItem -LiteralPath $profilesRoot -Filter 'cordis.patch.yml' -File -Recur
 
 Get-Content -LiteralPath (Join-Path $dshRoot 'logs\dsh-canvas-windows.log') -Tail 200 -ErrorAction SilentlyContinue
 
-foreach ($name in @('canvas-workbench', 'home-explorer')) {
+foreach ($name in @('canvas-workbench')) {
   foreach ($base in @(
     (Join-Path $profilesRoot 'node_modules\@local'),
     (Join-Path $profilesRoot 'desktop\node_modules\@local')
@@ -165,8 +163,6 @@ canvas-workbench/lib/client.js         DSH UI、Excalidraw iframe、拖放/粘�
 canvas-workbench/lib/platform.js       Windows/macOS 路径、文件夹选择、打开/定位文件
 canvas-workbench/lib/image-engine.js   dsh-codex/API 图像引擎路由与凭据读取
 canvas-workbench/scripts/*.py          OCR、去背景、蒙版、PSD、转矢量
-home-explorer/lib/index.js             文件浏览器服务端
-home-explorer/lib/client.js            文件浏览器前端
 windows-installer/install.ps1          双层安装、Profile 注入、恢复源和计划任务
 windows-installer/health-check.ps1     安装健康检查入口
 tests/check-portability.mjs            当前跨平台静态检查
@@ -210,8 +206,6 @@ node --check .\canvas-workbench\lib\index.js
 node --check .\canvas-workbench\lib\client.js
 node --check .\canvas-workbench\lib\platform.js
 node --check .\canvas-workbench\lib\image-engine.js
-node --check .\home-explorer\lib\index.js
-node --check .\home-explorer\lib\client.js
 node .\tests\check-portability.mjs
 ```
 

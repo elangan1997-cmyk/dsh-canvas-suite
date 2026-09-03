@@ -1,0 +1,20 @@
+# Optional ChatGPT subscription route over the base composition. The saved
+# agent-default-model setting, when present, still wins over this bundle value.
+
+- id: agent-default-model
+  config:
+    provider: openai-codex
+    model: gpt-5.6-sol
+
+- id: web
+  config:
+    searchProvider: openai-codex
+
+- insert:
+    - id: llm-openai-codex
+      name: dsh-codex
+    # Optional terminal front-door adapter. It stays dormant on Web because
+    # tuiWorkspaces is absent, and contributes /codex when dsh-tui is mounted.
+    - id: openai-codex-tui
+      name: dsh-codex/tui
+      inject: [openAICodex]

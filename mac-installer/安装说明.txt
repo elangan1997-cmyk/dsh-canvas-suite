@@ -1,0 +1,35 @@
+DSH 画布套件（macOS）
+
+安装方式：
+1. 双击“DSH 完整安装包.pkg”。
+2. 安装完成后启动 DSH Desktop；第一次创建 Profile 后，画布会自动注入。
+3. 打开画布“更多 → 图像引擎设置”：国内网络填写可用 API；可访问国外网络时也可选 Codex OAuth。
+
+可选：使用 Codex 会员额度推理
+- 双击“安装 Dockyard Codex 推理.command”。
+- 它不会自动运行；只有确认后才修改 DSH Profile。
+- 安装后在 DSH 输入 /dockyard login codex，通过官方浏览器 OAuth 登录。
+- 再输入 /dockyard status 检查账号、模型和额度状态。
+- Dockyard 用于聊天推理；画布图片编辑仍可在“图像引擎设置”中选择 dsh-codex 或 API。
+
+更新与隔离：
+- DSH Desktop.app 保持官方原始签名，画布插件不会写入 App 包内部。
+- 插件源码独立安装在 /Library/Application Support/DSH Canvas Suite/。
+- 登录时及每 5 分钟执行一次轻量检查；官方更新若重建插件副本，会自动恢复。
+- 安装前会备份现有插件副本和 Profile patch。
+
+隐私：
+- 安装包不包含制作者电脑上的 API Key、OAuth、聊天记录、画布项目或图片。
+- 图像模型需在画布“更多 → 图像引擎设置”中由每位用户单独登录或配置。
+- Dockyard 登录凭据由 macOS Keychain 保存，不进入安装包。
+
+卸载插件：
+终端运行：
+  "/Library/Application Support/DSH Canvas Suite/uninstall.sh"
+
+注意：
+- 当前完整功能面向 macOS。Photoshop/Illustrator 桥接需要本机安装对应 Adobe 软件。
+- Dockyard 与 DSH 均处于开发预览；可选安装器固定到已检查的 commit，安装前会备份 Profile。
+- 去背景、VTracer、ImageTracerJS 及其双架构运行环境已包含，首次使用不需要从 GitHub/PyPI/Hugging Face 下载。
+- Photoshop/Illustrator 需要用户自己合法安装，本包只做检测与桥接。
+- 未用 Developer ID Installer 签名的测试包，macOS 可能要求右键选择“打开”。

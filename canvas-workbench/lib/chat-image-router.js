@@ -1,0 +1,203 @@
+import { mkdir, stat, writeFile } from 'node:fs/promises';
+import { basename, extname, join } from 'node:path';
+import { defineTool } from '@deepseek-ai/dsh-tools';
+import { createUserMessage } from '@deepseek-ai/dsh-llm';
+import { generateChatImage } from './image-engine.js';
+
+const TOOL_NAME = 'imagegen';
+const MAX_REFERENCE_IMAGES = 5;
+
+function safeBaseName(value) {
+  const clean = String(value || '聊天生成图片').replace(/[\\/:*?"<>|\x00-\x1f]/g, '-').trim().slice(0, 80);
+  return (clean || '聊天生成图片').replace(/\.png$/i, '');
+}
+
+function generatedName(now = new Date()) {
+  return `聊天生成-${now.toISOString().replace(/\.\d{3}Z$/, 'Z').replace(/[:]/g, '-')}.png`;
+}
+
+async function uniqueOutputPath(directory, requested) {
+  const wanted = safeBaseName(requested || generatedName()) + '.png';
+  const suffix = extname(wanted) || '.png';
+  const base = wanted.slice(0, -suffix.length);
+  for (let index = 1; index <= 1000; index += 1) {
+    const target = join(directory, index === 1 ? wanted : `${base}-${index}${suffix}`);
+    try { await stat(target); } catch { return target; }
+  }
+  throw new Error('无法为聊天生成图片分配文件名');
+}
+
+async function resolveCanvasProjectDirectory(value) {
+  const candidate = String(value || '').replace(/[\\/]+$/, '');
+  if (!candidate) throw new Error('当前聊天没有画布项目');
+  // 新版上下文直接保存画布项目根目录；少数旧会话保存的是聊天工作目录，
+  // 真正项目位于其“画布项目/”子目录。以 canvas.json 为准，避免把聊天
+  // 生成图片错误地写到 assets 所在项目的上一层。
+  for (const directory of [candidate, join(candidate, '画布项目')]) {
+    try {
+      const info = await stat(join(directory, 'canvas.json'));
+      if (info.isFile()) return directory;
+    } catch {}
+  }
+  return candidate;
+}
+
+function collectImageRefs(content, output) {
+  for (const block of Array.isArray(content) ? content : []) {
+    if (block && block.type === 'image' && block.attachment) output.push(block.attachment);
+    else if (block && block.type === 'tool-result') collectImageRefs(block.content, output);
+  }
+}
+
+async function recentImages(ctx, exec, count) {
+  const session = exec.agent && exec.agent.session;
+  if (!session || typeof session.deriveMessages !== 'function') throw new Error('当前聊天无法读取历史图片');
+  const refs = [];
+  for (const message of session.deriveMessages()) collectImageRefs(message.content, refs);
+  const selected = refs.slice(-count);
+  if (selected.length !== count) throw new Error(`最近聊天中只有 ${selected.length} 张可用图片`);
+  return Promise.all(selected.map(async (ref) => Buffer.from((await ctx.attachments.readImage(ref, exec.signal)).data)));
+}
+
+async function workspaceImages(ctx, exec, paths) {
+  const cwd = exec.agent && exec.agent.session && exec.agent.session.header && exec.agent.session.header.cwd;
+  const output = [];
+  for (const raw of paths) {
+    const target = await ctx.fs.resolve(String(raw), { ...(cwd ? { cwd } : {}), signal: exec.signal });
+    const info = await ctx.fs.stat(target, exec.signal);
+    if (!info || info.type !== 'file') throw new Error(`参考图片不存在：${raw}`);
+    const maxBytes = Number(ctx.attachments?.imageLimits?.maxImageBytes) || 32 * 1024 * 1024;
+    output.push(Buffer.from(await ctx.fs.readBytes(target, exec.signal, maxBytes)));
+  }
+  return output;
+}
+
+function parseArgs(raw = {}) {
+  const prompt = String(raw.prompt || '').trim();
+  if (!prompt) throw new Error('imagegen prompt 不能为空');
+  const paths = Array.isArray(raw.referenced_image_paths) ? raw.referenced_image_paths.map(String).filter(Boolean) : [];
+  const count = raw.num_last_images_to_include == null ? 0 : Number(raw.num_last_images_to_include);
+  if (paths.length > MAX_REFERENCE_IMAGES) throw new Error(`最多支持 ${MAX_REFERENCE_IMAGES} 张参考图片`);
+  if (count && (!Number.isInteger(count) || count < 1 || count > MAX_REFERENCE_IMAGES)) throw new Error(`最近图片数量必须为 1-${MAX_REFERENCE_IMAGES}`);
+  if (paths.length && count) throw new Error('referenced_image_paths 与 num_last_images_to_include 不能同时使用');
+  return { prompt, paths, count, outputPath: raw.output_path ? String(raw.output_path) : '' };
+}
+
+function contentOf(value) {
+  const fileLine = value.file?.path
+    ? `\n<output_path operation="${value.file.operation || 'create'}">${value.file.path}</output_path>`
+    : value.writeError ? `\n<write_error>${value.writeError}</write_error>` : '';
+  return [
+    { type: 'text', text: `<image>image/png, ${value.image.width}x${value.image.height} px, ${value.image.bytes} bytes</image>${fileLine}` },
+    { type: 'image', attachment: value.image },
+  ];
+}
+
+function routedTool(ctx, original, getChatContext) {
+  return defineTool({
+    name: TOOL_NAME,
+    description: '使用当前画布“图像引擎设置”生成或编辑图片。设计模式开启时，结果原图自动保存到画布项目内、与 assets 同级的“DSH聊天生成图片”目录；关闭设计模式时使用 DSH 原生图片工具。',
+    parameters: {
+      prompt: { type: 'string', required: true, description: '完整的图片生成或编辑要求。' },
+      referenced_image_paths: { type: 'array', items: { type: 'string' }, description: '最多五张本地参考图片路径。' },
+      num_last_images_to_include: { type: 'integer', description: '使用最近 1-5 张聊天图片。' },
+      output_path: { type: 'string', description: '可选文件名；设计模式下始终归档到当前画布项目目录。' },
+    },
+    // 不复用 original.output：DSH 暴露的是已经编译成 JSON Schema 的对象，
+    // 再传给 defineTool 会被当作 value-schema DSL 解析并在 2.0.x 启动时报错。
+    // 这里保持与 dsh-codex imagegen 相同的值结构即可兼容委托结果。
+    output: {
+      schema: {
+        type: 'object', additionalProperties: false,
+        properties: {
+          prompt: { type: 'string', required: true },
+          image: {
+            type: 'object', required: true, additionalProperties: false,
+            properties: {
+              attachmentId: { type: 'string', required: true },
+              mediaType: { type: 'string', enum: ['image/png'], required: true },
+              bytes: { type: 'integer', required: true },
+              width: { type: 'integer', required: true },
+              height: { type: 'integer', required: true },
+              name: { type: 'string' },
+            },
+          },
+          file: {
+            type: 'object', additionalProperties: false,
+            properties: {
+              path: { type: 'string', required: true },
+              operation: { type: 'string', enum: ['create', 'update'], required: true },
+            },
+          },
+          writeError: { type: 'string' },
+        },
+      },
+      render: (_args, value) => contentOf(value),
+    },
+    isConcurrencySafe: () => true,
+    async execute(rawArgs, exec) {
+      const sessionId = String(exec.agent && exec.agent.session && exec.agent.session.id || '');
+      const current = getChatContext(sessionId);
+      if (!current || !current.designMode) {
+        if (!original || typeof original.execute !== 'function') throw new Error('DSH 原生 imagegen 工具尚未就绪');
+        return original.execute(rawArgs, exec);
+      }
+      if (!current.project) throw new Error('请先在右侧画布选择或新建项目，再生成图片');
+      const args = parseArgs(rawArgs);
+      const images = args.paths.length ? await workspaceImages(ctx, exec, args.paths) : args.count ? await recentImages(ctx, exec, args.count) : [];
+      const generated = await generateChatImage({ ctx, images, prompt: args.prompt, signal: exec.signal });
+      const ref = await ctx.attachments.saveImage({ data: generated.bytes, mediaType: 'image/png', name: 'generated.png' });
+      const projectDirectory = await resolveCanvasProjectDirectory(current.project);
+      const directory = join(projectDirectory, 'DSH聊天生成图片');
+      await mkdir(directory, { recursive: true });
+      const requested = args.outputPath ? basename(args.outputPath) : generatedName();
+      const outputPath = await uniqueOutputPath(directory, requested);
+      await writeFile(outputPath, generated.bytes, { flag: 'wx' });
+      const value = {
+        prompt: args.prompt,
+        image: { attachmentId: ref.attachmentId, mediaType: 'image/png', bytes: ref.bytes, width: ref.width, height: ref.height, name: basename(outputPath) },
+        file: { path: outputPath, operation: 'create' },
+      };
+      if (exec.parent !== undefined && typeof exec.deferContext === 'function') {
+        exec.deferContext(createUserMessage({ content: contentOf(value), source: { kind: 'plugin', plugin: 'canvas-workbench' } }));
+      }
+      return value;
+    },
+    presentCall: () => ({ card: 'generic', title: '使用画布引擎生成图片', kind: 'execute' }),
+    presentResult: (_args, result) => ({ card: 'generic', title: '图片已生成并归档到画布项目', content: result.content }),
+  });
+}
+
+/** Shadow the global imagegen tool per agent, keeping the base tool available when design mode is off. */
+export function installChatImageRouter(ctx, getChatContext) {
+  const installed = new Map();
+  let syncing = false;
+  const remove = (agent) => {
+    const current = installed.get(agent);
+    if (!current) return;
+    installed.delete(agent);
+    current.dispose();
+  };
+  const syncAgent = (agent) => {
+    const original = ctx.tools.get(TOOL_NAME);
+    const current = installed.get(agent);
+    if (current && current.original === original) return;
+    if (current) remove(agent);
+    if (ctx.tools.get(TOOL_NAME, agent) !== original) return;
+    const dispose = agent.ctx.tools.register(routedTool(ctx, original, getChatContext));
+    installed.set(agent, { original, dispose });
+  };
+  const syncAll = () => {
+    if (syncing) return;
+    syncing = true;
+    try {
+      for (const agent of ctx.agents.list()) syncAgent(agent);
+      for (const agent of [...installed.keys()]) if (ctx.agents.get(agent.id) !== agent) remove(agent);
+    } finally { syncing = false; }
+  };
+  ctx.on('agent/created', async ({ agent }) => { syncAgent(agent); });
+  ctx.on('agent/disposed', async ({ agent }) => { installed.delete(agent); });
+  ctx.on('tools/change', async () => { syncAll(); });
+  syncAll();
+  ctx.effect(() => () => { for (const agent of [...installed.keys()]) remove(agent); }, 'canvas-workbench: chat image routing');
+}

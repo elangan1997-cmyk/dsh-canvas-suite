@@ -17,6 +17,13 @@
 
 两种引擎不会静默互相切换。设置面板会显示安装、登录和 API 凭据状态；后端健康接口为 `/dsh-canvas/health`，设置接口为 `/dsh-canvas/image-settings`。
 
+开启“设计模式”后，聊天里的 `imagegen` 与画布的“编辑图片 / 智能擦除”使用同一个引擎选择：
+
+- 选择 `dsh-codex` 时，聊天生图也走 Codex OAuth；选择 `API` 时，聊天生图也走配置的 OpenAI 兼容图片接口。
+- 每次聊天生成的 PNG 原图保存到当前画布项目中、与 `assets/` 同级的 `DSH聊天生成图片/`。
+- 该目录不会被项目扫描器自动加入画布；仍需在聊天图片卡片中明确点击“加入画布”。
+- 关闭设计模式后，`imagegen` 继续使用 DSH 原有的全局图片工具，不改变普通聊天行为。
+
 ## 本地同步与检查
 
 在工作区根目录运行：
@@ -39,7 +46,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 初级版优先保证无限画布、项目持久化、外部拖入、剪贴板粘贴、聊天图片明确加入画布、多选发送聊天、PNG 导出以及资源管理器打开/定位。Python、rembg、VTracer、Photoshop 和 Illustrator 均为渐进增强：缺少环境时只关闭对应能力，不得阻断画布渲染。
 
-Windows PSD/AI 编辑通过系统文件关联打开；Photoshop 原生文字层自动化第一版仍只在 macOS 提供。详细说明见 `windows-installer/安装说明.md`。
+Windows PSD/AI 编辑通过系统文件关联打开；Photoshop 原生文字层自动化第一版仍只在 macOS 提供。详细说明见 `windows-installer/INSTALL-WINDOWS.md`。
 
 ## 兼容原则
 

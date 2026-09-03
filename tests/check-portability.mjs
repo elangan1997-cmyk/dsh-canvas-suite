@@ -8,9 +8,14 @@ const required = [
   'canvas-workbench/lib/client.js',
   'canvas-workbench/lib/image-engine.js',
   'canvas-workbench/lib/platform.js',
-  'home-explorer/package.json',
-  'home-explorer/lib/index.js',
-  'home-explorer/lib/client.js',
+  'canvas-workbench/lib/chat-image-router.js',
+  'dsh-codex/package.json',
+  'dsh-codex/lib/index.js',
+  'dsh-codex/lib/client.js',
+  'mac-installer/build-macos-installer.sh',
+  'mac-installer/prepare-macos-bundle.sh',
+  'mac-installer/scripts/postinstall',
+  'mac-installer/health-check.sh',
   'windows-installer/install.ps1',
   'windows-installer/health-check.ps1',
   'windows-installer/uninstall.ps1'
@@ -28,6 +33,13 @@ if (!host.includes('platformCapabilities()')) throw new Error('health endpoint l
 
 const client = await readFile(resolve(root, 'canvas-workbench/lib/client.js'), 'utf8');
 if (!client.includes('[A-Za-z]:[\\\\/]')) throw new Error('client lacks Windows drive path support');
+
+const macBuild = await readFile(resolve(root, 'mac-installer/build-macos-installer.sh'), 'utf8');
+if (macBuild.includes('dsh-codex-dsh2')) throw new Error('Mac installer still references a private checkout path');
+if (!macBuild.includes('$WORKSPACE_DIR/dsh-codex/lib')) throw new Error('Mac installer does not bundle dsh-codex');
+const sync = await readFile(resolve(root, 'sync-local-plugins.sh'), 'utf8');
+if (!sync.includes('sync_codex_compat')) throw new Error('sync script lacks dsh-codex compatibility sync');
+if (!sync.includes('remove_legacy_home_explorer')) throw new Error('sync script lacks legacy file-browser cleanup');
 
 const installer = await readFile(resolve(root, 'windows-installer/install.ps1'), 'utf8');
 for (const marker of ['profiles', 'node_modules\\@local', 'desktop\\node_modules\\@local', 'cordis.patch.yml']) {

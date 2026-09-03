@@ -2,9 +2,8 @@
 # -*- coding: utf-8 -*-
 """本地 rembg 背景移除。
 
-首次运行会在用户目录创建隔离的 Python 虚拟环境并安装 rembg[cpu]，
-随后由 rembg 自动下载 isnet-general-use ONNX 模型。模型与依赖不会写入
-项目目录，也不会被打进插件包；换一台机器时首次点击“去除背景”即可准备。
+完整安装包会预置 rembg[cpu] 与 isnet-general-use ONNX 模型；开发版未预置时，
+才会在用户目录创建隔离环境并按需下载。模型与依赖不会写入画布项目。
 """
 
 from __future__ import annotations

@@ -1,0 +1,77 @@
+#!/bin/bash
+set -euo pipefail
+
+CONSOLE_USER="$(/usr/bin/stat -f '%Su' /dev/console 2>/dev/null || true)"
+if [ -z "$CONSOLE_USER" ] || [ "$CONSOLE_USER" = "root" ] || [ "$CONSOLE_USER" = "loginwindow" ]; then
+  echo "未检测到已登录的桌面用户；请登录后重新运行安装器。" >&2
+  exit 1
+fi
+
+USER_HOME="$(/usr/bin/dscl . -read "/Users/$CONSOLE_USER" NFSHomeDirectory 2>/dev/null | /usr/bin/awk '{print $2}')"
+if [ -z "$USER_HOME" ] || [ ! -d "$USER_HOME" ]; then
+  echo "无法确定用户目录：$CONSOLE_USER" >&2
+  exit 1
+fi
+
+SUITE_ROOT="/Library/Application Support/DSH Canvas Suite"
+SYNC_SCRIPT="$SUITE_ROOT/sync-local-plugins.sh"
+BACKUP_ROOT="$USER_HOME/Library/Application Support/DSH Canvas Suite/Backups"
+BACKUP_DIR="$BACKUP_ROOT/$(/bin/date '+%Y%m%d-%H%M%S')"
+MANAGED_ROOT="$USER_HOME/.dsh/canvas-workbench"
+
+/bin/mkdir -p "$BACKUP_DIR"
+/usr/sbin/chown -R "$CONSOLE_USER":staff "$USER_HOME/Library/Application Support/DSH Canvas Suite"
+
+for TARGET in \
+  "$USER_HOME/.dsh/profiles/node_modules/@local/canvas-workbench" \
+  "$USER_HOME/.dsh/profiles/desktop/node_modules/@local/canvas-workbench" \
+  "$USER_HOME/.dsh/profiles/node_modules/dsh-codex"; do
+  if [ -e "$TARGET" ] || [ -L "$TARGET" ]; then
+    SAFE_NAME="$(/bin/echo "$TARGET" | /usr/bin/sed 's#^/##; s#[ /]#_#g')"
+    /usr/bin/ditto "$TARGET" "$BACKUP_DIR/$SAFE_NAME"
+  fi
+done
+
+for PATCH in "$USER_HOME/.dsh/profiles"/*/cordis.patch.yml; do
+  [ -f "$PATCH" ] || continue
+  SAFE_NAME="$(/bin/echo "$PATCH" | /usr/bin/sed 's#^/##; s#[ /]#_#g')"
+  /bin/cp -p "$PATCH" "$BACKUP_DIR/$SAFE_NAME"
+done
+/usr/sbin/chown -R "$CONSOLE_USER":staff "$BACKUP_DIR"
+
+case "$(/usr/bin/uname -m)" in
+  arm64) RUNTIME_ARCH="aarch64" ;;
+  x86_64) RUNTIME_ARCH="x86_64" ;;
+  *) echo "不支持的 Mac 架构：$(/usr/bin/uname -m)" >&2; exit 1 ;;
+esac
+
+# 运行时和模型全部来自已校验的安装包，首次去背景/转矢量不依赖外网。
+/bin/mkdir -p "$MANAGED_ROOT"
+/bin/rm -rf "$MANAGED_ROOT/python-runtime.stage" "$MANAGED_ROOT/imagetracer-runtime.stage"
+/usr/bin/ditto "$SUITE_ROOT/runtime/macos/$RUNTIME_ARCH" "$MANAGED_ROOT/python-runtime.stage"
+/usr/bin/ditto "$SUITE_ROOT/runtime/imagetracer-runtime" "$MANAGED_ROOT/imagetracer-runtime.stage"
+/bin/rm -rf "$MANAGED_ROOT/python-runtime" "$MANAGED_ROOT/imagetracer-runtime"
+/bin/mv "$MANAGED_ROOT/python-runtime.stage" "$MANAGED_ROOT/python-runtime"
+/bin/mv "$MANAGED_ROOT/imagetracer-runtime.stage" "$MANAGED_ROOT/imagetracer-runtime"
+/bin/mkdir -p "$MANAGED_ROOT/rembg-models"
+/bin/cp -f "$SUITE_ROOT/runtime/models/isnet-general-use.onnx" "$MANAGED_ROOT/rembg-models/isnet-general-use.onnx"
+/bin/cp -f "$SUITE_ROOT/runtime/runtime-manifest.json" "$MANAGED_ROOT/runtime-manifest.json"
+/usr/sbin/chown -R "$CONSOLE_USER":staff "$MANAGED_ROOT"
+
+/usr/bin/sudo -u "$CONSOLE_USER" /usr/bin/env \
+  HOME="$USER_HOME" \
+  PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+  "$SYNC_SCRIPT" --install-agent
+
+# pkgbuild 可能把 macOS 的 AppleDouble 资源分叉作为 `._*` 条目写入
+# payload。它们不是套件内容，安装后立即清理，避免污染插件目录和项目
+# 文件夹；不要触碰用户项目或聊天输出目录。
+/usr/bin/find "$SUITE_ROOT" -name '._*' -type f -delete 2>/dev/null || true
+
+# 首次安装时允许 DSH 尚未创建 profile；LaunchAgent 会自动重试。
+if [ ! -d "$USER_HOME/.dsh/profiles" ] && [ -d "/Applications/DSH Desktop.app" ]; then
+  /usr/bin/sudo -u "$CONSOLE_USER" /usr/bin/open -gja "/Applications/DSH Desktop.app" || true
+fi
+
+echo "DSH 画布套件安装完成。备份：$BACKUP_DIR"
+exit 0

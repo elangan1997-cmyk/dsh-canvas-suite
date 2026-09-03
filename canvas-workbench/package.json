@@ -1,6 +1,6 @@
 {
   "name": "@local/canvas-workbench",
-  "version": "1.4.0-windows-preview.1",
+  "version": "1.5.3",
   "private": true,
   "type": "module",
   "description": "可插拔设计模式：独立 Excalidraw 画布、渐进增强的会话图片工具与本地项目资产",
@@ -8,7 +8,7 @@
   "dshCanvasCompatibility": {
     "strategy": "capability-detection",
     "hardClientDependencies": ["slots"],
-    "optionalClientCapabilities": ["conversation.chat.turnTail", "conversation.input.dock", "shell.overlay", "dsh-codex", "image-engine-settings"],
+    "optionalClientCapabilities": ["conversation.chat.turnTail", "conversation.input.dock", "shell.overlay", "dsh-codex", "image-engine-settings", "agent-scoped-imagegen-routing"],
     "failurePolicy": "disable-subfeature-without-blocking-renderer"
   },
   "main": "lib/index.js",

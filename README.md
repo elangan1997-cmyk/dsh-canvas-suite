@@ -1,11 +1,12 @@
 # DSH Canvas Suite
 
-面向 DSH Desktop 的可插拔设计画布套件，包括：
+面向 DSH Desktop 的可插拔设计画布套件，当前版本 `1.5.3`，包括：
 
 - `canvas-workbench`：无限画布、项目持久化、聊天图片交互和渐进增强图片工具。
-- `home-explorer`：DSH 内本地文件浏览器。
+- 独立文件浏览器已移除；项目目录选择与“在文件夹中显示”由画布插件自身提供。
 - macOS 安装工程。
 - Windows 10/11 初级版 PowerShell 安装、恢复、卸载和健康检查。
+- 可选的内置 `dsh-codex` 兼容构建，用于在支持的 DSH Profile 中使用 Codex OAuth 路由。
 
 ## Windows 快速安装
 
@@ -34,12 +35,20 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 ## macOS
 
-开发工作区可运行：
+从 GitHub Releases 下载带有 `macOS-Complete` 的 DMG，交给 Agent 按 [Mac 安装说明](mac-installer/交给Agent的安装说明.md) 安装。完整安装包包含：
+
+- 画布插件与画布项目持久化；
+- 与 `assets/` 同级的聊天生成图片归档和明确“加入画布”流程；
+- PSD/PDF/SVG/AI 预览、图片编辑、去背景与转矢量所需的双架构本地运行时；
+- 可选的 dsh-codex 兼容构建和 Dockyard 安装入口。
+
+源码构建：
 
 ```bash
-./sync-local-plugins.sh
-./sync-local-plugins.sh --check
+./mac-installer/build-macos-installer.sh
 ```
+
+构建脚本会自动准备并校验运行时缓存。缓存约 1GB，故不进入 Git；DMG、PKG 和 SHA-256 文件作为 GitHub Release 资产发布。DSH Desktop.app 保持官方原始签名，不写入应用包内部。
 
 ## 安全
 
@@ -47,4 +56,11 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 ## 当前状态
 
-`1.4.0-windows-preview.1` 是用于真实 Windows DSH 验证的初级版本，不等于 Windows 完整功能版。通过验收清单前不要用于生产项目。
+`1.5.3` 是当前跨平台画布源码版本；Windows 仍是初级分发版，使用前请按验收清单验证本机 DSH、Python/Adobe 等可选能力。
+
+## 更新与回滚
+
+- 普通用户：下载最新 Release 的对应平台安装包，重新安装即可；安装器会先备份插件副本和 Profile patch。
+- 开发/本机同步：在仓库根目录执行 `./sync-local-plugins.sh`，再执行 `./sync-local-plugins.sh --check`。
+- 卸载：macOS 使用 `/Library/Application Support/DSH Canvas Suite/uninstall.sh`；Windows 使用 `windows-installer/uninstall.ps1`。
+- 仓库不提交 API Key、OAuth、聊天记录、画布项目、模型缓存或 DSH 私人配置。

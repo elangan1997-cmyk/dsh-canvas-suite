@@ -9,7 +9,7 @@
 ### 固定安装源
 
 - GitHub 仓库：`https://github.com/elangan1997-cmyk/dsh-canvas-suite`
-- Release：`v1.4.0-windows-preview.2`
+- Release：`v1.4.0-windows-preview.2`（历史 Windows 测试包；如仓库已有更新 Release，优先使用最新版本）
 - ZIP：`https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/download/v1.4.0-windows-preview.2/DSH-Canvas-Suite-1.4.0-Windows-preview.2.zip`
 - SHA-256：`fccf3ffa53a2dd8e8a18ce9a17f6b41992600a9b644090d259ada51b2890f936`
 
@@ -66,7 +66,7 @@ if ($LASTEXITCODE -ne 0) { throw "健康检查退出码：$LASTEXITCODE" }
 
 ## 安装器应完成的工作
 
-- 同步 `canvas-workbench` 和 `home-explorer` 到：
+- 同步 `canvas-workbench` 到：
   - `%USERPROFILE%\.dsh\profiles\node_modules\@local\*`
   - `%USERPROFILE%\.dsh\profiles\desktop\node_modules\@local\*`
 - 向 web、desktop 和检测到的活动 Profile 写入插件声明。
@@ -82,9 +82,6 @@ if ($LASTEXITCODE -ne 0) { throw "健康检查退出码：$LASTEXITCODE" }
    - `canvas-workbench\package.json`
    - `canvas-workbench\lib\index.js`
    - `canvas-workbench\lib\client.js`
-   - `home-explorer\package.json`
-   - `home-explorer\lib\index.js`
-   - `home-explorer\lib\client.js`
 2. `health-check.ps1` 没有报告缺文件。
 3. 告知用户重新启动 DSH Desktop。
 4. 用户在 DSH 中能看到设计模式和画布入口后，再进行基础 UI 验收。
@@ -99,7 +96,7 @@ if ($LASTEXITCODE -ne 0) { throw "健康检查退出码：$LASTEXITCODE" }
 4. 删除或移动图片，切换聊天再回来，不恢复旧内容。
 5. 多选两张图片发送至聊天，输入框显示两张附件。
 6. 导出 PNG，并确认文件可以打开。
-7. 打开项目文件夹和“在文件夹中显示”能够调用 Windows 资源管理器。
+7. 打开项目文件夹和“在文件夹中显示”能够调用 Windows 资源管理器；这不是独立的 DSH 文件浏览器插件。
 
 PSD、AI、OCR、去背景和转矢量属于渐进增强能力，不应作为基础安装成功的前置条件。缺少 Python 或 Adobe 软件时，只需明确报告对应能力不可用，不能判定基础画布安装失败。
 

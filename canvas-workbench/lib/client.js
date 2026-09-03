@@ -335,6 +335,49 @@ window.__ModuleLoader__.load({
       return new File([bytes], String(name || 'canvas-selection').replace(/\.[a-zA-Z0-9]+$/, '') + '.' + ext, { type: match[1] });
     }
 
+    function rasterizeSVGForChat(item, index) {
+      const dataURL = String(item && item.dataURL || '');
+      const sourceName = String(item && item.name || ('canvas-selection-' + (index + 1) + '.svg'));
+      const mime = ((/^data:([^;,]+)/i.exec(dataURL) || [])[1] || '').toLowerCase();
+      if (mime !== 'image/svg+xml') return Promise.resolve(dataURLToFile(dataURL, sourceName));
+      return new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => {
+          try {
+            const sourceWidth = Math.max(1, Number(image.naturalWidth || item.width || 1600));
+            const sourceHeight = Math.max(1, Number(image.naturalHeight || item.height || 1200));
+            const preferredSide = 2048;
+            const maxSide = 4096;
+            const maxPixels = 16000000;
+            const sourceMaxSide = Math.max(sourceWidth, sourceHeight);
+            const scale = Math.min(
+              Math.max(1, preferredSide / sourceMaxSide),
+              maxSide / sourceMaxSide,
+              Math.sqrt(maxPixels / (sourceWidth * sourceHeight))
+            );
+            const width = Math.max(1, Math.round(sourceWidth * scale));
+            const height = Math.max(1, Math.round(sourceHeight * scale));
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const context = canvas.getContext('2d');
+            if (!context) throw new Error('当前窗口无法创建 SVG 预览图');
+            // SVG、AI 与 PDF 在画布中使用透明 SVG 预览。聊天模型不接受
+            // image/svg+xml，因此只在附件边界转成 PNG，源文件与画布数据不变。
+            context.clearRect(0, 0, width, height);
+            context.drawImage(image, 0, 0, width, height);
+            canvas.toBlob((blob) => {
+              if (!blob) { reject(new Error('SVG 转 PNG 失败')); return; }
+              const pngName = sourceName.replace(/\.(?:svg|ai|pdf)$/i, '') + '.png';
+              resolve(new File([blob], pngName, { type: 'image/png' }));
+            }, 'image/png');
+          } catch (err) { reject(err); }
+        };
+        image.onerror = () => reject(new Error('SVG 预览无法转换为聊天图片'));
+        image.src = dataURL;
+      });
+    }
+
     // ---- image path extraction ----
     function resolveImagePath(value, cwdOverride) {
       let p = String(value || '').trim().replace(/^file:\/\//i, '');
@@ -765,8 +808,7 @@ window.__ModuleLoader__.load({
           React.createElement('div', { className: 'dsh-canvas-tool-bar' },
             React.createElement('span', { className: 'dsh-canvas-tool-title' }, '图片输出'),
             React.createElement('span', { className: 'dsh-canvas-tool-count' }, images.length + ' 张'),
-            React.createElement('button', { className: 'dsh-canvas-tool-btn', onClick: () => images.forEach((img) => send(img.path)) }, '全部加入画布'),
-            React.createElement('button', { className: 'dsh-canvas-tool-btn', onClick: () => setMode(true) }, '打开画布')
+            React.createElement('button', { className: 'dsh-canvas-tool-btn', onClick: () => images.forEach((img) => send(img.path)) }, '全部加入画布')
           ),
           React.createElement('div', { className: 'dsh-canvas-images dsh-canvas-images-cols-' + columns }, rows)
         ),
@@ -1169,7 +1211,7 @@ window.__ModuleLoader__.load({
           const attachmentApi = await waitForConversationService();
           if (!attachmentApi) { setAttachState('⚠ DSH 会话附件服务尚未就绪，请稍后再点一次'); return; }
           try {
-            const files = images.map((item, index) => dataURLToFile(item.dataURL, item.name || ('canvas-selection-' + (index + 1))));
+            const files = await Promise.all(images.map((item, index) => rasterizeSVGForChat(item, index)));
             const drafts = attachmentApi.createDraftImages(files);
             if (!props.inputActions.addImages(drafts.map((item) => item.id))) {
               attachmentApi.releaseDraftImages(drafts);
@@ -1401,7 +1443,7 @@ function Main(){
     var openInIllustrator=function(id){if(!api)return;var target=(api.getSceneElements?api.getSceneElements():[]).find(function(item){return item&&item.id===id&&item.type==="image"&&!item.isDeleted;}),custom=target&&target.customData||{},kind=String(custom.dshSourceKind||"");if(!target||["svg","pdf","ai"].indexOf(kind)<0||!custom.dshSourcePath){post({type:"error",message:"Illustrator 编辑需要 SVG、PDF 或 AI 源文件"});return;}post({type:"request-illustrator-edit",elementId:id,name:custom.dshFileName||("画布文件-"+String(id).slice(-6)),sourcePath:custom.dshSourcePath,sourceKind:kind});};
     var requestVectorize=function(id,vectorMode){if(!api)return;var target=(api.getSceneElements?api.getSceneElements():[]).find(function(item){return item&&item.id===id&&item.type==="image"&&!item.isDeleted;}),files=fileObject(api.getFiles?api.getFiles():{}),file=target&&files[target.fileId],custom=target&&target.customData||{},kind=String(custom.dshSourceKind||"image"),mimeMatch=String(file&&file.dataURL||"").match(/^data:([^;]+);base64,/i),mime=mimeMatch?String(mimeMatch[1]).toLowerCase():"",rasterMime=["image/png","image/jpeg","image/jpg","image/webp","image/gif","image/avif","image/bmp"].indexOf(mime)>=0;if(!target||!file||!file.dataURL||["image","psd"].indexOf(kind)<0||!rasterMime){post({type:"error",message:"当前图片不适合转矢量，请选择 PNG/JPG/WebP 等栅格图片"});return;}post({type:"request-vectorize",elementId:id,fileId:target.fileId,name:custom.dshFileName||("画布图片-"+String(id).slice(-6)+".png"),sourcePath:custom.dshSourcePath||"",imageData:file.dataURL,vectorMode:vectorMode||"flat"});};
     var requestTextRebuild=function(id){if(!api)return;var target=(api.getSceneElements?api.getSceneElements():[]).find(function(item){return item&&item.id===id&&item.type==="image"&&!item.isDeleted;}),files=fileObject(api.getFiles?api.getFiles():{}),file=target&&files[target.fileId];if(!target||!file||!file.dataURL){post({type:"error",message:"当前图片数据不可用"});return;}var custom=target.customData||{};post({type:"request-text-rebuild",elementId:id,fileId:target.fileId,name:custom.dshFileName||("画布图片-"+String(id).slice(-6)+".png"),sourcePath:custom.dshSourcePath||"",imageData:file.dataURL});};
-    var sendSelectionToChat=function(ids){if(!api)return;var wanted=new Set(Array.isArray(ids)?ids:[]),files=fileObject(api.getFiles?api.getFiles():{}),images=(api.getSceneElements?api.getSceneElements():[]).filter(function(item){return item&&item.type==="image"&&!item.isDeleted&&wanted.has(item.id);}).map(function(item,index){var file=files[item.fileId],custom=item.customData||{};return file&&file.dataURL?{dataURL:file.dataURL,name:custom.dshFileName||("canvas-selection-"+(index+1)+"-"+String(item.id).slice(-6)+".png")} : null;}).filter(Boolean);if(!images.length){post({type:"error",message:"所选图片暂时无法读取，请稍后重试"});return;}var batchId="chat_"+Date.now().toString(36)+"_"+Math.random().toString(36).slice(2,7);images.forEach(function(image,index){setTimeout(function(){post({type:"request-send-selection-item",batchId:batchId,index:index+1,total:images.length,image:image});},index*90);});};
+    var sendSelectionToChat=function(ids){if(!api)return;var wanted=new Set(Array.isArray(ids)?ids:[]),files=fileObject(api.getFiles?api.getFiles():{}),images=(api.getSceneElements?api.getSceneElements():[]).filter(function(item){return item&&item.type==="image"&&!item.isDeleted&&wanted.has(item.id);}).map(function(item,index){var file=files[item.fileId],custom=item.customData||{};return file&&file.dataURL?{dataURL:file.dataURL,name:custom.dshFileName||("canvas-selection-"+(index+1)+"-"+String(item.id).slice(-6)+".png"),width:Math.max(1,Number(item.width||0)),height:Math.max(1,Number(item.height||0)),sourceKind:String(custom.dshSourceKind||"image")} : null;}).filter(Boolean);if(!images.length){post({type:"error",message:"所选图片暂时无法读取，请稍后重试"});return;}var batchId="chat_"+Date.now().toString(36)+"_"+Math.random().toString(36).slice(2,7);images.forEach(function(image,index){setTimeout(function(){post({type:"request-send-selection-item",batchId:batchId,index:index+1,total:images.length,image:image});},index*90);});};
     var requestBackgroundRemoval=function(id){if(!api)return;var target=(api.getSceneElements()||[]).find(function(item){return item&&item.id===id&&item.type==="image"&&!item.isDeleted;}),files=fileObject(api.getFiles?api.getFiles():{}),file=target&&files[target.fileId];if(!target||!file||!file.dataURL){post({type:"error",message:"当前图片数据不可用"});return;}try{var custom=target.customData||{},job=createEditPlaceholder({id:id},"本地 rembg · isnet-general-use · 首次使用自动准备"),name=custom.dshFileName||("画布图片-"+String(id).slice(-6)+".png");post({type:"request-remove-background",requestId:job.requestId,placeholderId:job.placeholderId,elementId:id,fileId:target.fileId,name:name,imageData:file.dataURL,imagePath:custom.dshSourcePath||""});}catch(err){post({type:"error",message:String(err&&err.message||err)});}};
     var submitImageEdit=function(payload){if(!imageEditor||imageEditor.busy)return;try{var job=createEditPlaceholder(imageEditor),request=Object.assign({},imageEditor);setImageEditor(null);post({type:"request-image-edit",requestId:job.requestId,placeholderId:job.placeholderId,elementId:request.id,fileId:request.fileId,name:request.name,imageData:request.dataURL,imagePath:request.sourcePath,editRootPath:request.editRootPath,editHistory:request.editHistory,editDepth:request.editDepth,mode:request.mode,prompt:payload.prompt,maskData:payload.maskData,width:request.width,height:request.height});}catch(err){setImageEditor(Object.assign({},imageEditor,{busy:false,error:String(err&&err.message||err)}));}};
     return window.React.createElement('div',{style:{position:'absolute',inset:0}},
@@ -1659,6 +1701,16 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
         if (on) applyFramePadding(width);
         else applyFramePadding(0);
       }, [on, width]);
+      // Host 端聊天 imagegen 代理据此决定是否接管请求，以及把生成原图
+      // 归档到哪个画布项目。切换聊天、项目或设计模式后立即刷新上下文。
+      React.useEffect(() => {
+        if (!projectInfo.sessionId) return;
+        fetch('/dsh-canvas/chat-context', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId: projectInfo.sessionId, cwd: projectInfo.cwd || '', project: projectInfo.project || '', designMode: !!on })
+        }).catch(() => {});
+      }, [on, projectInfo.cwd, projectInfo.project, projectInfo.sessionId]);
       React.useEffect(() => {
         try { window.localStorage.setItem(PANEL_WIDTH_KEY, String(width)); } catch (err) {}
       }, [width]);
@@ -1854,7 +1906,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
       };
       const browseDir = (path) => {
         setProjectDialog({ mode: 'browse', path, loading: true, entries: [], error: '' });
-        fetch('/dsh-home-explorer/list?path=' + encodeURIComponent(path)).then((r) => r.json()).then((result) => {
+        fetch('/dsh-canvas/list-directories?path=' + encodeURIComponent(path)).then((r) => r.json()).then((result) => {
           const entries = ((result && result.entries) || []).filter((item) => item.type === 'directory' && !String(item.name || '').startsWith('.'));
           setProjectDialog({ mode: 'browse', path, loading: false, entries, error: result.error || '' });
         }).catch((err) => setProjectDialog({ mode: 'browse', path, loading: false, entries: [], error: String((err && err.message) || err) }));
@@ -1911,12 +1963,12 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
       const installDshCodex = () => {
         if (imageSettingsBusy) return;
         setImageSettingsBusy(true);
-        setImageSettings((prev) => prev ? { ...prev, error: '', notice: '正在安装 dsh-codex，请稍候…' } : prev);
+        setImageSettings((prev) => prev ? { ...prev, error: '', notice: '正在检查画布套件内的 dsh-codex 兼容版…' } : prev);
         fetch('/dsh-canvas/image-setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'install-dsh-codex' }) })
           .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
           .then((result) => {
             if (!result.ok || !result.data || !result.data.ok) throw new Error(result.data && result.data.error || '安装失败');
-            setImageSettings((prev) => prev ? { ...prev, health: result.data.health || prev.health, notice: result.data.message || '安装完成，请重启 DSH', error: '' } : prev);
+            setImageSettings((prev) => prev ? { ...prev, health: result.data.health || prev.health, notice: result.data.message || '兼容版已就绪', error: '' } : prev);
           })
           .catch((err) => setImageSettings((prev) => prev ? { ...prev, error: String((err && err.message) || err), notice: '' } : prev))
           .finally(() => setImageSettingsBusy(false));
@@ -2893,8 +2945,8 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
                 React.createElement('label', { className: 'dsh-canvas-engine-option' },
                   React.createElement('input', { type: 'radio', name: 'dsh-image-engine', checked: imageSettings.engine === 'dsh-codex', onChange: () => setImageSettings({ ...imageSettings, engine: 'dsh-codex' }) }),
                   React.createElement('span', null,
-                    React.createElement('strong', null, 'dsh-codex ', React.createElement('em', { className: 'dsh-canvas-engine-badge ' + (imageSettings.health && imageSettings.health.dshCodex && imageSettings.health.dshCodex.ready ? 'is-ready' : '') }, imageSettings.health && imageSettings.health.dshCodex && imageSettings.health.dshCodex.ready ? '可用' : '待配置')),
-                    React.createElement('small', null, '使用 ChatGPT Codex 订阅调用 gpt-image-2，不需要 API Key。')
+                    React.createElement('strong', null, 'Codex 统一路由 ', React.createElement('em', { className: 'dsh-canvas-engine-badge ' + (imageSettings.health && imageSettings.health.dshCodex && imageSettings.health.dshCodex.ready ? 'is-ready' : '') }, imageSettings.health && imageSettings.health.dshCodex && imageSettings.health.dshCodex.ready ? '可用' : '待配置')),
+                    React.createElement('small', null, '与当前 DSH 的 dsh-codex 共用 ChatGPT OAuth、订阅额度和 gpt-image-2 图片能力。')
                   )
                 ),
                 React.createElement('label', { className: 'dsh-canvas-engine-option' },
@@ -2907,12 +2959,12 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
               ),
               imageSettings.engine === 'dsh-codex' ? React.createElement('div', { className: 'dsh-canvas-engine-setup' },
                 React.createElement('div', { className: 'dsh-canvas-engine-steps' },
-                  React.createElement('div', { className: imageSettings.health && imageSettings.health.dshCodex && imageSettings.health.dshCodex.installed ? 'is-done' : '' }, React.createElement('b', null, '1'), React.createElement('span', null, '安装插件', React.createElement('small', null, imageSettings.health && imageSettings.health.dshCodex && imageSettings.health.dshCodex.installed ? '已安装 dsh-codex' : '安装到 DSH web profile'))),
+                  React.createElement('div', { className: imageSettings.health && imageSettings.health.dshCodex && imageSettings.health.dshCodex.installed ? 'is-done' : '' }, React.createElement('b', null, '1'), React.createElement('span', null, '兼容组件', React.createElement('small', null, imageSettings.health && imageSettings.health.dshCodex && imageSettings.health.dshCodex.installed ? '当前 profile 已加载兼容版' : '请运行画布套件安装/修复'))),
                   React.createElement('div', { className: imageSettings.health && imageSettings.health.dshCodex && imageSettings.health.dshCodex.authenticated ? 'is-done' : '' }, React.createElement('b', null, '2'), React.createElement('span', null, '登录 ChatGPT', React.createElement('small', null, imageSettings.health && imageSettings.health.dshCodex && imageSettings.health.dshCodex.authenticated ? 'OAuth 已登录，令牌会自动刷新' : '在浏览器完成独立 OAuth 授权'))),
                   React.createElement('div', { className: imageSettings.health && imageSettings.health.dshCodex && imageSettings.health.dshCodex.ready ? 'is-done' : '' }, React.createElement('b', null, '3'), React.createElement('span', null, '开始使用', React.createElement('small', null, '保存后用于编辑、擦除与文字背景清理')))
                 ),
                 React.createElement('div', { className: 'dsh-canvas-engine-inline-actions' },
-                  !(imageSettings.health && imageSettings.health.dshCodex && imageSettings.health.dshCodex.installed) ? React.createElement('button', { className: 'dsh-canvas-tb dsh-canvas-project-confirm', disabled: imageSettingsBusy, onClick: installDshCodex }, imageSettingsBusy ? '安装中…' : '一键安装 dsh-codex') : null,
+                  !(imageSettings.health && imageSettings.health.dshCodex && imageSettings.health.dshCodex.installed) ? React.createElement('button', { className: 'dsh-canvas-tb dsh-canvas-project-confirm', disabled: imageSettingsBusy, onClick: installDshCodex }, imageSettingsBusy ? '检查中…' : '检查兼容组件') : null,
                   imageSettings.health && imageSettings.health.dshCodex && imageSettings.health.dshCodex.installed && !imageSettings.health.dshCodex.authenticated ? React.createElement('button', { className: 'dsh-canvas-tb dsh-canvas-project-confirm', disabled: imageSettingsBusy, onClick: startCodexLogin }, imageSettingsBusy ? '处理中…' : '使用 ChatGPT 登录') : null,
                   React.createElement('button', { className: 'dsh-canvas-tb', disabled: imageSettingsBusy, onClick: () => refreshImageSettings('状态已刷新') }, '刷新状态'),
                   React.createElement('button', { className: 'dsh-canvas-tb', disabled: imageSettingsBusy, onClick: () => askDshToConfigure('dsh-codex') }, '让 DSH 帮我配置')

@@ -2,7 +2,7 @@
 # DSH 本地插件：一键同步 + 健康检查
 #
 # 权威源码在本脚本所在工作区；DSH 运行副本在 ~/.dsh/profiles 下。
-# 默认执行：同步 canvas-workbench、home-explorer 到 node/desktop 两层，
+# 默认执行：同步 canvas-workbench 到 node/desktop 两层，
 # 然后检查源码语法、安装副本、profile 注入项和 DSH HTTP 状态。
 #
 # 用法：
@@ -74,6 +74,7 @@ ensure_source() {
   [ -f "$source/lib/index.js" ] || fail "源码缺少 lib/index.js：$source"
   if [ "$(basename "$source")" = "canvas-workbench" ]; then
     [ -f "$source/lib/image-engine.js" ] || fail "源码缺少 lib/image-engine.js：$source"
+    [ -f "$source/lib/chat-image-router.js" ] || fail "源码缺少 lib/chat-image-router.js：$source"
     [ -f "$source/lib/platform.js" ] || fail "源码缺少 lib/platform.js：$source"
   fi
 }
@@ -103,6 +104,7 @@ sync_package() {
       && cmp -s "$source/lib/client.js" "$destination/lib/client.js" \
       && cmp -s "$source/lib/index.js" "$destination/lib/index.js" \
       && { [ "$(basename "$source")" != "canvas-workbench" ] || cmp -s "$source/lib/image-engine.js" "$destination/lib/image-engine.js"; } \
+      && { [ "$(basename "$source")" != "canvas-workbench" ] || cmp -s "$source/lib/chat-image-router.js" "$destination/lib/chat-image-router.js"; } \
       && { [ "$(basename "$source")" != "canvas-workbench" ] || cmp -s "$source/lib/platform.js" "$destination/lib/platform.js"; } \
       && { [ ! -f "$source/README.md" ] || cmp -s "$source/README.md" "$destination/README.md"; } \
       && { [ ! -d "$source/scripts" ] \
@@ -164,6 +166,47 @@ ensure_patch_entry() {
   say "已补入 profile：$package_name → $patch"
 }
 
+remove_patch_entry() {
+  local patch="$1"
+  local package_id="$2"
+  local package_name="$3"
+  local temp
+  [ -f "$patch" ] || return 0
+  grep -qF "name: '$package_name'" "$patch" || return 0
+  temp="$patch.tmp.$$"
+  awk -v id="$package_id" -v name="$package_name" '
+    BEGIN { n=0 }
+    { lines[++n]=$0 }
+    END {
+      for (i=1; i<=n; i++) {
+        if (lines[i] ~ /^[[:space:]]*- insert:[[:space:]]*$/ &&
+            i+2<=n && lines[i+1] ~ ("id:[[:space:]]*" id "[[:space:]]*$") &&
+            index(lines[i+2], "name: \047" name "\047") > 0) { i+=2; continue }
+        print lines[i]
+      }
+    }
+  ' "$patch" > "$temp"
+  mv "$temp" "$patch"
+  say "已移除旧文件浏览器注入：$patch"
+}
+
+remove_legacy_home_explorer() {
+  local patch target
+  if [ -d "$PROFILES_ROOT" ]; then
+    while IFS= read -r patch; do
+      remove_patch_entry "$patch" home-explorer '@local/home-explorer'
+    done < <(find "$PROFILES_ROOT" -maxdepth 2 -name cordis.patch.yml -type f 2>/dev/null)
+  fi
+  for target in \
+    "$PROFILES_ROOT/node_modules/@local/home-explorer" \
+    "$PROFILES_ROOT/desktop/node_modules/@local/home-explorer"; do
+    if [ -e "$target" ] || [ -L "$target" ]; then
+      rm -rf "$target"
+      say "已移除独立文件浏览器运行副本：$target"
+    fi
+  done
+}
+
 sync_profiles() {
   [ -d "$PROFILES_ROOT" ] || fail "DSH profiles 目录不存在：$PROFILES_ROOT"
 
@@ -180,11 +223,68 @@ sync_profiles() {
       canvas-workbench '@local/canvas-workbench'
   done
 
-  # 文件浏览器只在 web/desktop 组合中启用，避免改变 headless/历史 profile 的行为。
-  for profile in web desktop; do
-    ensure_patch_entry "$PROFILES_ROOT/$profile/cordis.patch.yml" \
-      home-explorer '@local/home-explorer'
+  # 完整分发包会携带与 DSH Desktop 2.x 对齐的 dsh-codex 兼容构建。
+  # 只在套件确实内置该目录时注入，开发源码未携带时保持原行为。
+  if [ -f "$SCRIPT_DIR/dsh-codex/package.json" ]; then
+    for profile in "$active" web; do
+      [ -n "$profile" ] || continue
+      ensure_patch_entry "$PROFILES_ROOT/$profile/cordis.patch.yml" \
+        llm-openai-codex 'dsh-codex'
+    done
+  fi
+
+  remove_legacy_home_explorer
+}
+
+sync_codex_compat() {
+  local source="$SCRIPT_DIR/dsh-codex"
+  [ -f "$source/package.json" ] || return 0
+  [ -f "$source/lib/index.js" ] || fail "内置 dsh-codex 缺少 lib/index.js"
+
+  local selection="$USER_HOME/Library/Application Support/DSH Desktop/profile-selection/state.json"
+  local active=""
+  if [ -f "$selection" ]; then
+    active="$(/usr/bin/plutil -extract active raw -o - "$selection" 2>/dev/null || true)"
+  fi
+  local destination parent stage previous
+  local destinations=("$PROFILES_ROOT/node_modules/dsh-codex")
+  if [ -n "$active" ]; then
+    destinations+=("$PROFILES_ROOT/$active/node_modules/dsh-codex")
+  fi
+  for destination in "${destinations[@]}"; do
+    parent="$(dirname "$destination")"
+    mkdir -p "$parent"
+    if [ -f "$destination/package.json" ] \
+      && cmp -s "$source/package.json" "$destination/package.json" \
+      && diff -qr "$source/lib" "$destination/lib" >/dev/null 2>&1; then
+      say "已是最新，跳过复制：$destination"
+      continue
+    fi
+    stage="$parent/.dsh-codex.stage.$$"
+    previous="$parent/.dsh-codex.previous.$$"
+    rm -rf "$stage" "$previous"
+    mkdir -p "$stage"
+    cp -R "$source/." "$stage/"
+    if [ -e "$destination" ] || [ -L "$destination" ]; then mv "$destination" "$previous"; fi
+    if ! mv "$stage" "$destination"; then
+      [ -e "$previous" ] && mv "$previous" "$destination"
+      fail "dsh-codex 原子同步失败：$destination"
+    fi
+    rm -rf "$previous"
+    say "已同步 dsh-codex 兼容版 → $destination"
   done
+}
+
+check_codex_compat() {
+  local source="$SCRIPT_DIR/dsh-codex"
+  [ -f "$source/package.json" ] || return 0
+  local installed="$PROFILES_ROOT/node_modules/dsh-codex"
+  [ -f "$installed/package.json" ] || fail "dsh-codex 兼容版尚未安装"
+  cmp -s "$source/package.json" "$installed/package.json" \
+    || fail "dsh-codex 版本与套件不一致"
+  diff -qr "$source/lib" "$installed/lib" >/dev/null \
+    || fail "dsh-codex 运行文件与套件不一致"
+  say "兼容组件通过：dsh-codex $(/usr/bin/plutil -extract version raw -o - "$source/package.json" 2>/dev/null || printf '内置版')"
 }
 
 check_package() {
@@ -200,6 +300,8 @@ check_package() {
     if [ "$package" = "canvas-workbench" ]; then
       node --check "$source/lib/image-engine.js" >/dev/null \
         || fail "$package/lib/image-engine.js 语法检查失败"
+      node --check "$source/lib/chat-image-router.js" >/dev/null \
+        || fail "$package/lib/chat-image-router.js 语法检查失败"
     fi
     say "语法通过：$package"
   else
@@ -226,6 +328,10 @@ check_package() {
         || fail "安装副本缺少 lib/image-engine.js：$destination"
       cmp -s "$source/lib/image-engine.js" "$destination/lib/image-engine.js" \
         || fail "lib/image-engine.js 与安装副本不一致：$destination"
+      [ -f "$destination/lib/chat-image-router.js" ] \
+        || fail "安装副本缺少 lib/chat-image-router.js：$destination"
+      cmp -s "$source/lib/chat-image-router.js" "$destination/lib/chat-image-router.js" \
+        || fail "lib/chat-image-router.js 与安装副本不一致：$destination"
       [ -f "$destination/lib/platform.js" ] \
         || fail "安装副本缺少 lib/platform.js：$destination"
       cmp -s "$source/lib/platform.js" "$destination/lib/platform.js" \
@@ -262,12 +368,9 @@ check_profiles() {
     say "活动 profile 通过：$active"
   fi
 
-  for profile in web desktop; do
-    patch="$PROFILES_ROOT/$profile/cordis.patch.yml"
-    [ -f "$patch" ] || continue
-    grep -qF "name: '@local/home-explorer'" "$patch" \
-      || fail "web/desktop profile 未注入 home-explorer：$patch"
-  done
+  if grep -RqsF "name: '@local/home-explorer'" "$PROFILES_ROOT"/*/cordis.patch.yml 2>/dev/null; then
+    fail "仍有 profile 注入旧 home-explorer"
+  fi
 }
 
 check_compatibility_contract() {
@@ -372,16 +475,23 @@ if [ "$MODE" = "remove-agent" ]; then
 fi
 
 ensure_source canvas-workbench
-ensure_source home-explorer
+
+# 全新电脑上，DSH Desktop 可能还没有首次启动，因而 profiles 尚未生成。
+# 安装器模式下先装 LaunchAgent，后台任务会在 DSH 创建 profile 后自动完成注入。
+if [ ! -d "$PROFILES_ROOT" ] && [ "$MODE" = "install-agent" ]; then
+  install_agent
+  say "DSH profiles 尚未生成；已进入延迟同步，首次启动 DSH 后会自动完成"
+  exit 0
+fi
 
 if [ "$MODE" != "check" ]; then
   sync_profiles
   sync_package canvas-workbench
-  sync_package home-explorer
+  sync_codex_compat
 fi
 
 check_package canvas-workbench
-check_package home-explorer
+check_codex_compat
 check_compatibility_contract
 check_profiles
 check_dsh

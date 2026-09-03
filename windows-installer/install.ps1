@@ -69,6 +69,26 @@ function Add-ProfileEntry([string]$Profile, [string]$Id, [string]$PackageName) {
   Write-Status "已注入 Profile：$Profile / $PackageName"
 }
 
+function Remove-LegacyHomeExplorer {
+  foreach ($target in @(
+    (Join-Path $ProfilesRoot 'node_modules\@local\home-explorer'),
+    (Join-Path $ProfilesRoot 'desktop\node_modules\@local\home-explorer')
+  )) {
+    if (Test-Path -LiteralPath $target) {
+      Remove-Item -LiteralPath $target -Recurse -Force
+      Write-Status "已移除旧文件浏览器：$target"
+    }
+  }
+  Get-ChildItem -LiteralPath $ProfilesRoot -Filter cordis.patch.yml -File -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+    $content = Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8
+    $updated = [regex]::Replace($content, "(?ms)^\s*- insert:\s*\r?\n\s+- id:\s*home-explorer\s*\r?\n\s+name:\s*['\"]?@local/home-explorer['\"]?\s*\r?\n?", '')
+    if ($updated -ne $content) {
+      [IO.File]::WriteAllText($_.FullName, $updated, [Text.UTF8Encoding]::new($false))
+      Write-Status "已清理旧文件浏览器注入：$($_.FullName)"
+    }
+  }
+}
+
 function Get-ActiveProfile {
   $candidates = @(
     (Join-Path $env:APPDATA 'DSH Desktop\profile-selection\state.json'),
@@ -85,7 +105,7 @@ function Get-ActiveProfile {
 }
 
 function Test-Install {
-  foreach ($name in @('canvas-workbench', 'home-explorer')) {
+  foreach ($name in @('canvas-workbench')) {
     foreach ($target in @(
       (Join-Path $ProfilesRoot "node_modules\@local\$name"),
       (Join-Path $ProfilesRoot "desktop\node_modules\@local\$name")
@@ -111,24 +131,20 @@ function Test-Install {
 }
 
 Assert-Source 'canvas-workbench'
-Assert-Source 'home-explorer'
 if (-not (Test-Path -LiteralPath $ProfilesRoot)) { throw "未找到 DSH Profiles：$ProfilesRoot。请先安装并启动一次 DSH Desktop。" }
 
 if (-not $CheckOnly) {
+  Remove-LegacyHomeExplorer
   Copy-PluginAtomic 'canvas-workbench'
-  Copy-PluginAtomic 'home-explorer'
   $active = Get-ActiveProfile
   foreach ($profile in @('web', 'desktop', $active) | Select-Object -Unique) {
     Add-ProfileEntry $profile 'canvas-workbench' '@local/canvas-workbench'
-  }
-  foreach ($profile in @('web', 'desktop')) {
-    Add-ProfileEntry $profile 'home-explorer' '@local/home-explorer'
   }
   # 保存一份与 DSH 分离的恢复源，用户删除下载目录后计划任务仍能工作。
   if ([IO.Path]::GetFullPath($SuiteRoot) -ne [IO.Path]::GetFullPath($ManagedRoot)) {
     if (Test-Path -LiteralPath $ManagedRoot) { Remove-Item -LiteralPath $ManagedRoot -Recurse -Force }
     New-Item -ItemType Directory -Force -Path $ManagedRoot | Out-Null
-    foreach ($name in @('canvas-workbench', 'home-explorer', 'windows-installer')) {
+    foreach ($name in @('canvas-workbench', 'windows-installer')) {
       Copy-Item -LiteralPath (Join-Path $SuiteRoot $name) -Destination $ManagedRoot -Recurse -Force
     }
     Write-Status "已保存独立恢复源：$ManagedRoot"
