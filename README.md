@@ -106,6 +106,13 @@ DSH 画布工作台不是把网页工具搬到桌面上，而是把设计师每�
 3. 双击 EXE，按安装提示等待完成。
 4. 启动 DSH Desktop，登录自己的账号，或在画布“更多 → 图像引擎设置”填写自己的 API。
 
+当前推荐直接下载：
+
+- [Windows 完整安装包 r5（635,694,537 字节，约 606 MiB）](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/download/v1.4.0-windows-preview.3/DSH-Setup-x64-v0.1.1-rc.2-installer-r5.exe)
+- [r5 SHA-256 校验文件](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/download/v1.4.0-windows-preview.3/DSH-Setup-x64-v0.1.1-rc.2-installer-r5.exe.sha256)
+
+本地构建输出在仓库根目录的 `dist/`；该目录被 Git 忽略，不会进入源码提交。
+
 环境要求：Windows 10/11 64 位；不要求预装 Node.js、Python、Git 或管理员权限。Photoshop/Illustrator 是可选外部软件。
 
 ### B. 独立画布插件：给已经有 DSH Desktop 的电脑
@@ -155,7 +162,7 @@ macOS 直接下载 [1.5.3 插件 ZIP](https://github.com/elangan1997-cmyk/dsh-ca
 
 ## 已验证项目
 
-- Windows 完整安装包 payload ZIP：27,981 项，完整读取校验通过。
+- Windows 完整安装包 payload ZIP：27,983 项，完整读取校验通过。
 - Windows 隔离安装模拟：应用、manifest、receipt 和四层插件副本创建成功，重复检查通过。
 - 独立插件安装模拟：Windows 四层运行副本和 Cordis 配置注入通过；Node.js 语法检查通过。
 
@@ -245,6 +252,13 @@ Use the Windows x64 single-file installer for a new computer or a design teammat
 3. Double-click the EXE and wait for the installation to finish.
 4. Start DSH Desktop, sign in with your own account, or configure your own API under More → Image Engine Settings.
 
+Recommended direct download:
+
+- [Windows full installer r5 (635,694,537 bytes, about 606 MiB)](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/download/v1.4.0-windows-preview.3/DSH-Setup-x64-v0.1.1-rc.2-installer-r5.exe)
+- [r5 SHA-256 checksum](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/download/v1.4.0-windows-preview.3/DSH-Setup-x64-v0.1.1-rc.2-installer-r5.exe.sha256)
+
+Local build outputs are written to the repository `dist/` directory, which is ignored by Git.
+
 Requirements: Windows 10 or Windows 11, 64-bit. Node.js, Python, Git, and administrator rights are not required. Photoshop and Illustrator are optional.
 
 ### Standalone canvas plugin — for computers that already have DSH Desktop
@@ -308,7 +322,7 @@ Release packages do not contain developer accounts, OAuth tokens, API keys, pers
 
 ## Validation
 
-- Windows installer payload ZIP: 27,981 entries, fully read and verified.
+- Windows installer payload ZIP: 27,983 entries, fully read and verified.
 - Isolated Windows installation simulation: application, manifest, receipt, and four plugin runtime layers created successfully; repeat check passed.
 - Standalone plugin simulation: Windows runtime layers and Cordis configuration injection passed; Node.js syntax checks passed.
 
