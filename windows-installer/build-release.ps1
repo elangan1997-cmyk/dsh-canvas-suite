@@ -35,6 +35,7 @@ $installSource = Join-Path $PSScriptRoot 'install-release.ps1'
 $doctorSource = Join-Path $PSScriptRoot 'doctor.ps1'
 $uninstallSource = Join-Path $PSScriptRoot 'uninstall-release.ps1'
 $launcherPatchSource = Join-Path $PSScriptRoot 'patch-launcher-diagnostics.ps1'
+$codexImagePatchSource = Join-Path $PSScriptRoot 'patch-dsh-codex-image-fixes.ps1'
 
 function Copy-Contents([string]$Source, [string]$Destination) {
   if (-not (Test-Path -LiteralPath $Source)) { throw "缺少构建源：$Source" }
@@ -226,7 +227,13 @@ try {
 
   $codexSource = Join-Path $DshHome 'profiles\web\node_modules\dsh-codex'
   $codexStage = Join-Path $appStage 'resources\app\runtime\plugins\dsh-codex'
-  if (-not (Copy-Optional $codexSource $codexStage 'dsh-codex')) {
+  $codexCopied = Copy-Optional $codexSource $codexStage 'dsh-codex'
+  if ($codexCopied) {
+    if (-not (Test-Path -LiteralPath $codexImagePatchSource)) { throw "缺少 dsh-codex 图片兼容补丁：$codexImagePatchSource" }
+    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $codexImagePatchSource -PluginRoot $codexStage
+    if ($LASTEXITCODE -ne 0) { throw "dsh-codex 图片兼容补丁失败，退出码：$LASTEXITCODE" }
+  }
+  if (-not $codexCopied) {
     if (-not $AllowMissingCodex) { throw '未找到 dsh-codex。请先在当前 DSH 中安装 dsh-codex，或使用 -AllowMissingCodex 构建仅 API 路线。' }
   }
 
