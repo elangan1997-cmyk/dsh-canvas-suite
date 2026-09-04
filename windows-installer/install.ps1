@@ -130,6 +130,15 @@ function Get-ActiveProfile {
   return ''
 }
 
+function Test-DesktopLauncher {
+  $candidates = @(
+    $(if ($env:DSH_INSTALL_DIR) { Join-Path $env:DSH_INSTALL_DIR 'DeepSeek Harness.exe' }),
+    (Join-Path $env:LOCALAPPDATA 'Programs\DeepSeek Harness\DeepSeek Harness.exe'),
+    $(if ($env:ProgramFiles) { Join-Path $env:ProgramFiles 'DeepSeek Harness\DeepSeek Harness.exe' })
+  ) | Where-Object { $_ }
+  return @($candidates | Where-Object { Test-Path -LiteralPath $_ }).Count -gt 0
+}
+
 function Test-Install {
   foreach ($name in @('canvas-workbench', 'home-explorer')) {
     foreach ($target in @(
@@ -167,11 +176,15 @@ if (-not $CheckOnly) {
   Copy-PluginAtomic 'canvas-workbench'
   Copy-PluginAtomic 'home-explorer'
   $active = Get-ActiveProfile
-  foreach ($profile in @('web', 'desktop', $active) | Select-Object -Unique) {
-    Add-ProfileEntry $profile 'canvas-workbench' '@local/canvas-workbench'
-  }
-  foreach ($profile in @('web', 'desktop')) {
-    Add-ProfileEntry $profile 'home-explorer' '@local/home-explorer'
+  if (Test-DesktopLauncher) {
+    Write-Status '检测到 DSH Desktop；跳过 web/desktop Profile 注入，避免与 Electron 插件清单重复加载。'
+  } else {
+    foreach ($profile in @('web', 'desktop', $active) | Select-Object -Unique) {
+      Add-ProfileEntry $profile 'canvas-workbench' '@local/canvas-workbench'
+    }
+    foreach ($profile in @('web', 'desktop')) {
+      Add-ProfileEntry $profile 'home-explorer' '@local/home-explorer'
+    }
   }
   # Electron Desktop 不读取 web/desktop profile 的 patch；它通过
   # plugins.cordis.yml 的 ecosystem include 单独装载本地插件。
