@@ -149,7 +149,14 @@ ensure_patch_entry() {
   local temp
 
   [ -f "$patch" ] || return 0
-  grep -qF "name: '$package_name'" "$patch" && return 0
+  # 兼容手工维护的 profile 补丁：name 可能带单引号、双引号或不带引号。
+  # 只检查带引号会让每次健康检查都重复插入同一个 loader，最终导致
+  # `duplicate loader entry id`，DSH Desktop 也就无法启动 web server。
+  if grep -qF "name: '$package_name'" "$patch" \
+    || grep -qF "name: \"$package_name\"" "$patch" \
+    || grep -qF "name: $package_name" "$patch"; then
+    return 0
+  fi
 
   temp="$patch.tmp.$$"
   if grep -qE '^[[:space:]]*\[\][[:space:]]*$' "$patch"; then
