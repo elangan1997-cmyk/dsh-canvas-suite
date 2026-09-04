@@ -765,6 +765,14 @@ function createOpenAICodexAdapter(credentials, resolveAttachments, responsePrefe
 		provider: OPENAI_CODEX_PROVIDER,
 		displayName: "OpenAI Codex",
 		streamIdleTimeoutMs: OPENAI_CODEX_STREAM_IDLE_TIMEOUT_MS,
+		// DSH 2.0.4's pi-ai adapter requires explicit request-image budgets.
+		// The older dsh-codex profile omitted them, which made image input fail
+		// in dsh-attachment-local with "Image request maxPixels must be a
+		// positive integer" when a generated image was carried into the next
+		// Codex turn.
+		maxRequestImageBytes: 20971520,
+		requestImagePixelBudget: 4194304,
+		requestImageMaxBytes: 1048576,
 		retryPolicy: OPENAI_CODEX_RETRY_POLICY,
 		configuredMaxTokens: /* @__PURE__ */ new Map(),
 		piProvider: responses.wrap(requestProvider(provider, fastMode))

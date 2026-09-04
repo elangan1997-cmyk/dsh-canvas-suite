@@ -41,6 +41,11 @@ const sync = await readFile(resolve(root, 'sync-local-plugins.sh'), 'utf8');
 if (!sync.includes('sync_codex_compat')) throw new Error('sync script lacks dsh-codex compatibility sync');
 if (!sync.includes('remove_legacy_home_explorer')) throw new Error('sync script lacks legacy file-browser cleanup');
 
+const codex = await readFile(resolve(root, 'dsh-codex/lib/src-C3kK80Ix.js'), 'utf8');
+for (const marker of ['maxRequestImageBytes: 20971520', 'requestImagePixelBudget: 4194304', 'requestImageMaxBytes: 1048576']) {
+  if (!codex.includes(marker)) throw new Error(`dsh-codex image compatibility budget missing: ${marker}`);
+}
+
 const installer = await readFile(resolve(root, 'windows-installer/install.ps1'), 'utf8');
 for (const marker of ['profiles', 'node_modules\\@local', 'desktop\\node_modules\\@local', 'cordis.patch.yml']) {
   if (!installer.includes(marker)) throw new Error(`installer missing marker: ${marker}`);
