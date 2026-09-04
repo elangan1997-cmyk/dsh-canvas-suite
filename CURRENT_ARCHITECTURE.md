@@ -22,7 +22,7 @@
 - `lib/font-matcher.js`：Windows 字体目录扫描、视觉风格候选排序；不擅自覆盖用户字体选择。
 - `scripts/prepare_text_vision_crop.py`：选区放大、蓝框标注和辅助图。
 - `scripts/export_text_psd.py`：PSD 草稿和隐藏 OCR 预览层。
-- `scripts/prepare_text_mask.py`、`composite_edit.py`：历史遮罩/局部合成工具；当前文字导出已不再使用硬矩形合成。
+- `scripts/prepare_text_mask.py`、`prepare_mask.py`、`composite_edit.py`：普通擦除/图片编辑的遮罩与局部合成工具；模型输入使用小范围硬遮罩，最终合成只在边界窄环内羽化，遮罩外像素保持原样。当前文字导出已不再使用硬矩形合成。
 
 ## 主要数据结构（现状）
 
@@ -49,11 +49,12 @@ Python 先创建 8-bit RGB PSD，始终保留隐藏 `Original artwork (preserved
 
 - VLM 当前承担文字内容、语义层级、字体视觉类别和背景提示词；最终几何优先采用本地 detector bbox，字号占位值会用实测字高的 cap-height 估计替换。
 - 图片模型由画布设置选择 dsh-codex 或 API。文字背景清理提示词来自 VLM 的 `erasePrompt`，当前完整原图直接交给图片模型；失败时保留原图。
+- 图片编辑/智能擦除的选区遮罩会随路由传递：API 使用透明 mask multipart；Codex 端点没有 mask 字段，因此额外发送透明选区输入图 + 原始遮罩参考，并在结果与输入完全相同时做一次有界重试。
 - OCR 只在 VLM 失败时兜底，但本地 OCR 的几何可以继续复用为检测结果。
 
 ## 现有 Mask / Inpaint
 
-`prepare_text_mask.py` 支持字形/区域遮罩和羽化，`composite_edit.py` 支持源图保护。此前矩形 mask 造成明显接缝，当前文字重建路径已按产品要求改为直接采用图片模型完整输出；这些脚本保留给普通图片编辑和后续组件级修复路由。
+`prepare_text_mask.py` 支持字形/区域遮罩和羽化，`prepare_mask.py` 将普通擦除/编辑的选区仅膨胀约短边 0.5%（4–24px），`composite_edit.py` 在最终边界使用 2–12px 的动态窄环羽化并精确保留环外源图像素。当前文字重建路径已按产品要求改为直接采用图片模型完整输出；这些脚本保留给普通图片编辑和后续组件级修复路由。
 
 ## 已发现的问题
 

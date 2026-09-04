@@ -20,8 +20,19 @@ import time
 
 
 REMBG_VERSION = "2.0.61"
-RUNTIME_ROOT = Path.home() / ".dsh" / "canvas-workbench" / "rembg-runtime"
-MODEL_ROOT = Path.home() / ".dsh" / "canvas-workbench" / "rembg-models"
+RUNTIME_PARENT = Path.home() / ".dsh" / "canvas-workbench"
+UNIFIED_RUNTIME_ROOT = RUNTIME_PARENT / "python-runtime"
+LEGACY_RUNTIME_ROOT = RUNTIME_PARENT / "rembg-runtime"
+
+
+def runtime_root() -> Path:
+    """Use the bundled relocatable runtime when present; keep old installs working."""
+    unified = UNIFIED_RUNTIME_ROOT / ("python.exe" if os.name == "nt" else "bin/python")
+    return UNIFIED_RUNTIME_ROOT if unified.is_file() else LEGACY_RUNTIME_ROOT
+
+
+RUNTIME_ROOT = runtime_root()
+MODEL_ROOT = RUNTIME_PARENT / "rembg-models"
 MARKER = RUNTIME_ROOT / ("rembg-" + REMBG_VERSION + ".ready")
 PROGRESS_PATH: Path | None = None
 
@@ -49,13 +60,17 @@ def emit_progress(stage: str, message: str, percent: int | None = None) -> None:
 
 def runtime_python() -> Path:
     if os.name == "nt":
-        return RUNTIME_ROOT / "Scripts" / "python.exe"
+        return RUNTIME_ROOT / ("python.exe" if RUNTIME_ROOT == UNIFIED_RUNTIME_ROOT else "Scripts/python.exe")
     return RUNTIME_ROOT / "bin" / "python"
 
 
 def activate_runtime(python: Path) -> None:
     """在当前进程加载隔离 venv，避免 Windows 子进程 os.execv 的 Errno 22。"""
-    site_packages = python.parent.parent / "Lib" / "site-packages" if os.name == "nt" else python.parent.parent / "lib"
+    if os.name == "nt":
+        root = python.parent if python.parent.name.lower() != "scripts" else python.parent.parent
+        site_packages = root / "Lib" / "site-packages"
+    else:
+        site_packages = python.parent.parent / "lib"
     if os.name != "nt":
         candidates = list(site_packages.glob("python*/site-packages")) if site_packages.exists() else []
         if candidates:
@@ -64,7 +79,7 @@ def activate_runtime(python: Path) -> None:
         sys.path.insert(0, str(site_packages))
     if os.name == "nt":
         scripts = str(python.parent)
-        os.environ["VIRTUAL_ENV"] = str(python.parent.parent)
+        os.environ["VIRTUAL_ENV"] = str(root)
         os.environ["PATH"] = scripts + os.pathsep + os.environ.get("PATH", "")
         dll_dir = site_packages / "onnxruntime" / "capi"
         if hasattr(os, "add_dll_directory") and dll_dir.exists():

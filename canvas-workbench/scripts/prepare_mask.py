@@ -21,12 +21,13 @@ def main():
     # The canvas mask uses transparent pixels for the editable region. Expand
     # that region enough to include glyph antialiasing, shadows and outlines.
     selected = mask.getchannel("A").point(lambda value: 255 - value)
-    # Bold display type often has antialiasing, shadow and outline extending
-    # well beyond the user's painted centre line. At 2K/2.4K the previous 24px
-    # cap could leave vertical glyph fragments outside the composite core.
-    # Use roughly 2% of the short side, capped at 48px to avoid reaching nearby
-    # products when the user paints a reasonably tight selection.
-    radius = max(10, min(48, round(min(source.size) * 0.020)))
+    # Only add a small allowance for antialiasing and a thin glyph shadow. The
+    # old 2%/minimum-10px expansion made a tight erase/edit selection much
+    # larger than the painted area (especially on 800px images), so the model
+    # also repainted nearby cards, products and rounded corners. Keep the
+    # model's editable area conservative; seam blending happens separately in
+    # composite_edit.py and must not be confused with mask dilation.
+    radius = max(4, min(24, round(min(source.size) * 0.005)))
     kernel = radius * 2 + 1
     if kernel % 2 == 0:
         kernel += 1

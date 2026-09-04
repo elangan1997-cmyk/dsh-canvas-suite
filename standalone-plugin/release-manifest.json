@@ -1,0 +1,10 @@
+{
+  "product": "DSH画布工作台",
+  "packageType": "standalone-plugin",
+  "plugin": "@local/canvas-workbench",
+  "version": "1.4.0-windows-preview.1",
+  "supportedPlatforms": ["windows-x64", "macos"],
+  "requires": ["DSH Desktop", "an existing DSH profile"],
+  "personalDataIncluded": false,
+  "excluded": ["credentials", "OAuth tokens", "projects", "canvas snapshots", "logs", "source maps", "Python bytecode"]
+}

@@ -1921,8 +1921,6 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
       const knownDiskPaths = React.useRef(null);
       const projectFileNotice = React.useRef(new Set());
       const queuedDiskPaths = React.useRef(new Set());
-      const folderSyncEnabled = React.useRef(false);
-      const canonicalProjectPath = (value) => String(value || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
       const photoshopWatch = React.useRef(null);
       const materializingImages = React.useRef(new Set());
       const finderRemovingIds = React.useRef(new Set());
@@ -1932,6 +1930,14 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
       const pendingArchiveTimers = React.useRef(new Map());
       const clearInProgress = React.useRef(false);
       const removeProgressTimer = React.useRef(null);
+      // assets 以当前画布中的存活图片为准；变更后做一次短暂防抖的服务端对账，
+      // 避免删除/撤回/聊天加入图片时文件夹列表停留在旧数量。
+      const assetSyncTimer = React.useRef(null);
+      const assetSyncSignature = React.useRef('');
+      const assetSyncSentSignature = React.useRef('');
+      const assetSyncNeedsRun = React.useRef(false);
+      const assetSyncInFlight = React.useRef(null);
+      const imageArchiveInFlight = React.useRef(null);
 
       // 保留最近 120 条画布操作，便于定位“卡住/失败”发生在哪一步；
       // 日志只存在当前窗口，不会写入聊天内容或项目素材。
@@ -2052,6 +2058,11 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
           window.removeEventListener('pagehide', persistOnLeave);
           window.removeEventListener('beforeunload', persistOnLeave);
           document.removeEventListener('visibilitychange', persistOnHidden);
+          clearTimeout(assetSyncTimer.current);
+          assetSyncTimer.current = null;
+          assetSyncSignature.current = '';
+          assetSyncSentSignature.current = '';
+          assetSyncNeedsRun.current = false;
           persistOnLeave();
         };
       }, []);
@@ -2125,6 +2136,11 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
         next = { ...next, sessionId: next.sessionId || projectRef.current.sessionId || activeChatSessionId };
         const token = ++projectSwitchToken.current;
         clearTimeout(saveTimer.current);
+        clearTimeout(assetSyncTimer.current);
+        assetSyncTimer.current = null;
+        assetSyncSignature.current = '';
+        assetSyncSentSignature.current = '';
+        assetSyncNeedsRun.current = false;
         const previous = projectRef.current;
         const previousPath = previous.project || '';
         const nextPath = next.project || '';
@@ -2147,7 +2163,6 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
             archivedImages.current.clear();
             queuedDiskPaths.current.clear();
             knownDiskPaths.current = null;
-            folderSyncEnabled.current = false;
             switchingProject.current = true;
             projectHydrated.current = false;
             projectRef.current = next;
@@ -2204,41 +2219,12 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
       };
       const openProjectFolder = () => {
         const current = projectRef.current;
-        setFeedback('正在打开项目目录并同步其中的文件…');
+        setFeedback('正在打开项目目录…');
         fetch('/api/dsh-canvas/open-project', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(current) })
           .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
           .then((result) => {
             if (!result.ok || !result.data || !result.data.ok) throw new Error(result.data && result.data.error || '打开失败');
-            folderSyncEnabled.current = true;
-            return fetch('/api/dsh-canvas/project-files', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(current) });
-          })
-          .then((r) => r.json())
-          .then((files) => {
-            const snapshotElements = (latestSnapshot.current && latestSnapshot.current.elements || []);
-            const linked = new Set(snapshotElements
-              .map((item) => item && item.customData && item.customData.dshSourcePath)
-              .filter(Boolean).map(canonicalProjectPath));
-            const filesByCanonicalPath = new Map(((files && files.images) || [])
-              .filter((image) => image && image.path)
-              .map((image) => [canonicalProjectPath(image.path), image]));
-            snapshotElements.forEach((element) => {
-              const sourcePath = element && element.customData && element.customData.dshSourcePath;
-              const disk = sourcePath && filesByCanonicalPath.get(canonicalProjectPath(sourcePath));
-              if (disk && /^(psd|svg|pdf|ai)$/i.test(String(disk.kind || ''))) {
-                post({ type: 'refresh-source', elementId: element.id, ...disk });
-              }
-            });
-            const additions = ((files && files.images) || []).filter((image) => image && image.path
-              && !linked.has(canonicalProjectPath(image.path))
-              && !queuedDiskPaths.current.has(image.path));
-            additions.forEach((image) => {
-              queuedDiskPaths.current.add(image.path);
-              pendingRef.current.push({ ...image, explicit: true });
-            });
-            if (additions.length) flushPending();
-            setFeedback(additions.length
-              ? '✓ 已打开项目目录，并同步 ' + additions.length + ' 个文件到画布'
-              : '✓ 已打开项目目录，画布内容已同步');
+            setFeedback('✓ 已打开项目目录，画布会自动实时更新');
           })
           .catch((err) => setFeedback('⚠ 无法打开项目目录：' + String((err && err.message) || err)));
       };
@@ -2474,6 +2460,78 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
         const current = projectRef.current;
         return current.project || '';
       };
+      const liveCanvasImages = (snapshot) => (snapshot && Array.isArray(snapshot.elements) ? snapshot.elements : [])
+        .filter((item) => item && item.type === 'image' && !item.isDeleted);
+      const canvasAssetSignature = (snapshot) => liveCanvasImages(snapshot)
+        .map((item) => String(item.id || '') + ':' + String(item.customData && item.customData.dshSourcePath || ''))
+        .sort()
+        .join('|');
+      const reconcileProjectAssets = (snapshot, reason) => {
+        const current = projectRef.current;
+        if (!projectHydrated.current || !current.project || !snapshot) return Promise.resolve(null);
+        if (assetSyncInFlight.current) {
+          assetSyncNeedsRun.current = true;
+          return assetSyncInFlight.current;
+        }
+        // 删除事件的精确归档先完成，保留 archivedImages 映射供撤销恢复；
+        // 对账不能抢跑把同一文件先移走，否则撤销会找不到回收记录。
+        if (imageArchiveInFlight.current) return imageArchiveInFlight.current.then(() => reconcileProjectAssets(latestSnapshot.current || snapshot, reason));
+        const liveImages = liveCanvasImages(snapshot);
+        assetSyncSentSignature.current = canvasAssetSignature(snapshot);
+        const livePaths = liveImages.map((item) => item.customData && item.customData.dshSourcePath).filter(Boolean);
+        // 文件刚由项目扫描发现、尚未送进 iframe 时先保护起来；否则一次很快的
+        // 删除/撤回会把这类待加入文件误判为孤儿并提前移入回收站。
+        const pendingPaths = [
+          ...pendingRef.current.map((item) => item && item.path),
+          ...queuedDiskPaths.current
+        ].filter(Boolean);
+        const request = fetch('/api/dsh-canvas/reconcile-assets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...current, livePaths, liveImageCount: liveImages.length, pendingPaths, reason: reason || 'canvas-change' })
+        })
+          .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
+          .then((result) => {
+            if (!result.ok || !result.data || !result.data.ok) throw new Error(result.data && result.data.error || '资产同步失败');
+            const data = result.data;
+            for (const record of data.records || []) if (knownDiskPaths.current) knownDiskPaths.current.delete(record.original);
+            if ((data.records || []).length) setFeedback('✓ 已同步画布资产：' + data.records.length + ' 个未使用文件移入回收站');
+            window.dispatchEvent(new CustomEvent('dsh-canvas:assets-changed', { detail: { project: data.project, assetCount: data.assetCount, assets: data.assets || [], reason: data.reason } }));
+            return data;
+          })
+          .catch((err) => {
+            setFeedback('⚠ 画布资产同步失败：' + String((err && err.message) || err));
+            return null;
+          });
+        let flight;
+        flight = request.finally(() => {
+          if (assetSyncInFlight.current !== flight) return;
+          assetSyncInFlight.current = null;
+          if (assetSyncNeedsRun.current) {
+            assetSyncNeedsRun.current = false;
+            const latest = latestSnapshot.current;
+            if (latest && canvasAssetSignature(latest) !== assetSyncSentSignature.current) scheduleAssetReconciliation(latest, 'queued');
+          }
+        });
+        assetSyncInFlight.current = flight;
+        return flight;
+      };
+      const scheduleAssetReconciliation = (snapshot, reason) => {
+        const current = projectRef.current;
+        if (!projectHydrated.current || !current.project || !snapshot) return;
+        const signature = canvasAssetSignature(snapshot);
+        if (reason !== 'delete' && reason !== 'queued' && signature === assetSyncSignature.current) return;
+        assetSyncSignature.current = signature;
+        if (assetSyncInFlight.current) { assetSyncNeedsRun.current = true; return; }
+        clearTimeout(assetSyncTimer.current);
+        const run = () => {
+          assetSyncTimer.current = null;
+          if (switchingProject.current || !projectHydrated.current || !projectRef.current.project) return;
+          if (materializingImages.current.size) { assetSyncTimer.current = setTimeout(run, 500); return; }
+          void reconcileProjectAssets(latestSnapshot.current || snapshot, reason);
+        };
+        assetSyncTimer.current = setTimeout(run, reason === 'delete' ? 1250 : 350);
+      };
       const materializeElement = (element, file, duplicate) => {
         if (!element || !file || !file.dataURL || materializingImages.current.has(element.id)) return;
         materializingImages.current.add(element.id);
@@ -2509,15 +2567,17 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
           .finally(() => restoringImages.current.delete(element.id));
       };
       const archiveRemovedImages = (removed, nextLivePaths, skipRestore) => {
+        const sourceKey = (value) => String(value || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+        const nextLiveKeys = new Set([...nextLivePaths].map(sourceKey));
         const eligible = removed.filter((item) => {
           const path = item.customData && item.customData.dshSourcePath;
-          return path && !nextLivePaths.has(path) && !finderRemovingIds.current.has(item.id);
+          return path && !nextLiveKeys.has(sourceKey(path)) && !finderRemovingIds.current.has(item.id);
         });
         for (const item of removed) finderRemovingIds.current.delete(item.id);
-        if (!eligible.length) return;
+        if (!eligible.length) return Promise.resolve(null);
         const current = projectRef.current;
         const byPath = new Map(eligible.map((item) => [item.customData.dshSourcePath, item]));
-        fetch('/api/dsh-canvas/archive-images', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...current, paths: [...byPath.keys()] }) })
+        const runArchive = () => fetch('/api/dsh-canvas/archive-images', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...current, paths: [...byPath.keys()] }) })
           .then((r) => r.json())
           .then((result) => {
             if (!result || !result.ok) return;
@@ -2533,6 +2593,14 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
             if ((result.records || []).length) setFeedback('✓ 已移入画布回收站，可随时恢复');
           })
           .catch((err) => setFeedback('⚠ 文件归档失败，磁盘原文件未删除：' + String((err && err.message) || err)));
+        const previousArchive = imageArchiveInFlight.current || Promise.resolve();
+        const request = previousArchive.catch(() => {}).then(runArchive);
+        let flight;
+        flight = request.finally(() => {
+          if (imageArchiveInFlight.current === flight) imageArchiveInFlight.current = null;
+        });
+        imageArchiveInFlight.current = flight;
+        return flight;
       };
       const scheduleRemovedImages = (removed, nextLivePaths) => {
         for (const item of removed) {
@@ -2756,6 +2824,9 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
           }
           setFeedback(projectRef.current.project ? '✓ 画布内容已恢复' : '请选择、新建或导入画布项目');
           flushPending();
+          // 打开/重启项目时也做一次对账，清理历史遗留的 assets 孤儿文件，
+          // 让“画布图片数”和项目 assets 从首次显示起就保持一致。
+          scheduleAssetReconciliation(latestSnapshot.current, 'load');
         } else if (d.type === 'diagnostic') {
           setFeedback(d.error || ('恢复检查：元素 ' + d.elements + '/' + d.expected + '，文件 ' + d.files + '，DOM ' + d.dom + '，canvas ' + d.canvas + '，按钮 ' + d.buttons));
         } else if (d.type === 'added') {
@@ -2804,13 +2875,20 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
             // 快照直接归档源文件，否则 changed 看到的 previousSnapshot 已经是
             // “删除后”状态，永远不会触发 archiveRemovedImages。
             const deletedIds = new Set(Array.isArray(d.ids) ? d.ids : []);
-            const removed = (previousSnapshot.elements || []).filter((item) => item && item.type === 'image' && !item.isDeleted && deletedIds.has(item.id));
+            const deletedLiveIds = new Set((deletedSnapshot.elements || [])
+              .filter((item) => item && item.type === 'image' && !item.isDeleted)
+              .map((item) => item.id));
+            // 旧版 iframe 的删除消息没有带 ids；此时用删除前后存活图片集合
+            // 求差集，仍能准确找到需要进入画布回收站的源文件。
+            const removed = (previousSnapshot.elements || []).filter((item) => item && item.type === 'image' && !item.isDeleted
+              && (deletedIds.size ? deletedIds.has(item.id) : !deletedLiveIds.has(item.id)));
             const nextLivePaths = new Set((deletedSnapshot.elements || [])
               .filter((item) => item && item.type === 'image' && !item.isDeleted)
               .map((item) => item.customData && item.customData.dshSourcePath)
               .filter(Boolean));
             if (removed.length) archiveRemovedImages(removed, nextLivePaths, false);
             latestSnapshot.current = markCanvasChanged(deletedSnapshot, previousSnapshot);
+            scheduleAssetReconciliation(latestSnapshot.current, 'delete');
           }
           void flushSave();
           setFeedback('✓ 已删除 ' + Number(d.count || 0) + ' 张图片，可用撤销恢复');
@@ -3089,6 +3167,10 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
           }
           latestSnapshot.current = snap;
           if (clearInProgress.current && !liveImages.length) clearInProgress.current = false;
+          // 只要存活图片集合或其源路径发生变化，就立即对账项目 assets。
+          // 这覆盖聊天加入、删除、撤销和重做；拖拽/缩放等不改变集合的操作
+          // 会被签名去重，不会产生额外磁盘扫描。
+          scheduleAssetReconciliation(snap, removed.length ? 'delete' : 'canvas-change');
           // 删除必须立即进入写入队列；仅靠 1.5 秒防抖会给切换聊天/卸载
           // 留出窗口，导致另一个聊天读到删除前的旧快照。
           if (removed.length) saveNow();
@@ -3160,6 +3242,11 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
           window.removeEventListener('dsh-canvas:project-context', onProjectContext);
           window.removeEventListener('message', onFrameMessage);
           clearTimeout(saveTimer.current);
+          clearTimeout(assetSyncTimer.current);
+          assetSyncTimer.current = null;
+          assetSyncSignature.current = '';
+          assetSyncSentSignature.current = '';
+          assetSyncNeedsRun.current = false;
           clearInterval(removeProgressTimer.current);
           removeProgressTimer.current = null;
           saveQueued.current = false;
@@ -3274,8 +3361,9 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
                 filesByPath.set(normalizeProjectPath(item.path).toLowerCase(), item);
               }
               const diskPaths = new Set(result.images.filter((item) => item && item.path).map((item) => item.path));
-              // Clicking “open and sync” is explicit user consent for this
-              // project session.  Until then scans remain notification-only.
+              // Project folders are continuously watched while the canvas is
+              // open.  Opening the folder only reveals it in Explorer; it is
+              // not a separate sync switch.
               if (previousCanonical) {
                 const newImages = result.images.filter((item) => item && item.path && !previousCanonical.has(normalizeProjectPath(item.path).toLowerCase()));
                 const unseen = newImages.filter((item) => !projectFileNotice.current.has(normalizeProjectPath(item.path).toLowerCase()));
@@ -3283,18 +3371,14 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
                   unseen.forEach((item) => projectFileNotice.current.add(normalizeProjectPath(item.path).toLowerCase()));
                   const names = unseen.slice(0, 3).map((item) => item.name || basename(item.path)).join('、');
                   const suffix = unseen.length > 3 ? ' 等 ' + unseen.length + ' 个文件' : '';
-                  if (folderSyncEnabled.current) {
-                    const linkedCanonical = new Set(sourceElements.map((item) => normalizeProjectPath(item.customData.dshSourcePath).toLowerCase()));
-                    const additions = unseen.filter((image) => !linkedCanonical.has(normalizeProjectPath(image.path).toLowerCase()) && !queuedDiskPaths.current.has(image.path));
-                    additions.forEach((image) => {
-                      queuedDiskPaths.current.add(image.path);
-                      pendingRef.current.push({ ...image, explicit: true });
-                    });
-                    if (additions.length) flushPending();
-                    setFeedback('✓ 已同步项目目录新增文件：' + names + suffix);
-                  } else {
-                    setFeedback('检测到项目目录新增文件：' + names + suffix + '；点击“打开并同步项目文件夹”后可持续同步');
-                  }
+                  const linkedCanonical = new Set(sourceElements.map((item) => normalizeProjectPath(item.customData.dshSourcePath).toLowerCase()));
+                  const additions = unseen.filter((image) => !linkedCanonical.has(normalizeProjectPath(image.path).toLowerCase()) && !queuedDiskPaths.current.has(image.path));
+                  additions.forEach((image) => {
+                    queuedDiskPaths.current.add(image.path);
+                    pendingRef.current.push({ ...image, explicit: true });
+                  });
+                  if (additions.length) flushPending();
+                  setFeedback('✓ 已自动加入项目目录新增文件：' + names + suffix);
                 }
               }
               for (const path of [...queuedDiskPaths.current]) if (!diskPaths.has(path)) queuedDiskPaths.current.delete(path);
@@ -3371,20 +3455,23 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
           }
         };
         const onWindowFocus = () => syncProjectFiles();
+        // 资产对账完成后立即刷新文件索引，不等待 8 秒轮询间隔。
+        const onAssetsChanged = () => syncProjectFiles();
         document.addEventListener('visibilitychange', onVisibilityChange);
         window.addEventListener('focus', onWindowFocus);
+        window.addEventListener('dsh-canvas:assets-changed', onAssetsChanged);
         syncProjectFiles();
         return () => {
           disposed = true;
           clearTimeout(pollTimer);
           document.removeEventListener('visibilitychange', onVisibilityChange);
           window.removeEventListener('focus', onWindowFocus);
+          window.removeEventListener('dsh-canvas:assets-changed', onAssetsChanged);
           if (activeController) activeController.abort();
           activeController = null;
           projectSyncBusy.current = false;
           knownDiskPaths.current = null;
           queuedDiskPaths.current.clear();
-          folderSyncEnabled.current = false;
         };
       }, [on, projectInfo.cwd, projectInfo.project]);
 
@@ -3464,7 +3551,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
             onClick: () => { saveNow(); clearTimeout(saveTimer.current); setMode(false); }
           }, '收起画布'),
           moreMenuOpen ? React.createElement('div', { className: 'dsh-canvas-more-menu' },
-            React.createElement('button', { onClick: () => { setMoreMenuOpen(false); openProjectFolder(); }, disabled: !projectInfo.project }, '📁 打开并同步项目文件夹'),
+            React.createElement('button', { onClick: () => { setMoreMenuOpen(false); openProjectFolder(); }, disabled: !projectInfo.project }, '📁 打开项目文件夹'),
             React.createElement('button', { onClick: openImageSettings }, '⚙ 图像引擎设置'),
             React.createElement('button', { onClick: () => { setMoreMenuOpen(false); saveNow(); setFeedback('✓ 已保存当前画布'); }, disabled: !projectInfo.project }, '保存当前画布'),
             React.createElement('button', { onClick: async () => { setMoreMenuOpen(false); try { const response = await fetch('/api/dsh-canvas/log?limit=200', { cache: 'no-store' }); const payload = await response.json(); if (payload && Array.isArray(payload.entries)) setOperationLog((items) => payload.entries.map((item) => ({ time: new Date(item.time).toLocaleTimeString(), message: (item.level === 'error' ? '⚠ ' : '') + item.message })).concat(items).slice(0, 120)); } catch (err) {} setOperationLogOpen(true); } }, '🧾 操作日志'),
@@ -3596,7 +3683,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
                 React.createElement('strong', null, basename(projectInfo.project)),
                 React.createElement('code', { title: projectInfo.project }, projectInfo.project)
               ),
-            React.createElement('button', { className: 'dsh-canvas-tb dsh-canvas-open-folder', onClick: openProjectFolder }, '打开并同步项目文件夹')
+            React.createElement('button', { className: 'dsh-canvas-tb dsh-canvas-open-folder', onClick: openProjectFolder }, '打开项目文件夹')
             ) : React.createElement('div', { className: 'dsh-canvas-project-current dsh-canvas-project-current-empty' }, '尚未选择项目，可新建或从文件夹导入。'),
             React.createElement('div', { className: 'dsh-canvas-project-section-title' }, '最近项目'),
             React.createElement('div', { className: 'dsh-canvas-project-list' },

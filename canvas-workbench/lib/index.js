@@ -701,6 +701,9 @@ function normalizeTextLayerText(value) {
 }
 
 function apply(ctx) {
+  // Release builds use Electron's embedded Node for local ImageTracerJS;
+  // this keeps vectorization independent of a system Node/npm installation.
+  if (isWindows && !process.env.DSH_NODE_EXECUTABLE) process.env.DSH_NODE_EXECUTABLE = process.execPath;
   const fs = ctx.get('fs');
   installCanvasImagegenTool(ctx);
   const operationLog = [];
@@ -903,7 +906,7 @@ function apply(ctx) {
           await walk(full, depth + 1);
         } else if (entry.isFile() && isSourceImagePath(entry.name)) {
           const info = await stat(full);
-          found.push({ path: full, name: entry.name, mtime: info.mtimeMs, size: info.size, kind: sourceKindOf(entry.name), managed: full.startsWith(assetsRoot + '/'), url: previewUrl(full, info.mtimeMs) });
+          found.push({ path: full, name: entry.name, mtime: info.mtimeMs, size: info.size, kind: sourceKindOf(entry.name), managed: isPathInside(full, assetsRoot), url: previewUrl(full, info.mtimeMs) });
         }
       }
     };
@@ -1031,7 +1034,7 @@ function apply(ctx) {
         const requestPathname = qi === -1 ? raw : raw.slice(0, qi);
         const pathname = requestPathname.startsWith('/api/dsh-canvas') ? requestPathname.slice(4) : requestPathname;
         const query = qi === -1 ? '' : raw.slice(qi + 1);
-        const quietRoutes = new Set(['/dsh-canvas/log', '/dsh-canvas/project-files', '/dsh-canvas/check-sources', '/dsh-canvas/state', '/dsh-canvas/image', '/dsh-canvas/remove-background-progress']);
+        const quietRoutes = new Set(['/dsh-canvas/log', '/dsh-canvas/project-files', '/dsh-canvas/reconcile-assets', '/dsh-canvas/check-sources', '/dsh-canvas/state', '/dsh-canvas/image', '/dsh-canvas/remove-background-progress']);
         if (!quietRoutes.has(pathname)) logOperation(req.method + ' ' + pathname);
         if (pathname === '/dsh-canvas/log' && req.method === 'GET') {
           respond(res, 200, { ...CORS, 'content-type': 'application/json', 'cache-control': 'no-store' }, JSON.stringify({ ok: true, entries: operationLog.slice(0, 200) }));
@@ -1351,7 +1354,8 @@ function apply(ctx) {
             const projectDir = projectDirectory(body.cwd, body.project);
             if (!projectDir) throw new Error('当前聊天没有画布项目');
             const images = await scanProjectImagesShared(projectDir);
-            respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true, project: projectDir, images }));
+            const assets = images.filter((item) => item && item.path && isPathInside(item.path, join(projectDir, 'assets')));
+            respond(res, 200, { ...CORS, 'content-type': 'application/json', 'cache-control': 'no-store' }, JSON.stringify({ ok: true, project: projectDir, images, assets, assetCount: assets.length }));
           } catch (err) {
             respond(res, 500, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: String((err && err.message) || err) }));
           }
@@ -2098,6 +2102,63 @@ function apply(ctx) {
           return;
         }
 
+        // 画布是项目 assets 的唯一真相来源。删除、撤回/重做或从聊天加入图片后，
+        // 客户端会把当前画布仍在使用的源路径发到这里；这里只对 project/assets
+        // 内的孤儿源文件做可恢复归档，绝不处理 DSH聊天生成图片 或项目根目录素材。
+        if (pathname === '/dsh-canvas/reconcile-assets' && req.method === 'POST') {
+          try {
+            const body = JSON.parse(await readBody(req) || '{}');
+            const projectDir = projectDirectory(body.cwd, body.project);
+            if (!projectDir) throw new Error('当前聊天没有画布项目');
+            await flattenRecycleBin(projectDir);
+            const assetsDir = join(projectDir, 'assets');
+            const recycleDir = join(projectDir, '画布回收站');
+            const toPathSet = (value) => new Set((Array.isArray(value) ? value : []).map((item) => String(item || '').trim()).filter(Boolean).map((item) => pathKey(item)));
+            const livePaths = toPathSet(body.livePaths);
+            const liveImageCount = Math.max(0, Number(body.liveImageCount || 0));
+            // 如果画布仍有图片但旧快照没有保存源路径，宁可保留 assets，
+            // 也不能把可能仍在使用的文件误判为孤儿；画布为空时则允许全部归档。
+            const sourceIndexComplete = liveImageCount === 0 || livePaths.size > 0;
+            const pendingPaths = toPathSet(body.pendingPaths);
+            const scanned = await scanProjectImagesShared(projectDir);
+            const candidates = scanned.filter((item) => item && item.path && isPathInside(item.path, assetsDir));
+            const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const records = [];
+            for (const item of candidates) {
+              const source = expandHome(String(item.path || ''));
+              const key = pathKey(source);
+              if (!sourceIndexComplete || !key || livePaths.has(key) || pendingPaths.has(key)) continue;
+              try {
+                await access(source);
+                await mkdir(recycleDir, { recursive: true });
+                const originalName = basename(source);
+                let target = join(recycleDir, originalName);
+                for (let index = 1; index <= 1000; index += 1) {
+                  try { await access(target); target = join(recycleDir, originalName.replace(/(\.[^.]+)?$/, '-删除于-' + stamp + (index > 1 ? '-' + index : '') + '$1')); }
+                  catch (err) { break; }
+                }
+                await rename(source, target);
+                records.push({ original: source, archived: target });
+              } catch (err) {}
+            }
+            const remaining = (await scanProjectImagesShared(projectDir)).filter((item) => item && item.path && isPathInside(item.path, assetsDir));
+            logOperation('画布资产对账完成 · 存活图片 ' + liveImageCount + ' · assets ' + remaining.length + ' · 归档 ' + records.length);
+            respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({
+              ok: true,
+              project: projectDir,
+              assets: remaining.map((item) => item.path),
+              assetCount: remaining.length,
+              liveCount: liveImageCount,
+              archived: records.length,
+              records,
+              reason: String(body.reason || 'canvas-change')
+            }));
+          } catch (err) {
+            respond(res, 500, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: String((err && err.message) || err) }));
+          }
+          return;
+        }
+
         if (pathname === '/dsh-canvas/restore-image' && req.method === 'POST') {
           try {
             const body = JSON.parse(await readBody(req) || '{}');
@@ -2213,7 +2274,6 @@ function apply(ctx) {
             if (!projectDir) throw new Error('当前聊天没有可打开的项目目录');
             await mkdir(join(projectDir, 'assets'), { recursive: true });
             await mkdir(join(projectDir, 'outputs'), { recursive: true });
-            await flattenRecycleBin(projectDir);
             const outcome = await openFolder(ctx, runProcess, projectDir);
             if (outcome.exitCode !== 0) throw new Error(isWindows ? '资源管理器打开失败' : '访达打开失败');
             respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true, project: projectDir, assets: join(projectDir, 'assets') }));
@@ -2508,6 +2568,7 @@ function apply(ctx) {
           let tempMask = '';
           let tempModelInput = '';
           let tempModelMask = '';
+          let tempCodexInput = '';
           let tempGenerated = '';
           let tempComposite = '';
           try {
@@ -2575,6 +2636,18 @@ function apply(ctx) {
             const cumulative = mode === 'edit' && previousHistory.length
               ? '以原始母版为基础，依次完成这些已确认修改：\n- ' + previousHistory.join('\n- ') + '\n本次继续修改：' + currentInstruction
               : currentInstruction;
+            // Image endpoints do not expose a separate system-message field.
+            // Keep this host-owned guard in every masked edit prompt so a
+            // provider cannot silently move, duplicate, or restyle content
+            // outside the user's selection. Pixel-level protection is still
+            // enforced by composite_edit.py after the model returns.
+            const maskGuard = mask
+              ? '\n\n【画布局部编辑系统约束（必须遵守）】\n'
+                + '输出必须与第一张原图同尺寸、同方向、同视角、同构图和同像素坐标；禁止缩放、裁剪、平移、旋转、透视变形或改变未选区域。\n'
+                + '透明遮罩区域是唯一可写区域，遮罩外内容必须逐像素复制原图，不得重绘、复制、移动、补全或改色。\n'
+                + '若任务涉及文字替换，必须先完整移除原文字的字形、描边、阴影、发光和抗锯齿残影，再在原文字的同一位置、同一基线、同一大小和同一方向绘制新文字；禁止上下错位、重复叠字、保留旧字残影或把新字放到选区外。\n'
+                + '选区外的产品、人物、按钮、圆角矩形、边框、渐变、纹理、光照和其他文字不得发生任何变化。'
+              : '\n\n【画布整图编辑系统约束】\n输出保持原图尺寸、方向、视角和构图；除用户明确要求外不得新增、删除、移动、复制或重绘任何内容。';
             const finalPrompt = mode === 'erase'
               ? '这是严格的局部 clean-plate 图像修复，不是整图重绘、风格化生成或重新设计。透明遮罩覆盖的区域是必须移除的内容，遮罩外区域是锁定参考。\n'
                 + cumulative
@@ -2585,9 +2658,11 @@ function apply(ctx) {
                   ? '3. 除用户明确写出的补全要求外，不得生成任何新物体、字符、图形或装饰。\n'
                   : '3. 不得在遮罩内生成任何可读或不可读字符、深色碎点、幽灵轮廓、新物体或装饰。\n')
                 + '4. 遮罩外的产品、排版、颜色、清晰度、构图和所有像素必须保持不变；只允许改变透明遮罩区域。'
+                + maskGuard
               : cumulative
                 + (mask ? '\n本次只允许修改遮罩选区；遮罩外必须逐像素保持原样。' : '\n本次为整图修改。')
-                + '\n保持未提及区域、产品身份、材质纹理、构图、颜色和清晰度不变，不要自行增加文字或装饰。';
+                + '\n保持未提及区域、产品身份、材质纹理、构图、颜色和清晰度不变，不要自行增加文字或装饰。'
+                + maskGuard;
 
             const width = Math.max(1, Number(body.width || 1));
             const height = Math.max(1, Number(body.height || 1));
@@ -2604,14 +2679,46 @@ function apply(ctx) {
             logOperation('图片编辑：模型输入已标准化为最长边 1024px' + (tempMask ? '，遮罩尺寸已对齐' : ''));
             const sourceBytes = await readFile(tempModelInput);
             const maskBytes = tempModelMask ? await readFile(tempModelMask) : null;
-            const generated = await generateImage({
+            let routedSourceBytes = sourceBytes;
+            if (maskBytes && engineSettings.engine === 'dsh-codex') {
+              // Codex's image endpoint has no multipart mask field. Expose
+              // the transparent editable hole in the first reference too;
+              // the original source remains the composition base below.
+              tempCodexInput = join(outputDir, '.canvas-codex-masked-' + modelToken + '.png');
+              const codexMaskScript = join(pluginRoot, 'scripts', 'prepare_codex_masked_input.py');
+              await access(codexMaskScript);
+              const maskedInput = await runProcess(python.executable, [...python.prefixArgs, codexMaskScript, '--source', tempModelInput, '--mask', tempModelMask, '--output', tempCodexInput], pluginRoot);
+              if (maskedInput.exitCode !== 0) throw new Error(maskedInput.stderr.trim() || 'Codex 遮罩输入预处理失败');
+              routedSourceBytes = await readFile(tempCodexInput);
+              logOperation('图片编辑：Codex 输入已生成透明选区，并附加原始遮罩引用');
+            }
+            let generated = await generateImage({
               ctx,
-              image: sourceBytes,
+              image: routedSourceBytes,
               mask: maskBytes,
               prompt: finalPrompt,
               engine: engineSettings.engine,
               signal: AbortSignal.timeout(900000)
             });
+            // A provider can acknowledge an edit but return the source image
+            // unchanged (especially when a Codex mask was previously ignored
+            // or an API gateway drops multipart fields). Do one bounded retry
+            // with an explicit no-op guard instead of silently publishing a
+            // visually unchanged result.
+            let unchangedAfterRetry = false;
+            if (maskBytes && generated.bytes && Buffer.compare(Buffer.from(generated.bytes), Buffer.from(routedSourceBytes)) === 0) {
+              logOperation('图片编辑：引擎返回与输入完全相同，已带遮罩重试', 'warn');
+              generated = await generateImage({
+                ctx,
+                image: routedSourceBytes,
+                mask: maskBytes,
+                prompt: finalPrompt + '\n上一轮输出与原图完全相同。请务必在透明遮罩区域执行实际擦除/编辑；遮罩外逐像素不变，不能直接返回原图。',
+                engine: engineSettings.engine,
+                signal: AbortSignal.timeout(900000)
+              });
+              unchangedAfterRetry = generated.bytes && Buffer.compare(Buffer.from(generated.bytes), Buffer.from(routedSourceBytes)) === 0;
+            }
+            if (unchangedAfterRetry) throw new Error('图片模型连续两次返回未改变的原图；本次未写入结果，请检查该引擎是否支持遮罩编辑后重试');
             const engine = generated.engine;
             logOperation('图片编辑：引擎返回完成 · ' + engine + '，正在与当前母版合成');
             tempGenerated = join(outputDir, '.image-edit-' + Date.now() + '-' + Math.random().toString(16).slice(2) + '.png');
@@ -2621,7 +2728,7 @@ function apply(ctx) {
             if (tempMask) compositeArgs.push('--mask', tempMask);
             const composited = await runProcess(python.executable, [...python.prefixArgs, ...compositeArgs], pluginRoot);
             if (composited.exitCode !== 0) throw new Error(composited.stderr.trim() || '图片无损合成失败');
-            logOperation('图片编辑：合成完成，遮罩外像素已恢复');
+            logOperation('图片编辑：合成完成，遮罩外像素已恢复，边界窄环已羽化');
 
             const finalBytes = await readFile(tempComposite);
             const originalName = safeImageName(body.name || '画布图片.png');
@@ -2642,7 +2749,7 @@ function apply(ctx) {
           } catch (err) {
             respond(res, 500, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: String((err && err.message) || err) }));
           } finally {
-            for (const path of [tempInput, tempRawMask, tempMask, tempModelInput, tempModelMask, tempGenerated, tempComposite]) if (path) await unlink(path).catch(() => {});
+            for (const path of [tempInput, tempRawMask, tempMask, tempModelInput, tempModelMask, tempCodexInput, tempGenerated, tempComposite]) if (path) await unlink(path).catch(() => {});
           }
           return;
         }

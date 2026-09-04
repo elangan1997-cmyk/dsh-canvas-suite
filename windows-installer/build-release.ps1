@@ -143,14 +143,25 @@ function Copy-PortablePython([string]$Destination, [string]$RuntimeSource) {
 function Build-SelfExtractingInstaller([string]$Archive, [string]$Output, [string]$SourceRoot) {
   $stubSource = Join-Path $SourceRoot 'sfx-stub.cs'
   if (-not (Test-Path -LiteralPath $stubSource)) { throw "缺少自解压引导源文件：$stubSource" }
-  $csc = Get-ChildItem -LiteralPath (Join-Path $env:WINDIR 'Microsoft.NET') -Recurse -Filter 'csc.exe' -ErrorAction SilentlyContinue |
-    Where-Object { $_.FullName -match 'Framework64\\v4\\.0\\.30319\\csc\.exe$' } |
-    Select-Object -First 1
+  # Prefer the 64-bit compiler, but keep a 32-bit Framework fallback. Some
+  # Windows installations expose only one of these paths (and Defender or
+  # redirected system views can make recursive discovery unreliable).
+  $cscCandidates = @(
+    (Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'),
+    (Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe')
+  )
+  $cscPath = $cscCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+  $csc = if ($cscPath) { Get-Item -LiteralPath $cscPath } else {
+    Get-ChildItem -LiteralPath (Join-Path $env:WINDIR 'Microsoft.NET') -Recurse -Filter 'csc.exe' -ErrorAction SilentlyContinue |
+      Where-Object { $_.FullName -match 'Framework(64)?\\v4\\.0\\.30319\\csc\.exe$' } |
+      Select-Object -First 1
+  }
   if (-not $csc) { throw '当前 Windows 没有 .NET Framework 4.x 编译器，无法生成自解压安装包。' }
   $stubExe = Join-Path $stageRoot 'dsh-sfx-stub.exe'
-  $compression = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\System.IO.Compression.dll'
-  $compressionFs = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\System.IO.Compression.FileSystem.dll'
-  $forms = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\System.Windows.Forms.dll'
+  $frameworkRoot = Split-Path -Parent $csc.FullName
+  $compression = Join-Path $frameworkRoot 'System.IO.Compression.dll'
+  $compressionFs = Join-Path $frameworkRoot 'System.IO.Compression.FileSystem.dll'
+  $forms = Join-Path $frameworkRoot 'System.Windows.Forms.dll'
   & $csc.FullName /nologo /target:exe /optimize+ /out:$stubExe /reference:$compression /reference:$compressionFs /reference:$forms $stubSource
   if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $stubExe)) { throw "自解压引导编译失败，退出码：$LASTEXITCODE" }
   if (Test-Path -LiteralPath $Output) { Remove-Item -LiteralPath $Output -Force }

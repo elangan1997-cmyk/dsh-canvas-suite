@@ -32,13 +32,27 @@ async function resolveFirst(ctx, names) {
 }
 
 export async function resolvePython(ctx) {
-  const managed = isWindows
-    ? join(userHome(), '.dsh', 'canvas-workbench', 'python-runtime', 'Scripts', 'python.exe')
-    : join(userHome(), '.dsh', 'canvas-workbench', 'python-runtime', 'bin', 'python');
+  const runtimeRoot = join(userHome(), '.dsh', 'canvas-workbench');
+  const managedCandidates = isWindows
+    ? [
+      join(runtimeRoot, 'python-runtime', 'python.exe'),
+      join(runtimeRoot, 'python-runtime', 'Scripts', 'python.exe'),
+      join(runtimeRoot, 'rembg-runtime', 'Scripts', 'python.exe'),
+      join(runtimeRoot, 'psd-runtime', 'Scripts', 'python.exe'),
+    ]
+    : [
+      join(runtimeRoot, 'python-runtime', 'bin', 'python'),
+      join(runtimeRoot, 'rembg-runtime', 'bin', 'python'),
+      join(runtimeRoot, 'psd-runtime', 'bin', 'python'),
+    ];
   try {
     const { access } = await import('node:fs/promises');
-    await access(managed);
-    return { executable: managed, prefixArgs: [], managed: true };
+    for (const managed of managedCandidates) {
+      try {
+        await access(managed);
+        return { executable: managed, prefixArgs: [], managed: true };
+      } catch {}
+    }
   } catch {}
   const executable = await resolveFirst(ctx, isWindows ? ['python.exe', 'python', 'py.exe', 'py'] : ['python3', 'python']);
   if (!executable) throw new Error(isWindows

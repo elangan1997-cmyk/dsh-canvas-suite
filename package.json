@@ -1,0 +1,10 @@
+{
+  "name": "dsh-canvas-suite-release",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DSH Desktop and Canvas Suite Windows release tooling",
+  "scripts": {
+    "release:win": "powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File windows-installer/build-release.ps1",
+    "doctor:win": "powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File windows-installer/doctor.ps1"
+  }
+}

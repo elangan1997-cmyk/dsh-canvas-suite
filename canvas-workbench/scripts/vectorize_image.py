@@ -108,6 +108,14 @@ def imagetracer_cli() -> Path:
     return IMAGETRACER_RUNTIME / "node_modules" / "imagetracerjs" / "nodecli" / "nodecli.js"
 
 
+def node_executable() -> str:
+    """Resolve DSH's bundled Electron Node before consulting the system PATH."""
+    bundled = os.environ.get("DSH_NODE_EXECUTABLE", "").strip()
+    if bundled and Path(bundled).is_file():
+        return bundled
+    return shutil.which("node") or ""
+
+
 def ensure_imagetracer_runtime() -> None:
     """准备 ImageTracerJS 隔离运行时。
 
@@ -477,7 +485,7 @@ def run_imagetracer(path: Path, output: Path, info: dict[str, Any], vector_mode:
     插画：保留腮红、眼睛、围巾和小装饰等局部色块，再用二次曲线拟合边缘。
     输入先统一成 PNG，避开 nodecli 对 JPEG/WebP 解码器的差异。
     """
-    node = shutil.which("node")
+    node = node_executable()
     cli = imagetracer_cli()
     if not node or not cli.exists():
         raise RuntimeError("ImageTracerJS 不可用")
@@ -514,7 +522,8 @@ def run_imagetracer(path: Path, output: Path, info: dict[str, Any], vector_mode:
             "linefilter",
             "false",
         ]
-        subprocess.run(args, check=True, timeout=240, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        subprocess.run(args, check=True, timeout=240, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                       env={**os.environ, "ELECTRON_RUN_AS_NODE": "1"})
     if not output.exists() or output.stat().st_size == 0:
         raise RuntimeError("ImageTracerJS 未生成有效 SVG")
     return "imagetracerjs-nodecli"

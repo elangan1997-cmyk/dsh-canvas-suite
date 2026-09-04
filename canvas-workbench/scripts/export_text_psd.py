@@ -18,21 +18,33 @@ import sys
 
 
 PSD_TOOLS_VERSION = "1.18.0"
-RUNTIME_ROOT = Path.home() / ".dsh" / "canvas-workbench" / "psd-runtime"
+RUNTIME_PARENT = Path.home() / ".dsh" / "canvas-workbench"
+UNIFIED_RUNTIME_ROOT = RUNTIME_PARENT / "python-runtime"
+LEGACY_RUNTIME_ROOT = RUNTIME_PARENT / "psd-runtime"
+
+
+def runtime_root() -> Path:
+    """Use the bundled relocatable runtime when present; keep old installs working."""
+    unified = UNIFIED_RUNTIME_ROOT / ("python.exe" if os.name == "nt" else "bin/python")
+    return UNIFIED_RUNTIME_ROOT if unified.is_file() else LEGACY_RUNTIME_ROOT
+
+
+RUNTIME_ROOT = runtime_root()
 MARKER = RUNTIME_ROOT / ("psd-tools-" + PSD_TOOLS_VERSION + ".ready")
 
 
 def runtime_python() -> Path:
     if os.name == "nt":
-        return RUNTIME_ROOT / "Scripts" / "python.exe"
+        return RUNTIME_ROOT / ("python.exe" if RUNTIME_ROOT == UNIFIED_RUNTIME_ROOT else "Scripts/python.exe")
     return RUNTIME_ROOT / "bin" / "python"
 
 
 def activate_runtime(python: Path) -> None:
     """Load the isolated venv in-place; os.execv is rejected by DSH on Windows."""
     if os.name == "nt":
-        site_packages = python.parent.parent / "Lib" / "site-packages"
-        os.environ["VIRTUAL_ENV"] = str(python.parent.parent)
+        root = python.parent if python.parent.name.lower() != "scripts" else python.parent.parent
+        site_packages = root / "Lib" / "site-packages"
+        os.environ["VIRTUAL_ENV"] = str(root)
         os.environ["PATH"] = str(python.parent) + os.pathsep + os.environ.get("PATH", "")
     else:
         candidates = list((python.parent.parent / "lib").glob("python*/site-packages"))

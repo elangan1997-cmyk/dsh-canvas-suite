@@ -3,7 +3,7 @@
 
 import argparse
 import pathlib
-from PIL import Image, ImageOps
+from PIL import Image, ImageChops, ImageFilter, ImageOps
 
 
 def resize_preserving_aspect(image, size):
@@ -36,11 +36,26 @@ def main():
             mask_rgba = mask_rgba.resize(source.size, Image.Resampling.NEAREST)
         alpha = mask_rgba.getchannel("A")
         selected = alpha.point(lambda value: 255 - value)
-        # prepare_text_mask already supplies an opaque repaired core plus a
-        # controlled soft edge. Re-expanding it here used to overwrite nearby
-        # geometry and produced the straight displaced borders visible around
-        # balls/products. Respect the prepared alpha exactly once.
-        result = Image.composite(generated, source, selected)
+        # The model needs a hard editable area, but a hard compositing edge
+        # exposes a rectangular patch whenever the generated clean plate and
+        # the source have slightly different colour/noise. Feather only a
+        # narrow ring around the prepared selection; never blur the whole
+        # image and never expand the model mask here.
+        hard = selected.point(lambda value: 255 if value >= 128 else 0)
+        short_edge = min(source.size)
+        feather_px = max(2, min(12, round(short_edge * 0.006)))
+        blurred = hard.filter(ImageFilter.GaussianBlur(feather_px))
+        ring_px = max(2, feather_px * 2)
+        ring = hard.filter(ImageFilter.MaxFilter(ring_px * 2 + 1))
+        soft = ImageChops.multiply(blurred, ring)
+        # Keep the inner core fully generated while leaving a smooth gradient
+        # at the actual selection edge. Eroding by half the feather width
+        # avoids reintroducing a hard transition at the old mask boundary.
+        core_px = max(1, feather_px // 2)
+        core = hard.filter(ImageFilter.MinFilter(core_px * 2 + 1))
+        soft = ImageChops.lighter(soft, core)
+        # Pixels outside the ring remain exactly the source pixels.
+        result = Image.composite(generated, source, soft)
     else:
         result = generated
 
