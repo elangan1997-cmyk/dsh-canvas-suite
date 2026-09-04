@@ -700,6 +700,27 @@ function apply(ctx) {
           return;
         }
 
+        // 图片输出卡片在渲染前只需要确认文件是否已经落盘，不应为此下载整张图片。
+        // 模型有时会在最终文本中提到尚未生成/已删除的路径；客户端用这个轻量
+        // 状态接口过滤失效引用，避免把它们显示成“图片加载失败”。
+        if (pathname === '/dsh-canvas/image-status' && req.method === 'GET') {
+          const path = normalizeLocalPath(parseQuery(query).path || '');
+          if (!isSourceImagePath(path) || !isAbsolutePath(path)) {
+            respond(res, 400, { ...CORS, 'content-type': 'application/json', 'cache-control': 'no-store' }, JSON.stringify({ ok: false, exists: false, error: 'bad image path' }));
+            return;
+          }
+          try {
+            const info = await stat(path);
+            const kind = sourceKindOf(path);
+            const maxBytes = kind === 'image' ? MAX_IMAGE_BYTES : MAX_SOURCE_BYTES;
+            if (!info.isFile() || info.size <= 0 || info.size > maxBytes) throw new Error('invalid image file');
+            respond(res, 200, { ...CORS, 'content-type': 'application/json', 'cache-control': 'no-store' }, JSON.stringify({ ok: true, exists: true, kind, size: info.size, mtime: info.mtimeMs }));
+          } catch (err) {
+            respond(res, 404, { ...CORS, 'content-type': 'application/json', 'cache-control': 'no-store' }, JSON.stringify({ ok: false, exists: false }));
+          }
+          return;
+        }
+
         if (pathname === '/dsh-canvas/preview' && req.method === 'GET') {
           const path = expandHome(parseQuery(query).path || '');
           if (!isSourceImagePath(path)) { respond(res, 400, { ...CORS, 'content-type': 'text/plain' }, 'bad preview path'); return; }

@@ -732,6 +732,7 @@ window.__ModuleLoader__.load({
       const images = props.matched || [];
       const [preview, setPreview] = React.useState(null);
       const [failed, setFailed] = React.useState({});
+      const [hidden, setHidden] = React.useState({});
       const [resolvedSources, setResolvedSources] = React.useState({});
       const [contextRevision, setContextRevision] = React.useState(activeChatContextRevision);
       const key = images.map((i) => i.path).join('|');
@@ -745,11 +746,46 @@ window.__ModuleLoader__.load({
         // 组件本地的 Blob URL，避免不同会话复用同名 attachmentId。
         setResolvedSources({});
         setFailed({});
+        setHidden({});
         setPreview(null);
-      }, [activeChatSessionId, contextRevision]);
+      }, [key, activeChatSessionId, contextRevision]);
+      React.useEffect(() => {
+        // 只校验本地路径；会话附件和远程/data URL 由各自的加载逻辑处理。
+        // 文件刚由模型写入时可能有短暂竞态，因此最多重试 4 次，再隐藏确实
+        // 不存在的引用。这样不会把“模型提到但没有生成”的路径渲染成破图卡片。
+        let cancelled = false;
+        const localImages = images.filter((img) => img && !attachmentFromPath(img.path) && !isDirectImageSource(img.path));
+        const check = (img, attempt = 0) => {
+          if (cancelled || !img) return;
+          const resolved = resolveImagePath(img.path);
+          // 事件可能早于当前会话 cwd 到达；等 project-context 事件触发后再检查。
+          if (!resolved || !isLocalAbsolutePath(resolved)) return;
+          const url = '/dsh-canvas/image-status?path=' + encodeURIComponent(resolved);
+          fetch(url, { cache: 'no-store' }).then((response) => {
+            if (cancelled || response.ok) return;
+            if (attempt < 3) {
+              setTimeout(() => check(img, attempt + 1), 250 * (attempt + 1));
+              return;
+            }
+            setHidden((prev) => ({ ...prev, [img.path]: true }));
+          }).catch(() => {
+            if (cancelled) return;
+            if (attempt < 3) {
+              setTimeout(() => check(img, attempt + 1), 250 * (attempt + 1));
+            } else {
+              setHidden((prev) => ({ ...prev, [img.path]: true }));
+            }
+          });
+        };
+        localImages.forEach((img) => {
+          if (!hidden[img.path]) check(img);
+        });
+        return () => { cancelled = true; };
+      }, [key, activeChatSessionId, contextRevision]);
+      const visibleImages = images.filter((img) => !hidden[img.path]);
       React.useEffect(() => {
         let cancelled = false;
-        const pending = images.filter((img) => attachmentFromPath(img.path) && !resolvedSources[img.path] && !failed[img.path]);
+        const pending = visibleImages.filter((img) => attachmentFromPath(img.path) && !resolvedSources[img.path] && !failed[img.path]);
         if (!pending.length) return () => { cancelled = true; };
         Promise.all(pending.map((img) => resolveAttachmentSource(img.path)
           .then((url) => ({ path: img.path, url }))
@@ -767,9 +803,9 @@ window.__ModuleLoader__.load({
           });
         return () => { cancelled = true; };
       }, [key, activeChatSessionId, contextRevision]);
-      if (!images.length) return null;
+      if (!visibleImages.length) return null;
       const send = (path) => dispatchResolvedImage(path);
-      const rows = images.map((img) => {
+      const rows = visibleImages.map((img) => {
         const src = attachmentFromPath(img.path) ? (resolvedSources[img.path] || '') : displaySourceUrl(img.path);
         const loading = !src && !failed[img.path];
         return React.createElement('div', { key: img.path, className: 'dsh-canvas-image' },
@@ -802,13 +838,13 @@ window.__ModuleLoader__.load({
           )
         );
       });
-      const columns = images.length === 1 ? 1 : (images.length <= 4 ? 2 : 3);
+      const columns = visibleImages.length === 1 ? 1 : (visibleImages.length <= 4 ? 2 : 3);
       return React.createElement(React.Fragment, null,
         React.createElement('div', { key, className: 'dsh-canvas-tool-output' },
           React.createElement('div', { className: 'dsh-canvas-tool-bar' },
             React.createElement('span', { className: 'dsh-canvas-tool-title' }, '图片输出'),
-            React.createElement('span', { className: 'dsh-canvas-tool-count' }, images.length + ' 张'),
-            React.createElement('button', { className: 'dsh-canvas-tool-btn', onClick: () => images.forEach((img) => send(img.path)) }, '全部加入画布')
+            React.createElement('span', { className: 'dsh-canvas-tool-count' }, visibleImages.length + ' 张'),
+            React.createElement('button', { className: 'dsh-canvas-tool-btn', onClick: () => visibleImages.forEach((img) => send(img.path)) }, '全部加入画布')
           ),
           React.createElement('div', { className: 'dsh-canvas-images dsh-canvas-images-cols-' + columns }, rows)
         ),

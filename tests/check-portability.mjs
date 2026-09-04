@@ -40,6 +40,9 @@ if (!macBuild.includes('$WORKSPACE_DIR/dsh-codex/lib')) throw new Error('Mac ins
 const sync = await readFile(resolve(root, 'sync-local-plugins.sh'), 'utf8');
 if (!sync.includes('sync_codex_compat')) throw new Error('sync script lacks dsh-codex compatibility sync');
 if (!sync.includes('remove_legacy_home_explorer')) throw new Error('sync script lacks legacy file-browser cleanup');
+if (!host.includes("'/dsh-canvas/image-status'")) throw new Error('host lacks image status endpoint');
+const clientImages = await readFile(resolve(root, 'canvas-workbench/lib/client.js'), 'utf8');
+if (!clientImages.includes("'/dsh-canvas/image-status?path='")) throw new Error('client lacks stale image filtering');
 
 const codex = await readFile(resolve(root, 'dsh-codex/lib/src-C3kK80Ix.js'), 'utf8');
 for (const marker of ['maxRequestImageBytes: 20971520', 'requestImagePixelBudget: 4194304', 'requestImageMaxBytes: 1048576']) {
