@@ -361,3 +361,22 @@ When reporting a problem, include the steps, OS version, plugin version, selecte
 - 开发/本机同步：在仓库根目录执行 `./sync-local-plugins.sh`，再执行 `./sync-local-plugins.sh --check`。
 - 卸载：macOS 使用 `/Library/Application Support/DSH Canvas Suite/uninstall.sh`；Windows 使用 `windows-installer/uninstall.ps1`。
 - 仓库不提交 API Key、OAuth、聊天记录、画布项目、模型缓存或 DSH 私人配置。
+
+## 一键安装（npm / Windows 设计师推荐）
+
+不想手动跑安装器？只要电脑装有 Node.js（npm），两条命令完成插件安装：
+
+```bash
+# 1. 全局安装插件捆绑工具（含 canvas-workbench + dsh-codex 离线包）
+npm install -g github:elangan1997-cmyk/dsh-canvas-suite
+
+# 2. 装入插件（先退出 DSH，含系统托盘）
+dsh-plug
+```
+
+- **卸载插件**：`dsh-unplug`（文件备份到 `%LOCALAPPDATA%\DSH\unplugged`，可随时恢复）
+- **智能检测**：dsh-codex 已安装则自动跳过；没有则从包内离线安装（无需联网、无需 pnpm）
+- **兼容官方 DSH**：自动探测安装路径（官方默认路径在候选列表内）；对官方版本会自动修补"使用 ChatGPT 登录"按钮的弹窗缺陷（原文件备份为 `client.js.bak-loginfix`）
+- **npx 免安装**：`npx github:elangan1997-cmyk/dsh-canvas-suite plug`（临时运行，不落全局）
+
+> npm 包名：`dsh-design-canvas-workbench`（dsh设计画布工作台）。前提：已安装 DSH Desktop 本体；插件版本对应 v0.1.1-rc.2 (r5) 这一代。

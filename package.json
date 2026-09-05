@@ -1,0 +1,33 @@
+{
+  "name": "dsh-design-canvas-workbench",
+  "version": "1.0.0",
+  "description": "dsh设计画布工作台 —— DSH Desktop 的 canvas-workbench + dsh-codex 插件捆绑插拔工具（Windows）",
+  "bin": {
+    "dsh-design-canvas-workbench": "./bin/cli.js",
+    "dsh-plug": "./bin/plug.js",
+    "dsh-unplug": "./bin/unplug.js"
+  },
+  "files": [
+    "bin/",
+    "plugin-bundle/"
+  ],
+  "os": [
+    "win32"
+  ],
+  "engines": {
+    "node": ">=14"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "canvas",
+    "workbench",
+    "dsh-codex",
+    "plugin"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/elangan1997-cmyk/dsh-canvas-suite.git"
+  }
+}
