@@ -18,7 +18,9 @@ const required = [
   'mac-installer/health-check.sh',
   'windows-installer/install.ps1',
   'windows-installer/health-check.ps1',
-  'windows-installer/uninstall.ps1'
+  'windows-installer/uninstall.ps1',
+  'scripts/build-npm-package.mjs',
+  'docs/NPM-DISTRIBUTION.md'
 ];
 
 for (const relative of required) {
@@ -53,5 +55,11 @@ const installer = await readFile(resolve(root, 'windows-installer/install.ps1'),
 for (const marker of ['profiles', 'node_modules\\@local', 'desktop\\node_modules\\@local', 'cordis.patch.yml']) {
   if (!installer.includes(marker)) throw new Error(`installer missing marker: ${marker}`);
 }
+
+const npmBuilder = await readFile(resolve(root, 'scripts/build-npm-package.mjs'), 'utf8');
+for (const marker of ["const packageName = 'dsh-canvas-workbench'", "bundle: { patch: './cordis.patch.yml' }", "'lib', 'scripts', 'cordis.patch.yml', 'README.md', 'LICENSE'"]) {
+  if (!npmBuilder.includes(marker)) throw new Error(`npm package builder missing marker: ${marker}`);
+}
+if (!npmBuilder.includes("(?:auth\\.json|\\.env)")) throw new Error('npm package builder lacks credential exclusion');
 
 console.log('portability checks passed');

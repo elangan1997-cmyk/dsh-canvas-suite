@@ -36,6 +36,16 @@
 
 脚本采用临时目录和原子替换，DSH 正在启动时不会读到半份插件。DSH 本身没有稳定的更新后钩子，因此建议在 DSH 更新后重新运行一次 `--check`；已有项目数据不受影响。
 
+## npm 安装
+
+已经安装 DSH 的电脑可安装轻量 npm 版：
+
+```sh
+dsh plugin --profile web add dsh-canvas-workbench
+```
+
+npm 包不包含 DSH Desktop、本地 Python 运行时、模型文件、账号或 API Key。首次使用图片功能时，仍需在“更多 → 图像引擎设置”中配置 API，或另行安装并登录 `dsh-codex`。完整新电脑部署请使用项目 Release 中的 DMG、PKG 或 EXE。
+
 ## Windows 初级版
 
 Windows 10/11 解压分发包后运行：

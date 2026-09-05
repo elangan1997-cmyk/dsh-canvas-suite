@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.4 npm packaging
+
+- 新增 `dsh-canvas-workbench` npm 发布构建器；生成包带有 DSH `cordis.patch.yml` 自动挂载配置。
+- npm 包与现有 `@local/canvas-workbench` 本地安装身份隔离，不影响 DMG/PKG/ZIP 和本机同步流程。
+- 发布清单仅包含插件运行文件、说明和许可证，并排除凭据、日志、缓存和 Python 字节码。
+
 ## 1.5.4
 
 - 基于 `origin/main` 重新发布跨平台画布插件与 macOS 完整安装包。

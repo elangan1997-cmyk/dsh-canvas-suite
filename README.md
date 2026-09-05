@@ -52,6 +52,7 @@ DSH 画布工作台不是把网页工具搬到桌面上，而是把设计师每�
 
 - **新电脑、没有 DSH Desktop**：下载完整 Windows 安装包，安装后登录自己的账号。
 - **已经有 DSH Desktop，只想更新画布**：下载独立插件 ZIP，退出 DSH 后运行安装脚本。
+- **已经有 DSH，偏好包管理更新**：安装 `dsh-canvas-workbench` npm 包；它不包含桌面端和本地大模型环境。
 - **macOS 用户**：已有 DSH 可用 `install-canvas-plugin.sh` 更新画布；全新电脑使用 Release 中的 `macOS-Complete` DMG/PKG。
 
 
@@ -134,12 +135,23 @@ macOS 直接下载 [1.5.4 插件 ZIP](https://github.com/elangan1997-cmyk/dsh-ca
 - Windows 和 macOS 可分别发布，互不覆盖；已有 DSH 的用户直接安装对应系统插件。
 - 旧版本 Release 会保留，方便回滚和问题对比。
 
+## npm 轻量插件
+
+画布插件可生成标准 npm 包，并通过 `dsh.bundle.patch` 自动注入 DSH：
+
+```bash
+dsh plugin --profile web add dsh-canvas-workbench
+```
+
+npm 包只适合已经安装 DSH 的电脑。它不捆绑 DSH Desktop、Python 运行时、模型文件、账号或 API Key；完整新电脑部署仍应使用 DMG/PKG/EXE。构建、离线 `.tgz` 安装及发布步骤见 [npm 独立插件分发](docs/NPM-DISTRIBUTION.md)。
+
 ## 安装环境和详细说明
 
 - [Windows 完整安装说明](windows-installer/INSTALL-WINDOWS.md)
 - [Windows 独立插件说明](docs/DSH-CANVAS-WORKBENCH-WINDOWS.md)
 - [macOS 独立插件说明](docs/DSH-CANVAS-WORKBENCH-MACOS.md)
 - [发布、校验和版本策略](docs/RELEASE-DISTRIBUTION.md)
+- [npm 独立插件分发](docs/NPM-DISTRIBUTION.md)
 - [Windows 验收清单](WINDOWS-TEST-CHECKLIST.md)
 
 ## 常见问题
