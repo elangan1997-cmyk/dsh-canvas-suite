@@ -1,6 +1,6 @@
 # DSH 画布套件：交给 Agent 的安装说明
 
-> 使用方式：把本说明和 GitHub Release 中的 `DSH-Canvas-Suite-1.5.3-macOS-Complete.dmg` 一起交给本机 Agent，并告诉它：“请严格按说明完成安装、配置和验证。”
+> 使用方式：把本说明和 GitHub Release 中的 `DSH-Canvas-Suite-1.5.4-macOS-Complete.dmg` 一起交给本机 Agent，并告诉它：“请严格按说明完成安装、配置和验证。”
 
 ## 给 Agent 的任务
 
@@ -19,7 +19,7 @@
 
 用户通常会提供以下文件之一：
 
-- `DSH-Canvas-Suite-1.5.3-macOS-Complete.dmg`
+- `DSH-Canvas-Suite-1.5.4-macOS-Complete.dmg`
 - 已挂载 DMG 中的 `DSH 完整安装包.pkg`
 
 先确认文件存在，并记录绝对路径。不要假设它在“下载”目录。
@@ -28,7 +28,7 @@
 
 ```bash
 cd "/安装包所在目录"
-shasum -a 256 -c "DSH-Canvas-Suite-1.5.3-macOS-Complete.dmg.sha256"
+shasum -a 256 -c "DSH-Canvas-Suite-1.5.4-macOS-Complete.dmg.sha256"
 ```
 
 显示 `OK` 才继续。如果没有 `.sha256` 文件，可以继续安装，但必须在最终报告中注明“未提供独立校验文件”。如果校验不一致，停止安装并请用户重新取得安装包。不要为了国内网络而擅自修改用户的代理、DNS 或 hosts。
@@ -59,7 +59,7 @@ DMG 内版本为 2.0.4。现有版本高于 2.0.4 时不得覆盖。
 ## 三、挂载 DMG
 
 ```bash
-DMG_PATH="/实际路径/DSH-Canvas-Suite-1.5.3-macOS-Complete.dmg"
+DMG_PATH="/实际路径/DSH-Canvas-Suite-1.5.4-macOS-Complete.dmg"
 MOUNT_PATH="$(hdiutil attach "$DMG_PATH" -nobrowse -readonly | awk '/\/Volumes\// {sub(/^.*\/Volumes\//,"/Volumes/"); print; exit}')"
 printf 'DMG 已挂载：%s\n' "$MOUNT_PATH"
 ```
@@ -255,7 +255,7 @@ HTTP `200`、`401` 或 `403` 都说明服务已经监听；`401/403` 表示需�
 macOS 与架构：
 DSH Desktop 版本：
 DSH 官方签名：通过 / 未通过
-画布插件版本：1.5.3
+画布插件版本：1.5.4
 两层插件副本：通过 / 未通过
 活动 Profile 注入：通过 / 未通过
 自动恢复任务：已安装 / 未安装

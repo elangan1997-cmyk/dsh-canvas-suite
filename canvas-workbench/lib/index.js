@@ -661,7 +661,7 @@ function apply(ctx) {
             respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({
               ok: true,
               plugin: name,
-              version: '1.5.3',
+              version: '1.5.4',
               platform: platformCapabilities(),
               capabilities: {
                 webServer: Boolean(ctx.webServer),

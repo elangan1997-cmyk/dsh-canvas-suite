@@ -1,6 +1,6 @@
 # DSH画布工作台
 
-面向 DSH Desktop 的可插拔设计画布套件，当前版本 `1.5.3`，包括：
+面向 DSH Desktop 的可插拔设计画布套件，当前版本 `1.5.4`，包括：
 
 - `canvas-workbench`：无限画布、项目持久化、聊天图片交互和渐进增强图片工具。
 - 独立文件浏览器已移除；项目目录选择与“在文件夹中显示”由画布插件自身提供。
@@ -57,7 +57,7 @@ DSH 画布工作台不是把网页工具搬到桌面上，而是把设计师每�
 
 面向设计人员的 DSH Desktop 画布工作台，把图片生成、项目文件、无限画布、图片处理和 Photoshop/Illustrator 协作集中在一个工作区。你不需要先了解 Agent：按下面的下载说明安装后，就可以像使用普通设计工具一样开始工作。
 
-> 当前 Mac 完整版：`v1.5.3-macos-complete` ｜ [下载 DMG/PKG/插件 ZIP](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/tag/v1.5.3-macos-complete)  ｜ Windows Preview：`v1.4.0-windows-preview.3`
+> 当前 Mac 完整版：`v1.5.4-macos-complete` ｜ [下载 DMG/PKG/插件 ZIP](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/tag/v1.5.4-macos-complete)  ｜ Windows Preview：`v1.4.0-windows-preview.3`
 
 ## 画布插件能做什么
 
@@ -118,7 +118,7 @@ DSH 画布工作台不是把网页工具搬到桌面上，而是把设计师每�
 ### B. 独立画布插件：给已经有 DSH Desktop 的电脑
 这是更新画布能力的轻量包，不带完整 DSH Desktop，不能脱离 DSH 单独启动。
 
-macOS 直接下载 [1.5.3 插件 ZIP](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/tag/v1.5.3-macos-complete)，解压后运行 `bash install-canvas-plugin.sh`；全新电脑则优先使用同一 Release 的 `macOS-Complete` DMG。
+macOS 直接下载 [1.5.4 插件 ZIP](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/tag/v1.5.4-macos-complete)，解压后运行 `bash install-canvas-plugin.sh`；全新电脑则优先使用同一 Release 的 `macOS-Complete` DMG。
 
 1. 下载 `DSH-Canvas-Workbench-*.zip` 和同名 `.sha256`。
 2. 完全退出 DSH Desktop（包括系统托盘）。
@@ -203,7 +203,7 @@ DSH Canvas Workbench is a design-focused canvas plugin for DSH Desktop. It bring
 构建脚本会自动准备并校验运行时缓存。缓存约 1GB，故不进入 Git；DMG、PKG 和 SHA-256 文件作为 GitHub Release 资产发布。DSH Desktop.app 保持官方原始签名，不写入应用包内部。
 
 ## 安全
-> Current macOS complete release: `v1.5.3-macos-complete` | [Download DMG/PKG/plugin ZIP](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/tag/v1.5.3-macos-complete) | Windows preview: `v1.4.0-windows-preview.3`
+> Current macOS complete release: `v1.5.4-macos-complete` | [Download DMG/PKG/plugin ZIP](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/tag/v1.5.4-macos-complete) | Windows preview: `v1.4.0-windows-preview.3`
 
 ## What the canvas plugin does
 
@@ -341,7 +341,7 @@ dist/                   Local build outputs (no personal configuration)
 When reporting a problem, include the steps, OS version, plugin version, selected Codex/API route, and the relevant operation-log step. Do not paste API keys, OAuth tokens, or personal project files.
 
 
-`1.5.3` 是当前跨平台画布源码版本；Windows 仍是初级分发版，使用前请按验收清单验证本机 DSH、Python/Adobe 等可选能力。
+`1.5.4` 是当前跨平台画布源码版本；Windows 仍是初级分发版，使用前请按验收清单验证本机 DSH、Python/Adobe 等可选能力。
 
 ## 更新与回滚
 

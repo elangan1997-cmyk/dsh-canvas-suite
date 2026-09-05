@@ -1,6 +1,6 @@
 {
   "name": "@local/canvas-workbench",
-  "version": "1.5.3",
+  "version": "1.5.4",
   "private": true,
   "type": "module",
   "description": "可插拔设计模式：独立 Excalidraw 画布、渐进增强的会话图片工具与本地项目资产",
