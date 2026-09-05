@@ -1,10 +1,12 @@
 # ============================================================
 # DSH plugin bundle UNPLUG  (canvas-workbench + dsh-codex)
-# - Removes the canvas plugin from the DSH app (body + declaration + link)
-# - Removes dsh-codex from the web profile (module + registration)
+# - OFFICIAL DSH (dsh-desktop.exe): removes both plugins from the
+#   web profile (module + dependencies + bundles).
+# - LEGACY CUSTOM SHELL (DeepSeek Harness.exe): removes the canvas
+#   ecosystem plugin (body + declaration + link) and dsh-codex.
 # - Removed files are MOVED to %LOCALAPPDATA%\DSH\unplugged\ (reversible)
 # - Idempotent: safe to run repeatedly
-# Usage: double-click unplug-plugins.bat
+# Usage: dsh-unplug (npm) or double-click unplug-plugins.bat
 # ============================================================
 $ErrorActionPreference = 'Stop'
 $script:Failed = $false
@@ -27,8 +29,77 @@ function Find-AppRoot {
   return $null
 }
 
-if (Get-Process -Name 'DeepSeek Harness' -ErrorAction SilentlyContinue) {
+# --- 0. detect environment ---
+function Find-OfficialDsh {
+  $nodeDir = Join-Path $env:LOCALAPPDATA 'Programs\YottaMeta\Nodejs'
+  $nodeExe = Join-Path $nodeDir 'node.exe'
+  if (-not (Test-Path -LiteralPath $nodeExe)) {
+    $cmd = Get-Command node.exe -ErrorAction SilentlyContinue
+    if (-not $cmd) { return $null }
+    $nodeExe = $cmd.Source; $nodeDir = Split-Path -Parent $nodeExe
+  }
+  $binCandidates = @(
+    (Join-Path $env:USERPROFILE '.dsh\profiles\node_modules\@deepseek-ai\dsh\lib\bin.js'),
+    (Join-Path $env:LOCALAPPDATA 'YottaMeta\dsh-runtime\node_modules\@deepseek-ai\dsh\lib\bin.js')
+  )
+  foreach ($b in $binCandidates) {
+    if (Test-Path -LiteralPath $b) { return @{ Node = $nodeExe; NodeDir = $nodeDir; BinJs = $b } }
+  }
+  return $null
+}
+
+$official = Find-OfficialDsh
+if ($official) {
+  if (Get-Process -Name 'dsh-desktop' -ErrorAction SilentlyContinue) {
+    Fail 'Official DSH (dsh-desktop) is running. Exit it completely (including system tray) first.'
+  }
+}
+elseif (Get-Process -Name 'DeepSeek Harness' -ErrorAction SilentlyContinue) {
   Fail 'DSH is running. Exit it completely (including system tray) first.'
+}
+
+if ($official) {
+  # ============================================================
+  # OFFICIAL DSH FLOW - profile-only unplug (canvas + codex)
+  # ============================================================
+  Write-Output "Official DSH runtime detected: $($official.BinJs)"
+  $profDir = Join-Path $env:USERPROFILE '.dsh\profiles\web'
+  $profPkg = Join-Path $profDir 'package.json'
+  $unplugged = Join-Path $env:LOCALAPPDATA 'DSH\unplugged'
+  New-Item -ItemType Directory -Force -Path $unplugged | Out-Null
+  $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+
+  foreach ($name in @('dsh-canvas-workbench', 'dsh-codex')) {
+    $modDir = Join-Path $profDir ('node_modules\' + $name)
+    if (Test-Path -LiteralPath $modDir) {
+      $dst = Join-Path $unplugged ($name + '-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+      Move-Item -LiteralPath $modDir -Destination $dst
+      Ok "$name module moved out -> $dst"
+    } else { Skip "$name module already absent" }
+
+    if (Test-Path -LiteralPath $profPkg) {
+      $ptxt = [IO.File]::ReadAllText($profPkg)
+      $changed = $false
+      if ($ptxt -match ('"' + $name + '"\s*:')) {
+        $new = [regex]::Replace($ptxt, ('\r?\n\s*"' + $name + '"\s*:\s*"[^"]*"\s*,?'), '')
+        if ($new -ne $ptxt) { $ptxt = $new; $changed = $true }
+      }
+      if ($ptxt -match ('"bundles"\s*:\s*\[[^\]]*"' + $name + '"')) {
+        $new = [regex]::Replace($ptxt, ('\r?\n\s*"' + $name + '"\s*,'), '')
+        if ($new -eq $ptxt) {
+          $new = [regex]::Replace($ptxt, (',(\r?\n)\s*"' + $name + '"\r?\n(?=\s*\])'), '$1')
+        }
+        if ($new -ne $ptxt) { $ptxt = $new; $changed = $true }
+      }
+      if ($changed) {
+        [IO.File]::WriteAllText($profPkg, $ptxt, $utf8NoBom)
+        try {
+          Get-Content -LiteralPath $profPkg -Raw | ConvertFrom-Json | Out-Null
+          Ok "$name unregistered from web profile"
+        } catch { Fail "profile package.json became invalid JSON: $($_.Exception.Message)" }
+      } else { Skip "$name registration already absent" }
+    }
+  }
 }
 else {
   $appRoot = Find-AppRoot

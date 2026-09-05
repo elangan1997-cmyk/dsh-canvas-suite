@@ -1,10 +1,14 @@
 # ============================================================
 # DSH plugin bundle PLUG  (canvas-workbench + dsh-codex)
-# - Restores the canvas plugin into the DSH app (body + declaration + link)
-# - Installs dsh-codex into the web profile ONLY if missing
-#   (offline: pure file copy, no pnpm / no network needed)
+# - OFFICIAL DSH (dsh-desktop.exe): installs both plugins into the
+#   web profile via the official CLI (dsh plugin --profile web add).
+#   dsh-codex is auto-installed when missing (registry first,
+#   offline copy as fallback).
+# - LEGACY CUSTOM SHELL (DeepSeek Harness.exe): restores the canvas
+#   ecosystem plugin (body + declaration + link) and installs
+#   dsh-codex into the web profile ONLY if missing (offline copy).
 # - Idempotent: safe to run repeatedly
-# Usage: double-click plug-plugins.bat
+# Usage: dsh-plug (npm) or double-click plug-plugins.bat
 # ============================================================
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -29,11 +33,159 @@ function Find-AppRoot {
   return $null
 }
 
-# --- 0. DSH must not be running ---
-if (Get-Process -Name 'DeepSeek Harness' -ErrorAction SilentlyContinue) {
+# --- 0. detect environment: official runtime vs legacy custom shell ---
+function Find-OfficialDsh {
+  $nodeDir = Join-Path $env:LOCALAPPDATA 'Programs\YottaMeta\Nodejs'
+  $nodeExe = Join-Path $nodeDir 'node.exe'
+  if (-not (Test-Path -LiteralPath $nodeExe)) {
+    $cmd = Get-Command node.exe -ErrorAction SilentlyContinue
+    if (-not $cmd) { return $null }
+    $nodeExe = $cmd.Source; $nodeDir = Split-Path -Parent $nodeExe
+  }
+  $binCandidates = @(
+    (Join-Path $env:USERPROFILE '.dsh\profiles\node_modules\@deepseek-ai\dsh\lib\bin.js'),
+    (Join-Path $env:LOCALAPPDATA 'YottaMeta\dsh-runtime\node_modules\@deepseek-ai\dsh\lib\bin.js')
+  )
+  foreach ($b in $binCandidates) {
+    if (Test-Path -LiteralPath $b) { return @{ Node = $nodeExe; NodeDir = $nodeDir; BinJs = $b } }
+  }
+  return $null
+}
+
+$official = Find-OfficialDsh
+if ($official) {
+  if (Get-Process -Name 'dsh-desktop' -ErrorAction SilentlyContinue) {
+    Fail 'Official DSH (dsh-desktop) is running. Exit it completely (including system tray) first.'
+  }
+}
+elseif (Get-Process -Name 'DeepSeek Harness' -ErrorAction SilentlyContinue) {
   Fail 'DSH is running. Exit it completely (including system tray) first.'
 }
+
+if ($official) {
+  # ============================================================
+  # OFFICIAL DSH FLOW - everything goes through the official CLI
+  # ============================================================
+  Write-Output "Official DSH runtime detected: $($official.BinJs)"
+  $profDir = Join-Path $env:USERPROFILE '.dsh\profiles\web'
+  $profPkg = Join-Path $profDir 'package.json'
+  if (-not (Test-Path -LiteralPath $profPkg)) {
+    Fail 'web profile not found. Launch official DSH once (it creates the profile), then run plug again.'
+  }
+  else {
+    $env:PATH = "$($official.NodeDir);$env:PATH"
+    if (-not $env:npm_config_registry) { $env:npm_config_registry = 'https://registry.npmmirror.com' }
+    $dshNode = $official.Node
+    $dshBin  = $official.BinJs
+
+    # ---- canvas plugin ----
+    $cwInstalled = Test-Path -LiteralPath (Join-Path $profDir 'node_modules\dsh-canvas-workbench\package.json')
+    if ($cwInstalled) {
+      Skip 'canvas plugin already installed'
+    }
+    else {
+      $tgz = Get-ChildItem -LiteralPath $pkgRoot -Filter 'dsh-canvas-workbench-*.tgz' -ErrorAction SilentlyContinue |
+             Where-Object { $_.Name -notmatch 'plugin-' } | Sort-Object Name -Descending | Select-Object -First 1
+      if (-not $tgz) { Fail "bundled dsh-canvas-workbench tgz not found in $pkgRoot" }
+      else {
+        Write-Output "Installing canvas plugin via official CLI: $($tgz.Name)"
+        & $dshNode $dshBin plugin --profile web add $tgz.FullName
+        if ($LASTEXITCODE -ne 0) { Fail 'canvas plugin add failed (see output above)' }
+        elseif (-not (Test-Path -LiteralPath (Join-Path $profDir 'node_modules\dsh-canvas-workbench\package.json'))) {
+          Fail 'canvas plugin add reported success but package is missing'
+        }
+        else { Ok 'canvas plugin installed (official CLI)' }
+      }
+    }
+
+    # ---- self-heal: 1.5.4 tgz URL in lockfile breaks any later `plugin add` ----
+    # (asset content changed under the same name -> pnpm integrity mismatch)
+    if (-not $script:Failed) {
+      $staleTxt = [IO.File]::ReadAllText($profPkg)
+      if ($staleTxt -match 'dsh-canvas-workbench-1\.5\.4\.tgz') {
+        $tgz = Get-ChildItem -LiteralPath $pkgRoot -Filter 'dsh-canvas-workbench-*.tgz' -ErrorAction SilentlyContinue |
+               Where-Object { $_.Name -notmatch 'plugin-' } | Sort-Object Name -Descending | Select-Object -First 1
+        if ($tgz) {
+          Write-Output 'Stale 1.5.4 URL dependency detected - refreshing canvas via bundled tgz...'
+          & $dshNode $dshBin plugin --profile web add $tgz.FullName
+          if (($LASTEXITCODE -eq 0) -and (-not ([IO.File]::ReadAllText($profPkg) -match 'dsh-canvas-workbench-1\.5\.4\.tgz'))) {
+            Ok 'canvas dependency refreshed (lockfile integrity fixed)'
+          } else { Write-Output '[WARN] could not refresh stale canvas dependency automatically' }
+        }
+      }
+    }
+
+    # ---- dsh-codex (auto-install when missing) ----
+    if (-not $script:Failed) {
+      $cxInstalled = Test-Path -LiteralPath (Join-Path $profDir 'node_modules\dsh-codex\package.json')
+      $ptxt = [IO.File]::ReadAllText($profPkg)
+      $needDeps    = $ptxt -notmatch '"dsh-codex"\s*:'
+      $needBundles = $ptxt -notmatch '"bundles"\s*:\s*\[[^\]]*"dsh-codex"'
+      if ($cxInstalled -and -not $needDeps -and -not $needBundles) {
+        Skip 'dsh-codex already installed'
+      }
+      else {
+        $addOk = $false
+        if (-not $cxInstalled) {
+          Write-Output 'Installing dsh-codex via official CLI (npmmirror registry)...'
+          & $dshNode $dshBin plugin --profile web add 'dsh-codex'
+          if (($LASTEXITCODE -eq 0) -and (Test-Path -LiteralPath (Join-Path $profDir 'node_modules\dsh-codex\package.json'))) {
+            $addOk = $true; Ok 'dsh-codex installed (official CLI)'
+          }
+          else { Write-Output '[WARN] registry install failed - falling back to offline copy' }
+        }
+        if (-not $addOk) {
+          # offline fallback: pure tar copy (dsh-codex has zero runtime deps), then register
+          $codexTgz = Get-ChildItem -LiteralPath $pkgRoot -Filter 'dsh-codex-*.tgz' -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $codexTgz) { Fail "dsh-codex tgz not found in $pkgRoot (offline fallback unavailable)" }
+          else {
+            $tar = Join-Path $env:WinDir 'System32\tar.exe'
+            if (-not (Test-Path -LiteralPath $tar)) { Fail 'Windows tar.exe not found' }
+            else {
+              $tmp2 = Join-Path $env:TEMP 'dsh-plug-tmp2'
+              if (Test-Path -LiteralPath $tmp2) { Remove-Item -LiteralPath $tmp2 -Recurse -Force }
+              New-Item -ItemType Directory -Force -Path $tmp2 | Out-Null
+              & $tar -xzf $codexTgz.FullName -C $tmp2
+              if ($LASTEXITCODE -ne 0) { Fail 'dsh-codex tgz extraction failed' }
+              else {
+                $cxTarget = Join-Path $profDir 'node_modules\dsh-codex'
+                if (Test-Path -LiteralPath $cxTarget) { Remove-Item -LiteralPath $cxTarget -Recurse -Force }
+                Move-Item -LiteralPath (Join-Path $tmp2 'package') -Destination $cxTarget
+                Remove-Item -LiteralPath $tmp2 -Recurse -Force -ErrorAction SilentlyContinue
+                Ok "dsh-codex installed (offline copy) -> $cxTarget"
+              }
+            }
+          }
+        }
+        if ((-not $script:Failed) -and ((Test-Path -LiteralPath (Join-Path $profDir 'node_modules\dsh-codex\package.json')))) {
+          # ensure registration (independent of install method)
+          $ptxt = [IO.File]::ReadAllText($profPkg)
+          $dirty = $false
+          if ($ptxt -notmatch '"dsh-codex"\s*:') {
+            $new = [regex]::Replace($ptxt, '("dependencies"\s*:\s*\{)\s*(\})', ('$1' + "`r`n" + '    "dsh-codex": "^0.2.6"' + "`r`n" + '  $2'))
+            if ($new -eq $ptxt) { $new = [regex]::Replace($ptxt, '("dependencies"\s*:\s*\{)', ('$1' + "`r`n" + '    "dsh-codex": "^0.2.6",')) }
+            if ($new -ne $ptxt) { $ptxt = $new; $dirty = $true }
+          }
+          if ($ptxt -notmatch '"bundles"\s*:\s*\[[^\]]*"dsh-codex"') {
+            $new = [regex]::Replace($ptxt, '("bundles"\s*:\s*\[)', ('$1' + "`r`n" + '        "dsh-codex",'))
+            if ($new -ne $ptxt) { $ptxt = $new; $dirty = $true }
+          }
+          if ($dirty) {
+            [IO.File]::WriteAllText($profPkg, $ptxt, (New-Object System.Text.UTF8Encoding($false)))
+            try {
+              Get-Content -LiteralPath $profPkg -Raw | ConvertFrom-Json | Out-Null
+              Ok 'dsh-codex registered in web profile (dependencies + bundles)'
+            } catch { Fail "profile package.json became invalid JSON: $($_.Exception.Message)" }
+          } else { Skip 'dsh-codex registration already present' }
+        }
+      }
+    }
+  }
+}
 else {
+  # ============================================================
+  # LEGACY CUSTOM SHELL FLOW (DeepSeek Harness.exe)
+  # ============================================================
   # --- 1. locate DSH app root ---
   $appRoot = Find-AppRoot
   if (-not $appRoot) { Fail 'DSH installation not found (no DeepSeek Harness.exe). Install DSH first.' }
