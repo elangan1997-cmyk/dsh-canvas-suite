@@ -5,7 +5,7 @@
  * React。所有数据走同源 HTTP（/dsh-canvas/image、/dsh-canvas/state）。
  */
 window.__ModuleLoader__.load({
-  id: '@local/canvas-workbench',
+  id: 'dsh-canvas-workbench',
   factory: (require) => {
     var module = { exports: {} };
     var exports = module.exports;
