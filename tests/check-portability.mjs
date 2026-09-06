@@ -35,6 +35,11 @@ if (!host.includes('platformCapabilities()')) throw new Error('health endpoint l
 
 const client = await readFile(resolve(root, 'canvas-workbench/lib/client.js'), 'utf8');
 if (!client.includes('[A-Za-z]:[\\\\/]')) throw new Error('client lacks Windows drive path support');
+if (!client.includes('pendingRenames.current.has')) throw new Error('client lacks rename-race protection');
+if (!client.includes('displayImageName')) throw new Error('client lacks extension-free canvas labels');
+if (!client.includes('pathWithin2')) throw new Error('client lacks cross-platform project path matching');
+if (!host.includes('isPathWithin(projectDir, linkedSource)')) throw new Error('host lacks cross-platform rename path matching');
+if (!host.includes('if (!sourceInsideProject)')) throw new Error('host lacks single-rename collision guard');
 
 const macBuild = await readFile(resolve(root, 'mac-installer/build-macos-installer.sh'), 'utf8');
 if (macBuild.includes('dsh-codex-dsh2')) throw new Error('Mac installer still references a private checkout path');

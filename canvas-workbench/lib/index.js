@@ -95,6 +95,21 @@ function normalizeLocalPath(value) {
   }
   return expandHome(path);
 }
+function pathComparable(value) {
+  const path = String(value || '').replace(/\\/g, '/').replace(/\/+/g, '/');
+  return path.length > 1 ? path.replace(/\/+$/, '') : path;
+}
+function isPathWithin(parent, child) {
+  const base = pathComparable(parent);
+  const target = pathComparable(child);
+  if (!base || !target) return false;
+  // Windows volumes are case-insensitive even when the host code is running
+  // through a compatibility layer; POSIX paths keep their normal case rules.
+  const insensitive = /^[A-Za-z]:\//.test(base) || /^[A-Za-z]:\//.test(target);
+  const left = insensitive ? base.toLowerCase() : base;
+  const right = insensitive ? target.toLowerCase() : target;
+  return right === left || right.startsWith(left + '/');
+}
 function parseQuery(qs) {
   const out = {};
   if (!qs) return out;
@@ -1502,7 +1517,7 @@ function apply(ctx) {
             await mkdir(assetsDir, { recursive: true });
             const oldName = safeImageName(body.oldName || '', body.ext || 'png');
             const linkedSource = expandHome(String(body.sourcePath || ''));
-            const sourceInsideProject = linkedSource && (linkedSource === projectDir || linkedSource.startsWith(projectDir + '/')) && isSourceImagePath(linkedSource);
+            const sourceInsideProject = linkedSource && isPathWithin(projectDir, linkedSource) && isSourceImagePath(linkedSource);
             const oldExt = sourceInsideProject ? extOf(linkedSource) : (extname(oldName).replace(/^\./, '') || 'png');
             const requested = String(body.newName || '').replace(/\.[a-zA-Z0-9]+$/, '');
             const newName = safeImageName(requested, oldExt);
@@ -1516,13 +1531,18 @@ function apply(ctx) {
                 renamedSource = targetSource;
               }
             }
-            const entries = await readdir(assetsDir, { withFileTypes: true });
-            const safeId = String(body.fileId || '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120);
-            const source = entries.find((entry) => entry.isFile() && entry.name === oldName)
-              || entries.find((entry) => entry.isFile() && safeId && entry.name.startsWith(safeId + '.'));
-            const collision = entries.find((entry) => entry.isFile() && entry.name === newName && (!source || entry.name !== source.name));
-            if (collision) throw new Error('项目图片目录中已存在同名文件');
-            if (source && source.name !== newName && oldExt !== 'psd') await rename(join(assetsDir, source.name), join(assetsDir, newName));
+            // 有明确的项目源路径时，上面已经完成了唯一一次磁盘重命名。
+            // 不能再按旧文件名扫描 assets：扫描会看到刚改好的 newName，
+            // 把它误判成同名冲突，表现为 PNG 重命名失败、画布与文件夹不同步。
+            if (!sourceInsideProject) {
+              const entries = await readdir(assetsDir, { withFileTypes: true });
+              const safeId = String(body.fileId || '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120);
+              const source = entries.find((entry) => entry.isFile() && entry.name === oldName)
+                || entries.find((entry) => entry.isFile() && safeId && entry.name.startsWith(safeId + '.'));
+              const collision = entries.find((entry) => entry.isFile() && entry.name === newName && (!source || entry.name !== source.name));
+              if (collision) throw new Error('项目图片目录中已存在同名文件');
+              if (source && source.name !== newName) await rename(join(assetsDir, source.name), join(assetsDir, newName));
+            }
             respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true, name: newName, path: join(assetsDir, newName), sourcePath: renamedSource }));
           } catch (err) {
             respond(res, 500, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: String((err && err.message) || err) }));

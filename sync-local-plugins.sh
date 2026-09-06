@@ -160,9 +160,23 @@ ensure_patch_entry() {
 
   temp="$patch.tmp.$$"
   if grep -qE '^[[:space:]]*\[\][[:space:]]*$' "$patch"; then
-    awk -v entry="$(patch_entry "$package_id" "$package_name")" \
-      '/^[[:space:]]*\[\][[:space:]]*$/ { print entry; next } { print }' \
-      "$patch" > "$temp"
+    # macOS 自带 awk 不接受包含换行的 -v 字符串。先把多行注入项写入
+    # 临时文件，再由 awk 读取，避免同步脚本在首次安装时中断。
+    local entry_file
+    entry_file="$patch.entry.$$"
+    patch_entry "$package_id" "$package_name" > "$entry_file"
+    awk -v entry_file="$entry_file" '
+      BEGIN {
+        entry = ""
+        while ((getline line < entry_file) > 0) {
+          entry = entry (entry == "" ? "" : ORS) line
+        }
+        close(entry_file)
+      }
+      /^[[:space:]]*\[\][[:space:]]*$/ { print entry; next }
+      { print }
+    ' "$patch" > "$temp"
+    rm -f "$entry_file"
   else
     {
       cat "$patch"
