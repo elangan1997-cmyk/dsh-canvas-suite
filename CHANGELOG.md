@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.5
+
+- 修复 PNG/SVG 改名时磁盘二次扫描造成的“同名文件”误报和画布源文件消失。
+- 改名期间暂缓项目轮询删除，改名完成后同步更新画布中的源路径与项目快照。
+- 画布文件标签隐藏扩展名，并随缩放同步字号、尺寸和标签宽度；补齐 Windows 路径匹配。
+- 修复首次同步脚本在 macOS 自带 awk 下无法注入 profile 的问题。
+
 ## 1.5.4 npm packaging
 
 - 新增 `dsh-canvas-workbench` npm 发布构建器；生成包带有 DSH `cordis.patch.yml` 自动挂载配置。
