@@ -426,7 +426,7 @@ function apply(ctx) {
           await walk(full, depth + 1);
         } else if (entry.isFile() && isSourceImagePath(entry.name)) {
           const info = await stat(full);
-          found.push({ path: full, name: entry.name, mtime: info.mtimeMs, size: info.size, kind: sourceKindOf(entry.name), managed: full.startsWith(assetsRoot + '/'), url: previewUrl(full, info.mtimeMs) });
+          found.push({ path: full, name: entry.name, mtime: info.mtimeMs, size: info.size, kind: sourceKindOf(entry.name), managed: isPathWithin(assetsRoot, full), url: previewUrl(full, info.mtimeMs) });
         }
       }
     };
@@ -676,7 +676,7 @@ function apply(ctx) {
             respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({
               ok: true,
               plugin: name,
-              version: '1.5.5',
+              version: '1.5.6',
               platform: platformCapabilities(),
               capabilities: {
                 webServer: Boolean(ctx.webServer),
@@ -1517,6 +1517,9 @@ function apply(ctx) {
             await mkdir(assetsDir, { recursive: true });
             const oldName = safeImageName(body.oldName || '', body.ext || 'png');
             const linkedSource = expandHome(String(body.sourcePath || ''));
+            const nameEquals = (left, right) => isWindows
+              ? String(left || '').toLowerCase() === String(right || '').toLowerCase()
+              : String(left || '') === String(right || '');
             const sourceInsideProject = linkedSource && isPathWithin(projectDir, linkedSource) && isSourceImagePath(linkedSource);
             const oldExt = sourceInsideProject ? extOf(linkedSource) : (extname(oldName).replace(/^\./, '') || 'png');
             const requested = String(body.newName || '').replace(/\.[a-zA-Z0-9]+$/, '');
@@ -1525,7 +1528,7 @@ function apply(ctx) {
             if (sourceInsideProject) {
               await stat(linkedSource);
               const targetSource = join(dirname(linkedSource), newName);
-              if (targetSource !== linkedSource) {
+              if (pathComparable(targetSource) !== pathComparable(linkedSource)) {
                 try { await access(targetSource); throw new Error('源文件所在目录中已存在同名文件'); } catch (err) { if (err && err.message === '源文件所在目录中已存在同名文件') throw err; }
                 await rename(linkedSource, targetSource);
                 renamedSource = targetSource;
@@ -1537,13 +1540,22 @@ function apply(ctx) {
             if (!sourceInsideProject) {
               const entries = await readdir(assetsDir, { withFileTypes: true });
               const safeId = String(body.fileId || '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120);
-              const source = entries.find((entry) => entry.isFile() && entry.name === oldName)
+              const source = entries.find((entry) => entry.isFile() && nameEquals(entry.name, oldName))
                 || entries.find((entry) => entry.isFile() && safeId && entry.name.startsWith(safeId + '.'));
-              const collision = entries.find((entry) => entry.isFile() && entry.name === newName && (!source || entry.name !== source.name));
+              const collision = entries.find((entry) => entry.isFile() && nameEquals(entry.name, newName) && (!source || !nameEquals(entry.name, source.name)));
               if (collision) throw new Error('项目图片目录中已存在同名文件');
-              if (source && source.name !== newName) await rename(join(assetsDir, source.name), join(assetsDir, newName));
+              if (source) {
+                const sourcePath = join(assetsDir, source.name);
+                const targetPath = join(assetsDir, newName);
+                if (source.name !== newName) await rename(sourcePath, targetPath);
+                // 旧快照可能只有文件名/fileId，没有 dshSourcePath；重命名后
+                // 必须把实际 assets 路径回传给画布，否则下一轮同步会再次物化，
+                // 生成重复 PNG 并让画布与文件夹脱节。
+                renamedSource = targetPath;
+              }
             }
-            respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true, name: newName, path: join(assetsDir, newName), sourcePath: renamedSource }));
+            const resultPath = renamedSource || join(assetsDir, newName);
+            respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true, name: newName, path: resultPath, sourcePath: resultPath }));
           } catch (err) {
             respond(res, 500, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: String((err && err.message) || err) }));
           }

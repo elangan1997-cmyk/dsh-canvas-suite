@@ -1,6 +1,6 @@
 # DSH画布工作台
 
-面向 DSH Desktop 的可插拔设计画布套件，当前版本 `1.5.5`，包括：
+面向 DSH Desktop 的可插拔设计画布套件，当前版本 `1.5.6`，包括：
 
 - `canvas-workbench`：无限画布、项目持久化、聊天图片交互和渐进增强图片工具。
 - 独立文件浏览器已移除；项目目录选择与“在文件夹中显示”由画布插件自身提供。
@@ -142,7 +142,7 @@ macOS 直接下载 [1.5.4 插件 ZIP](https://github.com/elangan1997-cmyk/dsh-ca
 官方 DSH（dsh-desktop）直接用官方命令安装 tgz：
 
 ```bash
-dsh plugin --profile web add https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/download/v1.5.5/dsh-canvas-workbench-1.5.5.tgz
+dsh plugin --profile web add https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/download/v1.5.6/dsh-canvas-workbench-1.5.6.tgz
 ```
 
 图像生成引擎需要配套的 dsh-codex 插件（没有会显示"Codex 未连接"）：
@@ -160,7 +160,7 @@ dsh-plug
 
 npm 包只适合已经安装 DSH 的电脑。它不捆绑 DSH Desktop、Python 运行时、模型文件、账号或 API Key；完整新电脑部署仍应使用 DMG/PKG/EXE。构建、离线 `.tgz` 安装及发布步骤见 [npm 独立插件分发](docs/NPM-DISTRIBUTION.md)。
 
-> 注意：从 1.5.4 旧包升级的用户请重装 1.5.5，以刷新 pnpm 锁文件中的完整性记录（否则后续 `dsh plugin add` 会报 ERR_PNPM_TARBALL_INTEGRITY）。
+> 注意：从 1.5.4/1.5.5 旧包升级的用户请重装 1.5.6，以刷新 pnpm 锁文件中的完整性记录（否则后续 `dsh plugin add` 会报 ERR_PNPM_TARBALL_INTEGRITY）。
 
 ## 安装环境和详细说明
 
@@ -370,7 +370,7 @@ dist/                   Local build outputs (no personal configuration)
 When reporting a problem, include the steps, OS version, plugin version, selected Codex/API route, and the relevant operation-log step. Do not paste API keys, OAuth tokens, or personal project files.
 
 
-`1.5.5` 是当前跨平台画布源码版本；Windows 仍是初级分发版，使用前请按验收清单验证本机 DSH、Python/Adobe 等可选能力。
+`1.5.6` 是当前跨平台画布源码版本；Windows 仍是初级分发版，使用前请按验收清单验证本机 DSH、Python/Adobe 等可选能力。
 
 ## 更新与回滚
 

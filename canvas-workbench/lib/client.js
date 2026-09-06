@@ -2365,9 +2365,23 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
             .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
             .then((result) => {
               if (!result.ok || !result.data || !result.data.ok) throw new Error(result.data && result.data.error || '重命名失败');
-              pendingRenames.current.delete(d.id);
+              const resultPath = result.data.sourcePath || result.data.path || d.sourcePath || '';
+              // 先修补父页面缓存，再通知 iframe 更新 Excalidraw。这样
+              // saveNow() 即使早于 iframe 的 changed 事件执行，也不会把旧源
+              // 路径写回 canvas.json。
+              if (latestSnapshot.current && Array.isArray(latestSnapshot.current.elements)) {
+                latestSnapshot.current = {
+                  ...latestSnapshot.current,
+                  elements: latestSnapshot.current.elements.map((item) => item && item.id === d.id
+                    ? { ...item, customData: { ...(item.customData || {}), dshFileName: result.data.name || d.newName, dshSourcePath: resultPath } }
+                    : item)
+                };
+              }
+              // 保留短暂保护窗口，覆盖“磁盘已改名、iframe 尚未收到
+              // rename-result、项目轮询先返回”的最后一个竞态。
+              pendingRenames.current.set(d.id, { oldPath: d.sourcePath || '', requestedName: d.newName || '', expiresAt: Date.now() + 5000 });
               setFeedback('✓ 图片已重命名：' + result.data.name);
-              post({ type: 'rename-result', id: d.id, name: result.data.name, sourcePath: result.data.sourcePath || d.sourcePath || '' });
+              post({ type: 'rename-result', id: d.id, name: result.data.name, sourcePath: resultPath });
               saveNow();
             })
             .catch((err) => { pendingRenames.current.delete(d.id); setFeedback('⚠ 图片重命名失败：' + String((err && err.message) || err)); });
@@ -2828,7 +2842,9 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
                 const source = element.customData || {};
                 const disk = filesByPath.get(source.dshSourcePath);
                 if (!disk) {
-                  if (pendingRenames.current.has(element.id)) continue;
+                  const pendingRename = pendingRenames.current.get(element.id);
+                  if (pendingRename && (!pendingRename.expiresAt || pendingRename.expiresAt > Date.now())) continue;
+                  if (pendingRename) pendingRenames.current.delete(element.id);
                   finderRemovingIds.current.add(element.id);
                   missingIds.push(element.id);
                   continue;
