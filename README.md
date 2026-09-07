@@ -50,7 +50,7 @@ DSH 画布工作台不是把网页工具搬到桌面上，而是把设计师每�
 
 ## 快速选择下载包
 
-- **新电脑、没有 DSH Desktop**：下载完整 Windows 安装包，安装后登录自己的账号。
+- **macOS 新电脑、没有 DSH Desktop**：下载已验证的 1.5.9 完整 DMG/PKG，安装后登录自己的账号。
 - **已经有 DSH Desktop，只想更新画布**：下载独立插件 ZIP，退出 DSH 后运行安装脚本。
 - **已经有 DSH，偏好包管理更新**：安装 `dsh-canvas-workbench` npm 包；它不包含桌面端和本地大模型环境。
 - **macOS 用户**：已有 DSH 可用 `install-canvas-plugin.sh` 更新画布；全新电脑使用 Release 中的 `macOS-Complete` DMG/PKG。
@@ -58,7 +58,7 @@ DSH 画布工作台不是把网页工具搬到桌面上，而是把设计师每�
 
 面向设计人员的 DSH Desktop 画布工作台，把图片生成、项目文件、无限画布、图片处理和 Photoshop/Illustrator 协作集中在一个工作区。你不需要先了解 Agent：按下面的下载说明安装后，就可以像使用普通设计工具一样开始工作。
 
-> 当前 Mac 完整版：`v1.5.4-macos-complete` ｜ [下载 DMG/PKG/插件 ZIP](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/tag/v1.5.4-macos-complete)  ｜ Windows Preview：`v1.4.0-windows-preview.3`
+> 当前唯一发布版：[`v1.5.9` macOS 整机重装验证版](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/tag/v1.5.9)。Windows 仅保留源码与验收清单，暂无经过同等实机验证的发布包。
 
 ## 画布插件能做什么
 
@@ -99,27 +99,14 @@ DSH 画布工作台不是把网页工具搬到桌面上，而是把设计师每�
 
 ## 应该下载哪个？
 
-### A. 完整安装包：给没有 DSH Desktop 的电脑
-适合设计同事和新电脑。Windows x64 单文件安装包包含 DSH Desktop、画布插件和本地运行时；独立文件浏览器已移除。
+### A. 完整安装包：给没有 DSH Desktop 的 macOS 电脑
 
-1. 打开 [Windows Release](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/tag/v1.4.0-windows-preview.3)。
-2. 下载 `DSH-Setup-x64-*.exe` 和同名 `.sha256`。
-3. 双击 EXE，按安装提示等待完成。
-4. 启动 DSH Desktop，登录自己的账号，或在画布“更多 → 图像引擎设置”填写自己的 API。
-
-当前推荐直接下载：
-
-- [Windows 完整安装包 r5（635,694,537 字节，约 606 MiB）](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/download/v1.4.0-windows-preview.3/DSH-Setup-x64-v0.1.1-rc.2-installer-r5.exe)
-- [r5 SHA-256 校验文件](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/download/v1.4.0-windows-preview.3/DSH-Setup-x64-v0.1.1-rc.2-installer-r5.exe.sha256)
-
-本地构建输出在仓库根目录的 `dist/`；该目录被 Git 忽略，不会进入源码提交。
-
-环境要求：Windows 10/11 64 位；不要求预装 Node.js、Python、Git 或管理员权限。Photoshop/Illustrator 是可选外部软件。
+从 [`v1.5.9` Release](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/tag/v1.5.9) 下载 `DSH-Canvas-Suite-1.5.9-macOS-Complete.dmg` 或 `.pkg` 及对应 SHA-256。该版本已完成应用彻底卸载、图形安装器重装、用户数据恢复和 DSH 真实 UI 验收。Windows 发布包已下架，等待在 Windows 实机上完成同等验证后再发布。
 
 ### B. 独立画布插件：给已经有 DSH Desktop 的电脑
 这是更新画布能力的轻量包，不带完整 DSH Desktop，不能脱离 DSH 单独启动。
 
-macOS 直接下载 [1.5.4 插件 ZIP](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/tag/v1.5.4-macos-complete)，解压后运行 `bash install-canvas-plugin.sh`；全新电脑则优先使用同一 Release 的 `macOS-Complete` DMG。
+macOS 直接下载 [`dsh-canvas-workbench-1.5.9.tgz`](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/download/v1.5.9/dsh-canvas-workbench-1.5.9.tgz)；全新电脑则优先使用同一 Release 的 `macOS-Complete` DMG/PKG。
 
 1. 下载 `DSH-Canvas-Workbench-*.zip` 和同名 `.sha256`。
 2. 完全退出 DSH Desktop（包括系统托盘）。
@@ -133,7 +120,7 @@ macOS 直接下载 [1.5.4 插件 ZIP](https://github.com/elangan1997-cmyk/dsh-ca
 - 画布功能、预览、擦除、文字重建等迭代：只发布新的独立插件 ZIP，体积小、更新快。
 - DSH Desktop、内置运行时或安装器发生变化：才重新构建完整 EXE。
 - Windows 和 macOS 可分别发布，互不覆盖；已有 DSH 的用户直接安装对应系统插件。
-- 旧版本 Release 会保留，方便回滚和问题对比。
+- GitHub 仅保留通过完整验收的当前 Release；回滚证据保留在本地验证备份中。
 
 ## npm 轻量插件
 
@@ -142,7 +129,7 @@ macOS 直接下载 [1.5.4 插件 ZIP](https://github.com/elangan1997-cmyk/dsh-ca
 官方 DSH（dsh-desktop）直接用官方命令安装 tgz：
 
 ```bash
-dsh plugin --profile web add https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/download/v1.5.6/dsh-canvas-workbench-1.5.6.tgz
+dsh plugin --profile web add https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/download/v1.5.9/dsh-canvas-workbench-1.5.9.tgz
 ```
 
 图像生成引擎需要配套的 dsh-codex 插件（没有会显示"Codex 未连接"）：
@@ -151,16 +138,7 @@ dsh plugin --profile web add https://github.com/elangan1997-cmyk/dsh-canvas-suit
 dsh plugin --profile web add dsh-codex
 ```
 
-或者用本仓库的 npm 一键安装器（自动检测官方/自定义 DSH，画布缺失自动装、dsh-codex 缺失自动补装）：
-
-```bash
-npm install -g github:elangan1997-cmyk/dsh-canvas-suite
-dsh-plug
-```
-
 npm 包只适合已经安装 DSH 的电脑。它不捆绑 DSH Desktop、Python 运行时、模型文件、账号或 API Key；完整新电脑部署仍应使用 DMG/PKG/EXE。构建、离线 `.tgz` 安装及发布步骤见 [npm 独立插件分发](docs/NPM-DISTRIBUTION.md)。
-
-> 注意：从 1.5.4/1.5.5 旧包升级的用户请重装 1.5.6，以刷新 pnpm 锁文件中的完整性记录（否则后续 `dsh plugin add` 会报 ERR_PNPM_TARBALL_INTEGRITY）。
 
 ## 安装环境和详细说明
 
@@ -232,7 +210,7 @@ DSH Canvas Workbench is a design-focused canvas plugin for DSH Desktop. It bring
 构建脚本会自动准备并校验运行时缓存。缓存约 1GB，故不进入 Git；DMG、PKG 和 SHA-256 文件作为 GitHub Release 资产发布。DSH Desktop.app 保持官方原始签名，不写入应用包内部。
 
 ## 安全
-> Current macOS complete release: `v1.5.4-macos-complete` | [Download DMG/PKG/plugin ZIP](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/tag/v1.5.4-macos-complete) | Windows preview: `v1.4.0-windows-preview.3`
+> Current and only published release: [`v1.5.9`, fully reinstall-tested on macOS](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/tag/v1.5.9). Windows sources and test checklists remain in the repository, but no Windows binary is currently published as verified.
 
 ## What the canvas plugin does
 
@@ -273,22 +251,9 @@ More → Operation Log records project loading, file refresh, disk writes, model
 
 ## Choose the right download
 
-### Full installer — for computers without DSH Desktop
-Use the Windows x64 single-file installer for a new computer or a design teammate who does not already have DSH Desktop. It includes DSH Desktop, the canvas plugin, and the required local runtime; the removed standalone file-browser plugin is not included.
+### Full installer — for a new macOS computer
 
-1. Open the [Windows Release](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/tag/v1.4.0-windows-preview.3).
-2. Download `DSH-Setup-x64-*.exe` and its matching `.sha256` file.
-3. Double-click the EXE and wait for the installation to finish.
-4. Start DSH Desktop, sign in with your own account, or configure your own API under More → Image Engine Settings.
-
-Recommended direct download:
-
-- [Windows full installer r5 (635,694,537 bytes, about 606 MiB)](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/download/v1.4.0-windows-preview.3/DSH-Setup-x64-v0.1.1-rc.2-installer-r5.exe)
-- [r5 SHA-256 checksum](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/download/v1.4.0-windows-preview.3/DSH-Setup-x64-v0.1.1-rc.2-installer-r5.exe.sha256)
-
-Local build outputs are written to the repository `dist/` directory, which is ignored by Git.
-
-Requirements: Windows 10 or Windows 11, 64-bit. Node.js, Python, Git, and administrator rights are not required. Photoshop and Illustrator are optional.
+Download the DMG or PKG and matching checksum from the [`v1.5.9` Release](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/tag/v1.5.9). This build passed a real removal of the existing application, visible Installer.app installation, user-data restoration, bundled-runtime checks, and DSH desktop UI acceptance. The old Windows previews were removed until equivalent Windows hardware validation is completed.
 
 ### Standalone canvas plugin — for computers that already have DSH Desktop
 This is the lightweight canvas update package. It does not include DSH Desktop and cannot run by itself.
@@ -321,7 +286,7 @@ The installer updates only the `@local/canvas-workbench` runtime copies and back
 
 - Canvas feature iterations: publish a new standalone plugin ZIP only. This is the fast update path.
 - DSH Desktop, bundled runtime, or installer changes: rebuild and publish a new full EXE.
-- Windows and macOS can be released independently. Existing releases remain available for rollback and comparison.
+- Windows and macOS can be released independently. Only fully accepted releases remain downloadable from GitHub.
 
 ## API, proxy, and image-engine notes
 
@@ -379,21 +344,6 @@ When reporting a problem, include the steps, OS version, plugin version, selecte
 - 卸载：macOS 使用 `/Library/Application Support/DSH Canvas Suite/uninstall.sh`；Windows 使用 `windows-installer/uninstall.ps1`。
 - 仓库不提交 API Key、OAuth、聊天记录、画布项目、模型缓存或 DSH 私人配置。
 
-## 一键安装（npm / Windows 设计师推荐）
+## npm 独立插件
 
-不想手动跑安装器？只要电脑装有 Node.js（npm），两条命令完成插件安装：
-
-```bash
-# 1. 全局安装插件捆绑工具（含 canvas-workbench + dsh-codex 离线包）
-npm install -g github:elangan1997-cmyk/dsh-canvas-suite
-
-# 2. 装入插件（先退出 DSH，含系统托盘）
-dsh-plug
-```
-
-- **卸载插件**：`dsh-unplug`（文件备份到 `%LOCALAPPDATA%\DSH\unplugged`，可随时恢复）
-- **智能检测**：dsh-codex 已安装则自动跳过；没有则从包内离线安装（无需联网、无需 pnpm）
-- **兼容官方 DSH**：自动探测安装路径（官方默认路径在候选列表内）；对官方版本会自动修补"使用 ChatGPT 登录"按钮的弹窗缺陷（原文件备份为 `client.js.bak-loginfix`）
-- **npx 免安装**：`npx github:elangan1997-cmyk/dsh-canvas-suite plug`（临时运行，不落全局）
-
-> npm 包名：`dsh-design-canvas-workbench`（dsh设计画布工作台）。前提：已安装 DSH Desktop 本体；插件版本对应 v0.1.1-rc.2 (r5) 这一代。
+已安装 DSH Desktop 的电脑可使用 Release 中经验证的 `dsh-canvas-workbench-1.5.9.tgz`。该轻量包仅包含画布插件，不会冒充完整 DSH 或捆绑未验证的 Windows 运行时。
