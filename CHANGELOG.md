@@ -6,6 +6,12 @@
 - Keep the verified full Windows ZIP and standalone canvas ZIP with their published SHA-256 values.
 - Only Windows packages older than the r5 baseline are candidates for removal.
 
+## 1.6.1
+
+- **关键修复**：画布文件表丢失向量根治——onChange/hydrate 完成路径的 serialize 改用 api.getFiles()（Excalidraw 0.17 onChange 不传第三参数，原实现恒得空文件表）；父层合并增加"防清空守卫"：存活图片元素引用的 fileId 缺失时自动从已有文件表补齐，文件表只允许因元素删除而收缩。
+- 图片还原失败不再静默，会经画布错误通道上报具体原因。
+- 离线复现台（Chrome+CDP 协议回放）验证：切换/水合/增量全链路文件表稳定。
+
 ## 1.6.0
 
 - **性能**：Excalidraw onChange 600ms 尾沿防抖 + changed 快照 files 增量协议（usedFileIds + 变化文件），大画布（25 图 / 54MB 场景）交互传输量从每帧全量降至约 0.1MB。
