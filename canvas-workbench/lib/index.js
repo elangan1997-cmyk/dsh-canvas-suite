@@ -1307,7 +1307,7 @@ function apply(ctx) {
                 let stripped = false;
                 for (const [id, f] of Object.entries(snapshotOut.files)) {
                   const p = pathByFileId[id];
-                  if (f && typeof f.dataURL === 'string' && f.dataURL.startsWith('data:') && p) {
+                  if (f && typeof f.dataURL === 'string' && f.dataURL.startsWith('data:') && p && mimeOf(p)) {
                     try { await access(p); nextFiles[id] = { id: f.id || id, mimeType: f.mimeType, dshPath: p, created: f.created, lastRetrieved: f.lastRetrieved }; stripped = true; continue; } catch (err) {}
                   }
                   nextFiles[id] = f;
@@ -1363,6 +1363,28 @@ function apply(ctx) {
             }
             try { await access(target); throw new Error('同级目录中已存在同名项目'); } catch (err) { if (err && err.message === '同级目录中已存在同名项目') throw err; }
             await rename(projectDir, target);
+            // 路径改写：canvas.json（及历史备份）里的绝对路径引用随目录改名
+            // 同步更新。改造前内嵌 base64 掩盖了这个问题（改名后归档引用、
+            // check-sources 早已失效）；存储改用 dshPath 引用后这里必须同步，
+            // 否则改名会导致图片无法还原。JSON 转义安全：搜索串用转义后形式。
+            try {
+              const fromJson = JSON.stringify(projectDir).slice(1, -1);
+              const toJson = JSON.stringify(target).slice(1, -1);
+              if (fromJson !== toJson) {
+                const rewritePaths = async (file) => {
+                  const raw = await readFile(file, 'utf8');
+                  if (raw.indexOf(fromJson) === -1) return;
+                  await writeFile(file, raw.split(fromJson).join(toJson), 'utf8');
+                };
+                await rewritePaths(join(target, 'canvas.json'));
+                try {
+                  const legacyBackups = await readdir(join(target, '画布备份'));
+                  for (const b of legacyBackups) {
+                    if (/\.json$/i.test(b)) await rewritePaths(join(target, '画布备份', b)).catch(() => {});
+                  }
+                } catch (err) {}
+              }
+            } catch (err) {}
             respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true, project: target, name: requested }));
           } catch (err) {
             respond(res, 500, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: String((err && err.message) || err) }));

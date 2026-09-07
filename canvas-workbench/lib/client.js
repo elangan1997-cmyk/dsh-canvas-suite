@@ -288,6 +288,12 @@ window.__ModuleLoader__.load({
         }
       };
     }
+    // 与服务端 IMAGE_MIME 白名单一致：只有 /dsh-canvas/image 能取回的
+    // 扩展名才允许剥离（pdf/ai 文档源的预览路径不在其中，保持内嵌）。
+    function restorablePathExt(path) {
+      const m = /\.([a-z0-9]+)$/i.exec(String(path || ''));
+      return m && ['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif', 'bmp', 'svg'].indexOf(m[1].toLowerCase()) >= 0;
+    }
     function stripInlineFileData(snapshot) {
       const files = snapshot.files && typeof snapshot.files === 'object' ? snapshot.files : null;
       if (!files) return snapshot.files;
@@ -295,7 +301,7 @@ window.__ModuleLoader__.load({
       (snapshot.elements || []).forEach((item) => {
         if (!item || item.type !== 'image' || item.isDeleted || !item.fileId) return;
         const p = item.customData && item.customData.dshSourcePath;
-        if (p && !pathByFileId[item.fileId]) pathByFileId[item.fileId] = String(p);
+        if (p && !pathByFileId[item.fileId] && restorablePathExt(p)) pathByFileId[item.fileId] = String(p);
       });
       let changed = false;
       const next = {};
