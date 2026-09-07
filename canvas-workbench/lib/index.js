@@ -1292,7 +1292,7 @@ function apply(ctx) {
             await mkdir(backupDir, { recursive: true });
             const name = 'canvas-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json';
             const path = join(backupDir, name);
-            await writeFile(path, JSON.stringify(body.snapshot, null, 2), 'utf8');
+            await writeFile(path, JSON.stringify(body.snapshot), 'utf8');
             respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true, path }));
           } catch (err) {
             respond(res, 500, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: String((err && err.message) || err) }));
