@@ -22,10 +22,16 @@ MANAGED_ROOT="$USER_HOME/.dsh/canvas-workbench"
 /bin/mkdir -p "$BACKUP_DIR"
 /usr/sbin/chown -R "$CONSOLE_USER":staff "$USER_HOME/Library/Application Support/DSH Canvas Suite"
 
-for TARGET in \
-  "$USER_HOME/.dsh/profiles/node_modules/@local/canvas-workbench" \
-  "$USER_HOME/.dsh/profiles/desktop/node_modules/@local/canvas-workbench" \
-  "$USER_HOME/.dsh/profiles/node_modules/dsh-codex"; do
+TARGETS=(
+  "$USER_HOME/.dsh/profiles/node_modules/@local/canvas-workbench"
+  "$USER_HOME/.dsh/profiles/node_modules/dsh-codex"
+)
+while IFS= read -r TARGET; do TARGETS+=("$TARGET"); done < <(
+  /usr/bin/find "$USER_HOME/.dsh/profiles" -mindepth 3 -maxdepth 4 -type d \
+    \( -path '*/node_modules/@local/canvas-workbench' -o -path '*/node_modules/dsh-codex' \) \
+    2>/dev/null
+)
+for TARGET in "${TARGETS[@]}"; do
   if [ -e "$TARGET" ] || [ -L "$TARGET" ]; then
     SAFE_NAME="$(/bin/echo "$TARGET" | /usr/bin/sed 's#^/##; s#[ /]#_#g')"
     /usr/bin/ditto "$TARGET" "$BACKUP_DIR/$SAFE_NAME"

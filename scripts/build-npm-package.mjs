@@ -34,7 +34,7 @@ const publishPackage = {
     ...sourcePackage.exports,
     './cordis.patch.yml': './cordis.patch.yml'
   },
-  files: ['lib', 'scripts', 'cordis.patch.yml', 'README.md', 'LICENSE'],
+  files: ['lib', 'scripts', 'vendor', 'cordis.patch.yml', 'README.md', 'LICENSE'],
   dshCanvasCompatibility: sourcePackage.dshCanvasCompatibility,
   dsh: {
     bundle: { patch: './cordis.patch.yml' },
@@ -55,7 +55,7 @@ const publishPackage = {
 await rm(stageDir, { recursive: true, force: true });
 await mkdir(stageDir, { recursive: true });
 
-for (const name of ['lib', 'scripts']) {
+for (const name of ['lib', 'scripts', 'vendor']) {
   await cp(resolve(sourceDir, name), resolve(stageDir, name), {
     recursive: true,
     filter: (path) => !/(^|[/\\])(?:__pycache__|\.DS_Store)(?:$|[/\\])/.test(path)

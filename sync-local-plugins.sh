@@ -2,7 +2,7 @@
 # DSH 本地插件：一键同步 + 健康检查
 #
 # 权威源码在本脚本所在工作区；DSH 运行副本在 ~/.dsh/profiles 下。
-# 默认执行：同步 canvas-workbench 到 node/desktop 两层，
+# 默认执行：同步 canvas-workbench 到全局、desktop、web 与活动 Profile，
 # 然后检查源码语法、安装副本、profile 注入项和 DSH HTTP 状态。
 #
 # 用法：
@@ -82,11 +82,28 @@ ensure_source() {
 sync_package() {
   local package="$1"
   local source="$SCRIPT_DIR/$package"
-  local destination
+  local destination selection active
 
-  for destination in \
-    "$PROFILES_ROOT/node_modules/@local/$package" \
-    "$PROFILES_ROOT/desktop/node_modules/@local/$package"; do
+  # Desktop 2.x 可以把任意命名的 Profile 设为活动 Profile。补丁层会把
+  # canvas-workbench 注入到 web、desktop 以及活动 Profile；运行副本必须
+  # 覆盖同一组目录，否则 loader 会在 Profile 选择阶段停在恢复页。
+  selection="$USER_HOME/Library/Application Support/DSH Desktop/profile-selection/state.json"
+  active=""
+  if [ -f "$selection" ]; then
+    active="$(/usr/bin/plutil -extract active raw -o - "$selection" 2>/dev/null || true)"
+  fi
+  local destinations=(
+    "$PROFILES_ROOT/node_modules/@local/$package"
+    "$PROFILES_ROOT/desktop/node_modules/@local/$package"
+    "$PROFILES_ROOT/web/node_modules/@local/$package"
+  )
+  if [ -n "$active" ] \
+    && [ "$active" != "desktop" ] \
+    && [ "$active" != "web" ]; then
+    destinations+=("$PROFILES_ROOT/$active/node_modules/@local/$package")
+  fi
+
+  for destination in "${destinations[@]}"; do
     mkdir -p "$destination"
     if [ -L "$destination" ]; then
       local source_real destination_real
@@ -244,10 +261,11 @@ sync_profiles() {
       canvas-workbench '@local/canvas-workbench'
   done
 
-  # 完整分发包会携带与 DSH Desktop 2.x 对齐的 dsh-codex 兼容构建。
-  # 只在套件确实内置该目录时注入，开发源码未携带时保持原行为。
+  # dsh-codex 只有被挂到当前 Web/活动 Profile 后，才会向聊天
+  # 模型目录注册 openai-codex。仅复制 node_modules 会让画布能找到
+  # OAuth 组件，但聊天模型选择器里仍然不会出现 Codex。
   if [ -f "$SCRIPT_DIR/dsh-codex/package.json" ]; then
-    for profile in "$active" web; do
+    for profile in web "$active"; do
       [ -n "$profile" ] || continue
       ensure_patch_entry "$PROFILES_ROOT/$profile/cordis.patch.yml" \
         llm-openai-codex 'dsh-codex'
@@ -311,7 +329,23 @@ check_codex_compat() {
 check_package() {
   local package="$1"
   local source="$SCRIPT_DIR/$package"
-  local destination
+  local destination selection active
+
+  selection="$USER_HOME/Library/Application Support/DSH Desktop/profile-selection/state.json"
+  active=""
+  if [ -f "$selection" ]; then
+    active="$(/usr/bin/plutil -extract active raw -o - "$selection" 2>/dev/null || true)"
+  fi
+  local destinations=(
+    "$PROFILES_ROOT/node_modules/@local/$package"
+    "$PROFILES_ROOT/desktop/node_modules/@local/$package"
+    "$PROFILES_ROOT/web/node_modules/@local/$package"
+  )
+  if [ -n "$active" ] \
+    && [ "$active" != "desktop" ] \
+    && [ "$active" != "web" ]; then
+    destinations+=("$PROFILES_ROOT/$active/node_modules/@local/$package")
+  fi
 
   if command -v node >/dev/null 2>&1; then
     node --check "$source/lib/client.js" >/dev/null \
@@ -329,9 +363,7 @@ check_package() {
     say "⚠ 未安装 Node.js，跳过开发期语法检查：$package（不影响 DSH 加载已打包插件）"
   fi
 
-  for destination in \
-    "$PROFILES_ROOT/node_modules/@local/$package" \
-    "$PROFILES_ROOT/desktop/node_modules/@local/$package"; do
+  for destination in "${destinations[@]}"; do
     [ -f "$destination/package.json" ] \
       || fail "安装副本缺少 package.json：$destination"
     [ -f "$destination/lib/client.js" ] \
@@ -386,6 +418,10 @@ check_profiles() {
     patch="$PROFILES_ROOT/$active/cordis.patch.yml"
     grep -qF "name: '@local/canvas-workbench'" "$patch" \
       || fail "当前活动 profile 未注入 canvas-workbench：$patch"
+    if [ -f "$SCRIPT_DIR/dsh-codex/package.json" ]; then
+      grep -qF "name: 'dsh-codex'" "$patch" \
+        || fail "当前活动 profile 未注入 dsh-codex：$patch"
+    fi
     say "活动 profile 通过：$active"
   fi
 

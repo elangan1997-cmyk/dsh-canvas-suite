@@ -1,4 +1,4 @@
-import { readFile, stat } from 'node:fs/promises';
+import { access, readFile, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '..');
@@ -44,6 +44,8 @@ if (!host.includes('renamedSource = targetPath')) throw new Error('host does not
 if (!host.includes('sourcePath: resultPath')) throw new Error('host rename response lacks canonical source path');
 if (!client.includes('result.data.sourcePath || result.data.path')) throw new Error('client rename result lacks canonical source path');
 if (!client.includes('latestSnapshot.current = {')) throw new Error('client rename does not patch latest snapshot before save');
+if (!client.includes('reconcileFinalImages')) throw new Error('client lacks stable final-image reconciliation');
+if (!client.includes('/[*\\[\\]{}]/.test(candidate.split(/[?#]/, 1)[0])')) throw new Error('client does not reject image glob placeholders');
 
 const macBuild = await readFile(resolve(root, 'mac-installer/build-macos-installer.sh'), 'utf8');
 if (macBuild.includes('dsh-codex-dsh2')) throw new Error('Mac installer still references a private checkout path');
@@ -51,9 +53,24 @@ if (!macBuild.includes('$WORKSPACE_DIR/dsh-codex/lib')) throw new Error('Mac ins
 const sync = await readFile(resolve(root, 'sync-local-plugins.sh'), 'utf8');
 if (!sync.includes('sync_codex_compat')) throw new Error('sync script lacks dsh-codex compatibility sync');
 if (!sync.includes('remove_legacy_home_explorer')) throw new Error('sync script lacks legacy file-browser cleanup');
+if (!sync.includes('$PROFILES_ROOT/web/node_modules/@local/$package')) throw new Error('sync script lacks web profile package sync');
+if (!sync.includes('$PROFILES_ROOT/$active/node_modules/@local/$package')) throw new Error('sync script lacks active profile package sync');
 if (!host.includes("'/dsh-canvas/image-status'")) throw new Error('host lacks image status endpoint');
 const clientImages = await readFile(resolve(root, 'canvas-workbench/lib/client.js'), 'utf8');
 if (!clientImages.includes("'/dsh-canvas/image-status?path='")) throw new Error('client lacks stale image filtering');
+if (clientImages.includes('cdn.jsdelivr.net/npm/react@') && !clientImages.includes('EXCALIDRAW_SRCDOC_LOCAL')) throw new Error('canvas still depends directly on a public CDN');
+for (const asset of ['react-18.3.1.production.min.js', 'react-dom-18.3.1.production.min.js', 'excalidraw-0.17.6.production.min.js']) {
+  await access(resolve(root, 'canvas-workbench/vendor', asset));
+}
+const srcdocPrefix = 'const EXCALIDRAW_SRCDOC = ';
+const srcdocStart = clientImages.indexOf(srcdocPrefix);
+const srcdocEnd = clientImages.indexOf('`;\n\n    // Excalidraw/React', srcdocStart);
+if (srcdocStart < 0 || srcdocEnd < 0) throw new Error('unable to locate Excalidraw srcdoc');
+const srcdocLiteral = clientImages.slice(srcdocStart + srcdocPrefix.length, srcdocEnd + 1);
+const srcdoc = Function('"use strict"; return ' + srcdocLiteral)();
+for (const match of srcdoc.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)) {
+  if (match[1].trim()) Function(match[1]);
+}
 
 const codex = await readFile(resolve(root, 'dsh-codex/lib/src-C3kK80Ix.js'), 'utf8');
 for (const marker of ['maxRequestImageBytes: 20971520', 'requestImagePixelBudget: 4194304', 'requestImageMaxBytes: 1048576']) {
@@ -66,9 +83,12 @@ for (const marker of ['profiles', 'node_modules\\@local', 'desktop\\node_modules
 }
 
 const npmBuilder = await readFile(resolve(root, 'scripts/build-npm-package.mjs'), 'utf8');
-for (const marker of ["const packageName = 'dsh-canvas-workbench'", "bundle: { patch: './cordis.patch.yml' }", "'lib', 'scripts', 'cordis.patch.yml', 'README.md', 'LICENSE'"]) {
+for (const marker of ["const packageName = 'dsh-canvas-workbench'", "bundle: { patch: './cordis.patch.yml' }", "'lib', 'scripts', 'vendor', 'cordis.patch.yml', 'README.md', 'LICENSE'"]) {
   if (!npmBuilder.includes(marker)) throw new Error(`npm package builder missing marker: ${marker}`);
 }
 if (!npmBuilder.includes("(?:auth\\.json|\\.env)")) throw new Error('npm package builder lacks credential exclusion');
+if (!sync.includes("llm-openai-codex 'dsh-codex'")) throw new Error('sync script does not inject dsh-codex into the active profile');
+const macUninstall = await readFile(resolve(root, 'mac-installer/uninstall.sh'), 'utf8');
+if (!macUninstall.includes("*/node_modules/dsh-codex")) throw new Error('Mac uninstaller does not remove profile-scoped dsh-codex copies');
 
 console.log('portability checks passed');

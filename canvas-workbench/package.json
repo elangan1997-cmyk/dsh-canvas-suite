@@ -1,6 +1,6 @@
 {
   "name": "@local/canvas-workbench",
-  "version": "1.5.6",
+  "version": "1.5.9",
   "private": true,
   "type": "module",
   "description": "可插拔设计模式：独立 Excalidraw 画布、渐进增强的会话图片工具与本地项目资产",
@@ -16,21 +16,13 @@
     ".": {
       "default": "./lib/index.js"
     },
-    "./client": {
-      "default": "./lib/client.js"
-    },
+    "./client": "./lib/client.js",
     "./package.json": "./package.json"
   },
   "dsh": {
     "client": {
       "platform": "web",
-      "inject": [
-        "@deepseek-ai/dsh-client-connection",
-        "@deepseek-ai/dsh-client-locale",
-        "@deepseek-ai/dsh-client-runtime",
-        "@deepseek-ai/dsh-client-ui-conversation",
-        "@deepseek-ai/dsh-client-ui-model-selection"
-      ]
+      "inject": []
     }
   }
 }

@@ -8,7 +8,7 @@
 
 ```bash
 node scripts/build-npm-package.mjs
-cd dist/npm/dsh-canvas-workbench-1.5.6
+cd dist/npm/dsh-canvas-workbench-1.5.9
 npm pack --pack-destination ..
 ```
 
@@ -25,7 +25,7 @@ dsh plugin --profile web add dsh-canvas-workbench
 从 GitHub Release 下载 `.tgz` 后也可离线安装插件代码：
 
 ```bash
-dsh plugin --profile web add /绝对路径/dsh-canvas-workbench-1.5.6.tgz
+dsh plugin --profile web add /绝对路径/dsh-canvas-workbench-1.5.9.tgz
 ```
 
 安装后完全退出并重新打开 DSH Desktop。插件自身可离线安装，但图片模型调用仍需要用户配置的 API 网络，或已经登录的 `dsh-codex`。
@@ -37,7 +37,7 @@ dsh plugin --profile web add /绝对路径/dsh-canvas-workbench-1.5.6.tgz
 ```bash
 npm login
 npm whoami
-cd dist/npm/dsh-canvas-workbench-1.5.6
+cd dist/npm/dsh-canvas-workbench-1.5.9
 npm publish --access public
 ```
 

@@ -1,6 +1,6 @@
 # DSH画布工作台
 
-面向 DSH Desktop 的可插拔设计画布套件，当前版本 `1.5.6`，包括：
+面向 DSH Desktop 的可插拔设计画布套件，当前版本 `1.5.9`，包括：
 
 - `canvas-workbench`：无限画布、项目持久化、聊天图片交互和渐进增强图片工具。
 - 独立文件浏览器已移除；项目目录选择与“在文件夹中显示”由画布插件自身提供。
@@ -370,7 +370,7 @@ dist/                   Local build outputs (no personal configuration)
 When reporting a problem, include the steps, OS version, plugin version, selected Codex/API route, and the relevant operation-log step. Do not paste API keys, OAuth tokens, or personal project files.
 
 
-`1.5.6` 是当前跨平台画布源码版本；Windows 仍是初级分发版，使用前请按验收清单验证本机 DSH、Python/Adobe 等可选能力。
+`1.5.9` 是当前跨平台画布源码版本；Windows 仍是初级分发版，使用前请按验收清单验证本机 DSH、Python/Adobe 等可选能力。
 
 ## 更新与回滚
 

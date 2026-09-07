@@ -5,7 +5,10 @@
  * React。所有数据走同源 HTTP（/dsh-canvas/image、/dsh-canvas/state）。
  */
 window.__ModuleLoader__.load({
-  id: 'dsh-canvas-workbench',
+  // The client module id must match the package id used by DSH's client
+  // registry.  Using a different legacy id makes Desktop reject the bundle
+  // during renderer boot and fall back to Recovery Mode.
+  id: '@local/canvas-workbench',
   factory: (require) => {
     var module = { exports: {} };
     var exports = module.exports;
@@ -392,6 +395,11 @@ window.__ModuleLoader__.load({
       if (/^(?:private|tmp|Users|Volumes|Applications|Library|System|var|opt|usr|home|dev|etc|mnt|run)\//i.test(p)) return '/' + p;
       // 事件回放可能早于设计模式 dock 挂载。没有 cwd 时先保留原始相对路径，
       // 等会话上下文到达后在渲染阶段再次解析，避免“模型只显示路径”的丢图。
+      // 聊天图像引擎的固定归档目录在画布项目内；模型最终回复常只写
+      // 文件名。有当前画布项目时，裸文件名应优先指向该归档目录。
+      if (p.indexOf('/') < 0 && p.indexOf('\\') < 0 && activeCanvasProjectPath) {
+        return String(activeCanvasProjectPath).replace(/[\\/]+$/, '') + '/DSH聊天生成图片/' + p;
+      }
       const cwd = String(cwdOverride || activeChatCwd || '').trim();
       if (!cwd) return p;
       const cwdNormalized = cwd.replace(/\\/g, '/');
@@ -451,6 +459,9 @@ window.__ModuleLoader__.load({
         if (IMAGE_EXT_RE.test(candidate)) out.push(candidate);
         return;
       }
+      // Shell 回复常用 `*.png` 表示一批产物。通配符不是可读文件，
+      // 若将它当成“最终图片”，会覆盖工具结果里已经可显示的真实附件。
+      if (/[*\[\]{}]/.test(candidate.split(/[?#]/, 1)[0])) return;
       if (!IMAGE_EXT_RE.test(candidate)) return;
       const resolved = resolveImagePath(candidate, cwdOverride);
       if (resolved) out.push(resolved);
@@ -627,6 +638,20 @@ window.__ModuleLoader__.load({
       return dedupeImagePaths(out);
     }
 
+    function reconcileFinalImages(existingImages, visiblePaths, seq) {
+      const existing = Array.isArray(existingImages) ? existingImages : [];
+      return visiblePaths.map((path) => {
+        const wantedName = imageName(path).toLowerCase();
+        const sameName = existing.filter((item) => imageName(item.path).toLowerCase() === wantedName);
+        // 最终回复经常只写“xxx.png”，而工具结果已经提供了可持久
+        // 解析的 attachmentId 或绝对路径。最终文字只用来筛选同名产物，
+        // 不能把真实引用降级成相对于聊天 cwd 的不存在路径。
+        const stable = sameName.find((item) => attachmentFromPath(item.path))
+          || sameName.find((item) => isDirectImageSource(item.path) || isLocalAbsolutePath(item.path));
+        return stable || { path, seq };
+      });
+    }
+
     // ---- turn-scoped accumulation ----
     const canvasImagesDefinition = {
       kind: 'canvas-images',
@@ -654,7 +679,7 @@ window.__ModuleLoader__.load({
         if (visible.length) {
           return {
             ...context.state,
-            images: visible.map((path) => ({ path, seq: match.event.seq })),
+            images: reconcileFinalImages(context.state.images, visible, match.event.seq),
             finalImagesSeen: true
           };
         }
@@ -736,6 +761,17 @@ window.__ModuleLoader__.load({
       const [resolvedSources, setResolvedSources] = React.useState({});
       const [contextRevision, setContextRevision] = React.useState(activeChatContextRevision);
       const key = images.map((i) => i.path).join('|');
+      const archivedOutputPath = (path) => activeCanvasProjectPath
+        ? String(activeCanvasProjectPath).replace(/[\\/]+$/, '') + '/DSH聊天生成图片/' + imageName(path)
+        : '';
+      const canonicalOutputPath = (path) => {
+        if (!path || attachmentFromPath(path) || isDirectImageSource(path) || !activeCanvasProjectPath) return path;
+        const normalized = String(path).replace(/\\/g, '/');
+        if (normalized.indexOf('/') < 0 || normalized.indexOf('/DSH聊天生成图片/') >= 0) {
+          return String(activeCanvasProjectPath).replace(/[\\/]+$/, '') + '/DSH聊天生成图片/' + imageName(path);
+        }
+        return path;
+      };
       React.useEffect(() => {
         const onContext = () => setContextRevision(activeChatContextRevision);
         window.addEventListener('dsh-canvas:project-context', onContext);
@@ -757,7 +793,7 @@ window.__ModuleLoader__.load({
         const localImages = images.filter((img) => img && !attachmentFromPath(img.path) && !isDirectImageSource(img.path));
         const check = (img, attempt = 0) => {
           if (cancelled || !img) return;
-          const resolved = resolveImagePath(img.path);
+          const resolved = resolveImagePath(canonicalOutputPath(img.path));
           // 事件可能早于当前会话 cwd 到达；等 project-context 事件触发后再检查。
           if (!resolved || !isLocalAbsolutePath(resolved)) return;
           const url = '/dsh-canvas/image-status?path=' + encodeURIComponent(resolved);
@@ -804,9 +840,17 @@ window.__ModuleLoader__.load({
         return () => { cancelled = true; };
       }, [key, activeChatSessionId, contextRevision]);
       if (!visibleImages.length) return null;
-      const send = (path) => dispatchResolvedImage(path);
+      const send = (path) => dispatchResolvedImage(canonicalOutputPath(path));
       const rows = visibleImages.map((img) => {
-        const src = attachmentFromPath(img.path) ? (resolvedSources[img.path] || '') : displaySourceUrl(img.path);
+        const canonicalPath = canonicalOutputPath(img.path);
+        // 旧会话的 attachmentId 可能随 DSH 更新或会话回放失效；画布路由
+        // 已同时把原图归档到项目目录，附件解析失败时直接用同名归档文件。
+        // 设计模式的生图在返回附件前已原子落盘；当前项目可用时
+        // 优先读归档原图，避免 attachment Blob URL 在 DSH 重启后一直 pending。
+        const usingAttachmentFallback = !!(attachmentFromPath(img.path) && archivedOutputPath(img.path));
+        const attachmentFallback = usingAttachmentFallback ? displaySourceUrl(archivedOutputPath(img.path)) : '';
+        const actionPath = usingAttachmentFallback ? archivedOutputPath(img.path) : canonicalPath;
+        const src = attachmentFromPath(img.path) ? (resolvedSources[img.path] || attachmentFallback) : displaySourceUrl(canonicalPath);
         const loading = !src && !failed[img.path];
         return React.createElement('div', { key: img.path, className: 'dsh-canvas-image' },
           React.createElement('button', {
@@ -814,7 +858,7 @@ window.__ModuleLoader__.load({
             title: '点击查看大图',
             onClick: () => setPreview(img)
           },
-            failed[img.path]
+            failed[img.path] && !src
               ? React.createElement('span', { className: 'dsh-canvas-image-loading' }, '图片加载失败')
               : loading
                 ? React.createElement('span', { className: 'dsh-canvas-image-loading' }, '图片加载中…')
@@ -825,15 +869,15 @@ window.__ModuleLoader__.load({
                 loading: 'lazy',
                 decoding: 'async',
                 referrerPolicy: 'no-referrer',
-                onLoad: () => setFailed((prev) => prev[img.path] ? { ...prev, [img.path]: false } : prev),
+                onLoad: () => { if (!usingAttachmentFallback) setFailed((prev) => prev[img.path] ? { ...prev, [img.path]: false } : prev); },
                 onError: () => setFailed((prev) => ({ ...prev, [img.path]: true }))
               })
           ),
           React.createElement('div', { className: 'dsh-canvas-image-meta' },
-            React.createElement('span', { className: 'dsh-canvas-image-name', title: img.path }, imageName(img.path)),
+            React.createElement('span', { className: 'dsh-canvas-image-name', title: actionPath }, imageName(img.path)),
             React.createElement('div', { className: 'dsh-canvas-image-actions' },
-              React.createElement('button', { className: 'dsh-canvas-add-btn', title: '在系统文件管理器中选中这个文件', onClick: () => revealImageInFinder(img.path) }, '在文件夹中显示'),
-              React.createElement('button', { className: 'dsh-canvas-add-btn', onClick: () => send(img.path) }, '加入画布')
+              React.createElement('button', { className: 'dsh-canvas-add-btn', title: '在系统文件管理器中选中这个文件', onClick: () => revealImageInFinder(actionPath) }, '在文件夹中显示'),
+              React.createElement('button', { className: 'dsh-canvas-add-btn', onClick: () => dispatchResolvedImage(actionPath) }, '加入画布')
             )
           )
         );
@@ -851,14 +895,16 @@ window.__ModuleLoader__.load({
         preview ? React.createElement('div', { className: 'dsh-canvas-lightbox', role: 'dialog', 'aria-modal': 'true', onClick: () => setPreview(null) },
           React.createElement('div', { className: 'dsh-canvas-lightbox-inner', onClick: (event) => event.stopPropagation() },
             (() => {
-              const previewSrc = attachmentFromPath(preview.path) ? (resolvedSources[preview.path] || '') : displaySourceUrl(preview.path);
+              const previewSrc = attachmentFromPath(preview.path)
+                ? (displaySourceUrl(archivedOutputPath(preview.path)) || resolvedSources[preview.path] || '')
+                : displaySourceUrl(canonicalOutputPath(preview.path));
               return previewSrc
                 ? React.createElement('img', { src: previewSrc, alt: imageName(preview.path), className: 'dsh-canvas-lightbox-image', decoding: 'async', referrerPolicy: 'no-referrer' })
                 : React.createElement('span', { className: 'dsh-canvas-image-loading' }, failed[preview.path] ? '图片加载失败' : '图片加载中…');
             })(),
             React.createElement('div', { className: 'dsh-canvas-lightbox-bar' },
-              React.createElement('span', { title: preview.path }, imageName(preview.path)),
-              React.createElement('button', { onClick: () => revealImageInFinder(preview.path) }, '在文件夹中显示'),
+              React.createElement('span', { title: canonicalOutputPath(preview.path) }, imageName(preview.path)),
+              React.createElement('button', { onClick: () => revealImageInFinder(canonicalOutputPath(preview.path)) }, '在文件夹中显示'),
               React.createElement('button', { onClick: () => send(preview.path) }, '加入画布'),
               React.createElement('button', { onClick: () => setPreview(null) }, '关闭')
             )
@@ -1159,6 +1205,7 @@ window.__ModuleLoader__.load({
     let activeChatModelSelection = null;
     let activeChatCwd = '';
     let activeChatSessionId = '';
+    let activeCanvasProjectPath = '';
     let activeChatContextRevision = 0;
     function currentConversationService() {
       if (conversationApi && typeof conversationApi.createDraftImages === 'function') return conversationApi;
@@ -1190,12 +1237,13 @@ window.__ModuleLoader__.load({
         detail: { cwd: activeChatCwd, sessionId: activeChatSessionId }
       }));
     }
-    function resolveAttachmentSource(path) {
+    async function resolveAttachmentSource(path) {
       const ref = attachmentFromPath(path);
-      if (!ref || !conversationApi || !activeChatSessionId || typeof conversationApi.imageUrl !== 'function') {
+      const service = await waitForConversationService();
+      if (!ref || !service || !activeChatSessionId || typeof service.imageUrl !== 'function') {
         return Promise.reject(new Error('图片附件暂不可用'));
       }
-      return Promise.resolve(conversationApi.imageUrl(activeChatSessionId, ref));
+      return Promise.resolve(service.imageUrl(activeChatSessionId, ref));
     }
     function dispatchResolvedImage(path) {
       if (attachmentFromPath(path)) {
@@ -1351,8 +1399,8 @@ html,body,#ex-root,#ex-root>div,.excalidraw,.excalidraw-container{margin:0;width
   var ExcalidrawView=window.ExcalidrawLib.Excalidraw;
   window.ExcalidrawLib.Excalidraw=function(props){var input=props||{},options=input.UIOptions||{},tools=options.tools||{};return window.React.createElement(ExcalidrawView,Object.assign({},input,{UIOptions:Object.assign({},options,{tools:Object.assign({},tools,{image:false})})}));};
   function baseName2(path){var text=String(path||""),at=-1;for(var i=text.length-1;i>=0;i-=1){var code=text.charCodeAt(i);if(code===47||code===92){at=i;break;}}return at<0?text:text.slice(at+1);}
-  function pathComparable2(value){var text=String(value||"").replace(/\\/g,"/").replace(/\/+/g,"/");return text.length>1?text.replace(/\/+$/g,""):text;}
-  function pathWithin2(parent,child){var base=pathComparable2(parent),target=pathComparable2(child);if(!base||!target)return false;var insensitive=/^[A-Za-z]:\//.test(base)||/^[A-Za-z]:\//.test(target),left=insensitive?base.toLowerCase():base,right=insensitive?target.toLowerCase():target;return right===left||right.indexOf(left+"/")===0;}
+  function pathComparable2(value){var text=String(value||"").split("\\\\").join("/");while(text.indexOf("//")>=0)text=text.split("//").join("/");while(text.length>1&&text.endsWith("/"))text=text.slice(0,-1);return text;}
+  function pathWithin2(parent,child){var base=pathComparable2(parent),target=pathComparable2(child);if(!base||!target)return false;var insensitive=/^[A-Za-z]:/.test(base)||/^[A-Za-z]:/.test(target),left=insensitive?base.toLowerCase():base,right=insensitive?target.toLowerCase():target;return right===left||right.indexOf(left+"/")===0;}
   function cleanImageName(value,dataURL,forcedExt){var raw=Array.from(baseName2(value)).map(function(ch){var code=ch.charCodeAt(0);return code<32||[34,42,47,58,60,62,63,92,124].indexOf(code)>=0?"-":ch;}).join("").trim().slice(0,120);var mime=(String(dataURL||"").match(/^data:([^;]+)/i)||[])[1]||"image/png";var fallback=forcedExt||(mime==="image/jpeg"?"jpg":((mime.split("/")[1]||"png").replace("svg+xml","svg")));var dot=raw.lastIndexOf("."),base=(dot>0?raw.slice(0,dot):raw).replace(/[. ]+$/g,"").trim()||"画布图片";return base+"."+fallback;}
   function uniqueImageName(value,dataURL,exceptId,forcedExt){var wanted=cleanImageName(value,dataURL,forcedExt),dot=wanted.lastIndexOf("."),base=dot>0?wanted.slice(0,dot):wanted,ext=dot>0?wanted.slice(dot):"";var used={};(api&&api.getSceneElements?api.getSceneElements():[]).forEach(function(item){if(item&&item.type==="image"&&!item.isDeleted&&item.id!==exceptId){var n=item.customData&&item.customData.dshFileName;if(n)used[String(n).toLowerCase()]=true;}});var out=wanted,index=2;while(used[out.toLowerCase()])out=base+"-"+(index++)+ext;return out;}
   function addImageDataURL(dataURL,dm,meta){if(!api)throw new Error("画布尚未就绪");if(typeof api.addFiles!=="function")throw new Error("当前 Excalidraw 不支持 addFiles");var now=Date.now();var token=now.toString(36)+"_"+Math.random().toString(36).slice(2,10);var fileId="f_"+token;var ratio=(dm&&dm.w&&dm.h&&dm.h>0)?dm.w/dm.h:1.6;var maxW=240,maxH=240,w,h;if(ratio>=1){w=maxW;h=Math.max(1,Math.round(maxW/ratio));}else{h=maxH;w=Math.max(1,Math.round(maxH*ratio));}var mime=(String(dataURL).match(/^data:([^;]+)/i)||[])[1]||"image/png";var appState=api.getAppState()||empty;var zoom=appState.zoom&&appState.zoom.value?appState.zoom.value:1;var baseX=(-Number(appState.scrollX||0))+80/zoom,baseY=(-Number(appState.scrollY||0))+90/zoom;var total=Number(meta&&meta.batchTotal||1),index=Number(meta&&meta.batchIndex);if(!(index>=0)){index=insertCount++;total=1;}var columns=total>1?Number(meta&&meta.batchColumns||Math.min(5,Math.ceil(Math.sqrt(total*1.35)))):4;var slot=total>1?index:(index%12),col=slot%columns,row=Math.floor(slot/columns);var x=baseX+col*300+(maxW-w)/2,y=baseY+row*320;var sourceExt=meta&&["psd","svg","pdf","ai"].indexOf(meta.kind)>=0?meta.kind:"";var fileName=uniqueImageName(meta&&meta.name,dataURL,null,sourceExt);var el={type:"image",id:"e_"+token,fileId:fileId,x:x,y:y,width:w,height:h,angle:0,strokeColor:"transparent",backgroundColor:"transparent",fillStyle:"solid",strokeWidth:1,strokeStyle:"solid",roughness:0,opacity:100,seed:Math.floor(Math.random()*1e9),version:1,versionNonce:Math.floor(Math.random()*1e9),isDeleted:false,groupIds:[],frameId:null,boundElements:null,updated:now,link:null,locked:false,customData:{dshFileName:fileName,dshSourcePath:String(meta&&meta.path||""),dshSourceMtime:Number(meta&&meta.mtime||0),dshSourceSize:Number(meta&&meta.size||0),dshSourceKind:String(meta&&meta.kind||"image"),dshManaged:!(meta&&meta.managed===false)},roundness:null,status:"saved",scale:[1,1]};api.addFiles([{id:fileId,dataURL:dataURL,mimeType:mime,created:now,lastRetrieved:now}]);api.updateScene({elements:(api.getSceneElements()||[]).concat([el]),appState:Object.assign({},appState)});if(total>1&&index===total-1)insertCount+=total;post({type:"added",name:fileName});}
@@ -1621,10 +1669,19 @@ window.addEventListener("message",function(e){
 },true);
 var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).then(function(b){return new Promise(function(res,rej){var fr=new FileReader();fr.onload=function(){res(fr.result)};fr.onerror=rej;fr.readAsDataURL(b)})})};var dims=function(d){return new Promise(function(res){var i=new Image();i.onload=function(){res({w:i.naturalWidth,h:i.naturalHeight})};i.onerror=function(){res({w:200,h:130})};i.src=d})};window.addEventListener("message",function(e){if(e.source!==window.parent)return;var d=e.data||{};try{if(d.type==="add-image"&&d.url&&api){toDataURL(d.url).then(function(dataURL){return dims(dataURL).then(function(dm){var fileId="f_"+Math.random().toString(36).slice(2,9);var ratio=(dm.w&&dm.h&&dm.h>0)?dm.w/dm.h:1.6;var w=220,h=Math.round(w/ratio);var mime=(String(dataURL).match(/^data:([^;]+)/i)||[])[1]||"image/png";var el={type:"image",id:"e_"+Math.random().toString(36).slice(2,9),fileId:fileId,x:150,y:150,width:w,height:h,angle:0,seed:Math.floor(Math.random()*1e9),version:1,versionNonce:Math.floor(Math.random()*1e9),isDeleted:false,groupIds:[],boundElements:null,updated:Date.now(),link:null,locked:false,customData:null,roundness:null,mimeType:mime};var files=(function(){var m=new Map();var b=api.getFiles()||{};if(typeof b.forEach==="function"){b.forEach(function(v,k){m.set(k,v)});}else if(typeof b==="object"){Object.keys(b).forEach(function(k){m.set(k,b[k])});}return m;})();if(typeof api.addFiles==="function"){try{api.addFiles([{id:fileId,dataURL:dataURL,mimeType:mime}])}catch(e){}}api.updateScene({elements:(api.getSceneElements()||[]).concat([el]),appState:Object.assign({},api.getAppState()||empty)});post({type:"added"})})}).catch(function(err){post({type:"error",message:"添加图片失败: "+String(err&&err.message||err)})})}else if(d.type==="load"&&api){var s=typeof d.snapshot==="string"?JSON.parse(d.snapshot):d.snapshot;if(s&&s.elements){var files=new Map();if(s.files)Object.keys(s.files).forEach(function(k){var v=s.files[k];files.set(k,{id:k,dataURL:v.dataURL,mimeType:v.mimeType})});api.updateScene({elements:s.elements,appState:Object.assign({},s.appState||empty),files:files})}}else if(d.type==="export"&&api){var elements=(api.getSceneElements()||[]).filter(function(item){return item&&!item.isDeleted&&item.id!=="dsh_theme_backdrop";});if(!elements.length){post({type:"exported",error:"empty"});return;}var exporter=window.ExcalidrawLib&&window.ExcalidrawLib.exportToBlob;if(typeof exporter!=="function"){post({type:"error",message:"导出失败: 当前 Excalidraw 未提供 PNG 导出器"});return;}var state=Object.assign({},api.getAppState()||empty,{exportBackground:true,exportWithDarkMode:false,exportScale:1});Promise.resolve(exporter({elements:elements,appState:state,files:fileObject(api.getFiles?api.getFiles():{}),mimeType:"image/png"})).then(function(blob){var fr=new FileReader();fr.onloadend=function(){post({type:"exported",dataUrl:fr.result})};fr.onerror=function(){post({type:"error",message:"导出失败: 无法读取 PNG 数据"})};fr.readAsDataURL(blob)}).catch(function(err){post({type:"error",message:"导出失败: "+String(err&&err.message||err)})})}else if(d.type==="clear"&&api){api.updateScene({elements:[],appState:empty,files:new Map()});post({type:"changed",snapshot:serialize([],empty,new Map())})}}catch(err){post({type:"error",message:String(err&&err.message||err)})}});})();</script></body></html>`;
 
+    // Excalidraw/React are pinned vendor assets served by the plugin host.
+    // Keeping these scripts off a public CDN prevents DSH srcdoc/CSP changes
+    // or domestic-network failures from leaving the canvas at "loading".
+    const EXCALIDRAW_VENDOR_BOOTSTRAP = '<script>(function(){var report=function(message){try{window.parent.postMessage({type:"error",message:message},"*")}catch(e){}try{var node=document.createElement("div");node.className="dsh-err";node.textContent=message;document.body.appendChild(node)}catch(e){}};window.__dshCanvasVendorError=function(name){report("画布本地资源加载失败："+name)};window.addEventListener("error",function(event){report("画布运行错误："+String(event&&event.message||event&&event.error||"未知错误"))});window.addEventListener("unhandledrejection",function(event){report("画布异步错误："+String(event&&event.reason&&event.reason.message||event&&event.reason||"未知错误"))});setTimeout(function(){if(!document.querySelector(".excalidraw"))report("画布初始化超时，请重新加载 DSH")},12000)})();<\/script><script src="/dsh-canvas/vendor/react.js" onerror="window.__dshCanvasVendorError(\'React\')"><\/script><script src="/dsh-canvas/vendor/react-dom.js" onerror="window.__dshCanvasVendorError(\'ReactDOM\')"><\/script><script src="/dsh-canvas/vendor/excalidraw.js" onerror="window.__dshCanvasVendorError(\'Excalidraw\')"><\/script>';
+    const EXCALIDRAW_SRCDOC_LOCAL = EXCALIDRAW_SRCDOC.replace(
+      '<script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script><script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script><script src="https://cdn.jsdelivr.net/npm/@excalidraw/excalidraw@0.17.6/dist/excalidraw.production.min.js"></script>',
+      EXCALIDRAW_VENDOR_BOOTSTRAP
+    );
+
     // Excalidraw 默认菜单包含社交链接分组；画布是 DSH 内嵌工具，不需要这些入口。
     // 文件名标签是画布自有的绝对定位层；菜单展开时暂时隐藏它，避免遮挡菜单内容。
     // 两项均通过插件自有的轻量 MutationObserver 实现，不改动上游 UMD 包。
-    const EXCALIDRAW_SRCDOC_CLEAN = EXCALIDRAW_SRCDOC.replace(
+    const EXCALIDRAW_SRCDOC_CLEAN = EXCALIDRAW_SRCDOC_LOCAL.replace(
       '</body></html>',
       '<script>(function(){var pending=false;function syncMenu(){pending=false;try{var menus=document.querySelectorAll(".dropdown-menu"),i,m,b,cs,open=false;for(i=0;i<menus.length;i+=1){m=menus[i];b=m.getBoundingClientRect();cs=window.getComputedStyle(m);if(cs.display!=="none"&&cs.visibility!=="hidden"&&b.width>0&&b.height>0){open=true;break}}if(document.body)document.body.classList.toggle("dsh-excalidraw-menu-open",open)}catch(e){}}function schedule(){if(pending)return;pending=true;if(window.requestAnimationFrame)window.requestAnimationFrame(syncMenu);else window.setTimeout(syncMenu,0)}function hide(){try{var groups=document.querySelectorAll(".dropdown-menu-group"),i,g,t,p,n;for(i=0;i<groups.length;i+=1){g=groups[i];t=g.querySelector(".dropdown-menu-group-title");if(!t||String(t.textContent||"").trim().toLowerCase()!=="excalidraw links")continue;g.classList.add("dsh-hidden-social-links");p=g.previousElementSibling;n=g.nextElementSibling;[p,n].forEach(function(el){if(el&&el.children&&el.children.length===0&&String(el.style&&el.style.height||"")==="1px")el.classList.add("dsh-hidden-social-links")})}}catch(e){}schedule()}if(window.MutationObserver){new MutationObserver(hide).observe(document.documentElement,{childList:true,subtree:true})}document.addEventListener("pointerdown",schedule,true);document.addEventListener("click",schedule,true);document.addEventListener("keydown",function(e){if(e&&e.key==="Escape")schedule()},true);hide()})();</script></body></html>'
     );
@@ -1675,6 +1732,36 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
       notifySplitLayout();
     }
 
+    function canvasPathWithin(parent, child) {
+      const base = String(parent || '').replace(/\\/g, '/').replace(/\/+/g, '/').replace(/\/+$/g, '');
+      const target = String(child || '').replace(/\\/g, '/').replace(/\/+/g, '/').replace(/\/+$/g, '');
+      if (!base || !target) return false;
+      const insensitive = /^[A-Za-z]:\//.test(base) || /^[A-Za-z]:\//.test(target);
+      const left = insensitive ? base.toLowerCase() : base;
+      const right = insensitive ? target.toLowerCase() : target;
+      return right === left || right.indexOf(left + '/') === 0;
+    }
+
+    class CanvasOverlayBoundary extends React.Component {
+      constructor(props) {
+        super(props);
+        this.state = { error: null };
+      }
+      static getDerivedStateFromError(error) {
+        return { error };
+      }
+      componentDidCatch(error) {
+        try { console.error('[canvas-workbench] CanvasOverlay render failed', error); } catch (_) {}
+      }
+      render() {
+        if (!this.state.error) return React.createElement(CanvasOverlay, this.props);
+        const message = String(this.state.error && this.state.error.message || this.state.error || 'unknown error');
+        return React.createElement('div', {
+          style: { position: 'fixed', top: 0, right: 0, bottom: 0, width: '420px', zIndex: 1000, background: '#15171c', color: '#fecaca', padding: '24px', boxSizing: 'border-box', font: '13px/1.5 sans-serif', whiteSpace: 'pre-wrap', overflow: 'auto', pointerEvents: 'auto' }
+        }, 'Canvas overlay failed\\n' + message);
+      }
+    }
+
     function CanvasOverlay() {
       const [on, setOn] = React.useState(getMode());
       const minimumChatWidth = 520;
@@ -1692,6 +1779,14 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
       const [feedback, setFeedback] = React.useState('');
       const [removeProgress, setRemoveProgress] = React.useState(null);
       const [projectInfo, setProjectInfo] = React.useState({ cwd: activeChatCwd, sessionId: activeChatSessionId, project: chosenProject(activeChatCwd, activeChatSessionId) });
+      activeCanvasProjectPath = String(projectInfo.project || '');
+      React.useEffect(() => {
+        activeCanvasProjectPath = String(projectInfo.project || '');
+        activeChatContextRevision += 1;
+        window.dispatchEvent(new CustomEvent('dsh-canvas:project-context', {
+          detail: { cwd: activeChatCwd, sessionId: activeChatSessionId, project: activeCanvasProjectPath }
+        }));
+      }, [projectInfo.project]);
       const [projectDialog, setProjectDialog] = React.useState(null);
       const [projectList, setProjectList] = React.useState({ loading: false, items: [], error: '' });
       const [moreMenuOpen, setMoreMenuOpen] = React.useState(false);
@@ -2655,7 +2750,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
             const fileMime = fileMimeMatch ? String(fileMimeMatch[1]).toLowerCase() : '';
             const isRasterFile = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif', 'image/avif', 'image/bmp'].indexOf(fileMime) >= 0;
             const duplicate = (path && seenPaths.has(path)) || (item.fileId && seenFiles.has(item.fileId));
-            const needsManagedFile = custom.dshManaged === true && (!path || !pathWithin2(assetsRoot, path));
+            const needsManagedFile = custom.dshManaged === true && (!path || !canvasPathWithin(assetsRoot, path));
             const archived = archivedImages.current.get(item.id);
             if (archived) {
               restoreArchivedElement(item, archived);
@@ -2774,8 +2869,8 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
           const snapshot = latestSnapshot.current || {};
           const liveImages = (snapshot.elements || []).filter((item) => item && item.type === 'image' && !item.isDeleted);
           const projectRoot = currentProjectPath();
-          const sourceElements = liveImages.filter((item) => item.customData && pathWithin2(projectRoot, item.customData.dshSourcePath || ''));
-          const externalSourceElements = liveImages.filter((item) => item.customData && item.customData.dshSourcePath && !pathWithin2(projectRoot, item.customData.dshSourcePath));
+          const sourceElements = liveImages.filter((item) => item.customData && canvasPathWithin(projectRoot, item.customData.dshSourcePath || ''));
+          const externalSourceElements = liveImages.filter((item) => item.customData && item.customData.dshSourcePath && !canvasPathWithin(projectRoot, item.customData.dshSourcePath));
           const sourcePaths = new Set(sourceElements.map((item) => item.customData.dshSourcePath));
           for (const path of sourcePaths) queuedDiskPaths.current.delete(path);
           projectSyncBusy.current = true;
@@ -2805,7 +2900,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
                 if (previous) { previous.mtime = output.mtime; previous.size = output.size; }
                 else baseline.push({ path: output.path, mtime: output.mtime, size: output.size });
                 watch.baseline = baseline;
-                if (pathWithin2(projectRoot, output.path)) {
+                if (canvasPathWithin(projectRoot, output.path)) {
                   pendingRef.current.push({ ...output, explicit: true });
                   flushPending();
                   setFeedback('✓ Photoshop 新建/保存的 PSD 已加入画布：' + output.name);
@@ -3429,7 +3524,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
 
       safeSlot(ctx, 'shell.overlay', {
         options: { name: 'shell.overlay', id: 'dsh-canvas-overlay', order: 0 },
-        component: CanvasOverlay
+        component: CanvasOverlayBoundary
       });
     }
 

@@ -41,6 +41,12 @@ import {
  */
 const MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 const MAX_SOURCE_BYTES = 128 * 1024 * 1024;
+const PLUGIN_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+const VENDOR_ASSETS = new Map([
+  ['react.js', { path: join(PLUGIN_ROOT, 'vendor', 'react-18.3.1.production.min.js'), type: 'text/javascript; charset=utf-8' }],
+  ['react-dom.js', { path: join(PLUGIN_ROOT, 'vendor', 'react-dom-18.3.1.production.min.js'), type: 'text/javascript; charset=utf-8' }],
+  ['excalidraw.js', { path: join(PLUGIN_ROOT, 'vendor', 'excalidraw-0.17.6.production.min.js'), type: 'text/javascript; charset=utf-8' }]
+]);
 const IMAGE_MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif', bmp: 'image/bmp', svg: 'image/svg+xml' };
 const DOCUMENT_EXTENSIONS = new Set(['pdf', 'ai']);
 const RASTER_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif', 'bmp']);
@@ -562,6 +568,30 @@ function apply(ctx) {
           try { return new URL(origin).host === String(req.headers && req.headers.host || ''); } catch { return false; }
         };
 
+        // The canvas renderer must not depend on a public CDN.  DSH Desktop
+        // may block third-party scripts inside srcdoc frames, and domestic or
+        // offline networks can leave the iframe waiting forever.  Serve the
+        // pinned React/Excalidraw builds from the plugin package itself.
+        if (pathname.startsWith('/dsh-canvas/vendor/') && req.method === 'GET') {
+          const asset = VENDOR_ASSETS.get(pathname.slice('/dsh-canvas/vendor/'.length));
+          if (!asset) {
+            respond(res, 404, { ...CORS, 'content-type': 'text/plain; charset=utf-8' }, 'vendor asset not found');
+            return;
+          }
+          try {
+            const bytes = await readFile(asset.path);
+            respond(res, 200, {
+              ...CORS,
+              'content-type': asset.type,
+              'content-length': String(bytes.byteLength),
+              'cache-control': 'public, max-age=31536000, immutable'
+            }, bytes);
+          } catch (err) {
+            respond(res, 500, { ...CORS, 'content-type': 'text/plain; charset=utf-8' }, 'vendor asset unavailable');
+          }
+          return;
+        }
+
         // 仅保留画布“选择项目目录”所需的最小目录枚举能力。
         // 独立 home-explorer 文件浏览器已移除，避免额外 UI 和重复注入。
         if (pathname === '/dsh-canvas/list-directories' && req.method === 'GET') {
@@ -676,7 +706,7 @@ function apply(ctx) {
             respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({
               ok: true,
               plugin: name,
-              version: '1.5.6',
+              version: '1.5.8',
               platform: platformCapabilities(),
               capabilities: {
                 webServer: Boolean(ctx.webServer),
@@ -1864,7 +1894,14 @@ function apply(ctx) {
   // 因而不会修改 DSH 或 dsh-codex 的全局注册，也便于插件卸载/更新。
   try {
     ctx.inject(['tools', 'fs', 'attachments', 'agents'], (toolCtx) => {
-      installChatImageRouter(toolCtx, chatContextFor);
+      // Image-generation routing is an optional enhancement.  A tool/schema
+      // incompatibility in a particular DSH build must not abort the whole
+      // canvas plugin (which would put Desktop into Recovery Mode).
+      try {
+        installChatImageRouter(toolCtx, chatContextFor);
+      } catch (err) {
+        try { console.warn('[canvas-workbench] image router disabled:', err && err.message || String(err)); } catch (_) {}
+      }
     });
   } catch (err) {
     // 老版本 DSH 缺少工具注入能力时，基础画布仍应正常加载。
