@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.6.0
+
+- **性能**：Excalidraw onChange 600ms 尾沿防抖 + changed 快照 files 增量协议（usedFileIds + 变化文件），大画布（25 图 / 54MB 场景）交互传输量从每帧全量降至约 0.1MB。
+- **存储治本**：canvas.json 落盘剥离图片 base64——有 customData.dshSourcePath 的文件条目只存 dshPath 引用，运行时按需经 /dsh-canvas/image 还原；项目文件从 54.4MB 降至约 23KB。旧内嵌格式项目可正常加载，首次保存自动瘦身。**新格式项目需 1.6.0+ 插件打开，勿回退旧版。**
+- **数据完整性**：
+  - 场景令牌：load 换发新令牌，跨项目迟到的 changed 一律丢弃；
+  - 水合守卫：场景渐进恢复期间抑制 onChange，杜绝"半场景快照"砍掉完整文件表（曾致 15 图项目丢 9 个文件表条目并误触图片回收）；
+  - 备份与主存剥离逻辑一致，且服务端 access() + mimeOf() 双验证后剥离，保证备份可还原。
+- **修复**：rename-project 项目改名后同步改写 canvas.json 及画布备份内的绝对路径引用（JSON 转义安全替换，兼容 Windows）。
+- **数据恢复工具**：scripts/rebuild-canvas-files.js 可从元素 dshSourcePath 重建文件表；psd/pdf/ai 文档源自动经 sips 生成 jpeg 预览（文件表内文档源必须是栅格预览，不能是文档字节）。
+
+## 1.5.9
+
 ## 1.5.9
 
 - 修复 DSH 更新或 Profile 重建后 Codex 聊天模型消失：同步脚本会把 `dsh-codex` 同时注入 Web 与当前活动 Profile，并在健康检查中强制验证。
@@ -65,3 +78,4 @@
 - PSD、AI 在 Windows 通过系统文件关联打开；原生 Photoshop 文字层自动化保留 macOS 路径。
 - Windows 缺少 PSD/PDF/AI 转换器时显示占位预览，不阻断画布。
 - 健康接口新增平台能力矩阵，并修复写死的旧版本号。
+
