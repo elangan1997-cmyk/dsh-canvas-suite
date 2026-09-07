@@ -1292,7 +1292,30 @@ function apply(ctx) {
             await mkdir(backupDir, { recursive: true });
             const name = 'canvas-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json';
             const path = join(backupDir, name);
-            await writeFile(path, JSON.stringify(body.snapshot), 'utf8');
+            // 性能 v3：备份与主存一致，剥离有磁盘引用的图片 base64；
+            // 服务端先验证文件真实存在（access），保证备份必定可还原。
+            let snapshotOut = body.snapshot;
+            try {
+              if (snapshotOut && snapshotOut.files && typeof snapshotOut.files === 'object') {
+                const pathByFileId = {};
+                (Array.isArray(snapshotOut.elements) ? snapshotOut.elements : []).forEach((item) => {
+                  if (!item || item.type !== 'image' || item.isDeleted || !item.fileId) return;
+                  const p = item.customData && item.customData.dshSourcePath;
+                  if (p && !pathByFileId[item.fileId]) pathByFileId[item.fileId] = String(p);
+                });
+                const nextFiles = {};
+                let stripped = false;
+                for (const [id, f] of Object.entries(snapshotOut.files)) {
+                  const p = pathByFileId[id];
+                  if (f && typeof f.dataURL === 'string' && f.dataURL.startsWith('data:') && p) {
+                    try { await access(p); nextFiles[id] = { id: f.id || id, mimeType: f.mimeType, dshPath: p, created: f.created, lastRetrieved: f.lastRetrieved }; stripped = true; continue; } catch (err) {}
+                  }
+                  nextFiles[id] = f;
+                }
+                if (stripped) snapshotOut = { ...snapshotOut, files: nextFiles };
+              }
+            } catch (err) {}
+            await writeFile(path, JSON.stringify(snapshotOut), 'utf8');
             respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true, path }));
           } catch (err) {
             respond(res, 500, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: String((err && err.message) || err) }));

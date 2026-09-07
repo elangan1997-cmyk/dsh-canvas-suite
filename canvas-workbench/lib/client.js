@@ -274,6 +274,12 @@ window.__ModuleLoader__.load({
       lastCanvasSaveAt = savedAt;
       return {
         ...snapshot,
+        // 性能 v3（治本）：磁盘快照不再内嵌图片 base64。凡 fileId 能映射到
+        // 元素 customData.dshSourcePath 的文件，落盘时只存 dshPath 引用；
+        // 运行时快照（latestSnapshot）保持完整 dataURL，行为与归档/发送
+        // 到聊天等管线无关。iframe 在 load 时按需还原（见 load 分支）。
+        // 无磁盘路径的文件（如刚粘贴、尚未归档）继续内嵌，后续保存自愈。
+        files: stripInlineFileData(snapshot),
         dshMeta: {
           ...existingMeta,
           revision: existingRevision > 0 ? existingRevision : savedAt,
@@ -281,6 +287,29 @@ window.__ModuleLoader__.load({
           clientId: CANVAS_CLIENT_ID
         }
       };
+    }
+    function stripInlineFileData(snapshot) {
+      const files = snapshot.files && typeof snapshot.files === 'object' ? snapshot.files : null;
+      if (!files) return snapshot.files;
+      const pathByFileId = {};
+      (snapshot.elements || []).forEach((item) => {
+        if (!item || item.type !== 'image' || item.isDeleted || !item.fileId) return;
+        const p = item.customData && item.customData.dshSourcePath;
+        if (p && !pathByFileId[item.fileId]) pathByFileId[item.fileId] = String(p);
+      });
+      let changed = false;
+      const next = {};
+      Object.keys(files).forEach((id) => {
+        const f = files[id];
+        const path = pathByFileId[id];
+        if (f && typeof f.dataURL === 'string' && f.dataURL.startsWith('data:') && path) {
+          next[id] = { id: f.id || id, mimeType: f.mimeType, dshPath: path, created: f.created, lastRetrieved: f.lastRetrieved };
+          changed = true;
+        } else {
+          next[id] = f;
+        }
+      });
+      return changed ? next : files;
     }
     function loadState(cwd, project) {
       return fetch(stateEndpoint(cwd, project), { method: 'GET', cache: 'no-store' })
@@ -1619,10 +1648,37 @@ window.addEventListener("message",function(e){
   }
   if(d.type==="load"){
     e.stopImmediatePropagation();
-    try{
-      var saved=typeof d.snapshot==="string"?JSON.parse(d.snapshot):d.snapshot;
-      if(saved&&saved.elements&&typeof requestSceneLoad==="function")requestSceneLoad(saved);
-    }catch(err){post({type:"error",message:"恢复画布失败: "+String(err&&err.message||err)});}
+    var hydrateFromDisk=async function(){
+      try{
+        var saved=typeof d.snapshot==="string"?JSON.parse(d.snapshot):d.snapshot;
+        if(!saved||!saved.elements||typeof requestSceneLoad!=="function")return;
+        /* 性能 v3：磁盘快照的 files 只带 dshPath 引用（无 dataURL），这里
+           并发还原为 dataURL 后再进 requestSceneLoad；单文件失败静默跳过，
+           画布上表现为占位，不影响其余图片与场景结构。 */
+        var jobs=[];
+        if(saved.files)Object.keys(saved.files).forEach(function(k){
+          var v=saved.files[k];
+          if(v&&!v.dataURL&&v.dshPath){
+            jobs.push(fetch("/dsh-canvas/image?path="+encodeURIComponent(v.dshPath)).then(function(r){
+              if(!r.ok)throw new Error("fetch "+r.status);
+              return r.blob();
+            }).then(function(b){
+              return new Promise(function(res){
+                var fr=new FileReader();
+                fr.onload=function(){res(fr.result)};
+                fr.onerror=function(){res(null)};
+                fr.readAsDataURL(b);
+              });
+            }).then(function(url){
+              if(url){v.dataURL=url;var m=String(url).match(/^data:([^;]+)/i);if(m&&!v.mimeType)v.mimeType=m[1];}
+            }).catch(function(){}));
+          }
+        });
+        if(jobs.length)await Promise.all(jobs);
+        requestSceneLoad(saved);
+      }catch(err){post({type:"error",message:"恢复画布失败: "+String(err&&err.message||err)});}
+    };
+    hydrateFromDisk();
     return;
   }
   if(d.type==="refresh-source"){
