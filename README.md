@@ -51,6 +51,7 @@ DSH 画布工作台不是把网页工具搬到桌面上，而是把设计师每�
 ## 快速选择下载包
 
 - **macOS 新电脑、没有 DSH Desktop**：下载已验证的 1.5.9 完整 DMG/PKG，安装后登录自己的账号。
+- **Windows 新电脑或已有 DSH**：使用已验证的 `v1.4.0-windows-preview.4` 完整包或独立画布包；r5 之前的旧包不再推荐。
 - **已经有 DSH Desktop，只想更新画布**：下载独立插件 ZIP，退出 DSH 后运行安装脚本。
 - **已经有 DSH，偏好包管理更新**：安装 `dsh-canvas-workbench` npm 包；它不包含桌面端和本地大模型环境。
 - **macOS 用户**：已有 DSH 可用 `install-canvas-plugin.sh` 更新画布；全新电脑使用 Release 中的 `macOS-Complete` DMG/PKG。
@@ -58,7 +59,7 @@ DSH 画布工作台不是把网页工具搬到桌面上，而是把设计师每�
 
 面向设计人员的 DSH Desktop 画布工作台，把图片生成、项目文件、无限画布、图片处理和 Photoshop/Illustrator 协作集中在一个工作区。你不需要先了解 Agent：按下面的下载说明安装后，就可以像使用普通设计工具一样开始工作。
 
-> 当前唯一发布版：[`v1.5.9` macOS 整机重装验证版](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/tag/v1.5.9)。Windows 仅保留源码与验收清单，暂无经过同等实机验证的发布包。
+> 当前推荐版：[`v1.5.9` macOS 整机重装验证版](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/tag/v1.5.9)；Windows 使用已完成实机验证的 `v1.4.0-windows-preview.4`（custom 20260906）。r5 之前的 Windows 旧包不再推荐。
 
 ## 画布插件能做什么
 
@@ -99,9 +100,11 @@ DSH 画布工作台不是把网页工具搬到桌面上，而是把设计师每�
 
 ## 应该下载哪个？
 
-### A. 完整安装包：给没有 DSH Desktop 的 macOS 电脑
+### A. 完整安装包：给没有 DSH Desktop 的电脑
 
-从 [`v1.5.9` Release](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/tag/v1.5.9) 下载 `DSH-Canvas-Suite-1.5.9-macOS-Complete.dmg` 或 `.pkg` 及对应 SHA-256。该版本已完成应用彻底卸载、图形安装器重装、用户数据恢复和 DSH 真实 UI 验收。Windows 发布包已下架，等待在 Windows 实机上完成同等验证后再发布。
+macOS 从 [`v1.5.9` Release](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/tag/v1.5.9) 下载 `DSH-Canvas-Suite-1.5.9-macOS-Complete.dmg` 或 `.pkg` 及对应 SHA-256。该版本已完成应用彻底卸载、图形安装器重装、用户数据恢复和 DSH 真实 UI 验收。
+
+Windows 使用已验证的 `v1.4.0-windows-preview.4`（custom 20260906）：完整包 `DSH-Setup-Fixed-v1.4.1-20260906.zip`，SHA-256 `a6d5e1a984af4bacfb64ef8aa5628fb97a569b6bb6cf08334130027725c5a683`；独立画布包 `DSH-Canvas-Workbench-1.4.0-windows-custom-20260906.zip`，SHA-256 `332fac1c8359ea470958dc0e26d7fea6b7b0b8cbe6ce663769a693068f0b8a9b`。r5 之前的 Windows 包应删除或标记为不推荐。
 
 ### B. 独立画布插件：给已经有 DSH Desktop 的电脑
 这是更新画布能力的轻量包，不带完整 DSH Desktop，不能脱离 DSH 单独启动。

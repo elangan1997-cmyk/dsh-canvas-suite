@@ -1,5 +1,11 @@
 # Changelog
 
+## Release catalog correction (2026-09-07)
+
+- Restored `v1.4.0-windows-preview.4` (custom 20260906) as the verified Windows baseline.
+- Keep the verified full Windows ZIP and standalone canvas ZIP with their published SHA-256 values.
+- Only Windows packages older than the r5 baseline are candidates for removal.
+
 ## 1.6.0
 
 - **性能**：Excalidraw onChange 600ms 尾沿防抖 + changed 快照 files 增量协议（usedFileIds + 变化文件），大画布（25 图 / 54MB 场景）交互传输量从每帧全量降至约 0.1MB。
@@ -78,4 +84,3 @@
 - PSD、AI 在 Windows 通过系统文件关联打开；原生 Photoshop 文字层自动化保留 macOS 路径。
 - Windows 缺少 PSD/PDF/AI 转换器时显示占位预览，不阻断画布。
 - 健康接口新增平台能力矩阵，并修复写死的旧版本号。
-
