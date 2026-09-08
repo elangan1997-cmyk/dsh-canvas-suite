@@ -1393,7 +1393,12 @@ const EXCALIDRAW_SRCDOC = `<!doctype html><html><head><meta charset="utf-8"><sty
     .dsh-selection-toolbar:after{content:"";position:absolute;left:50%;bottom:-5px;width:9px;height:9px;background:rgba(15,18,24,.96);border-right:1px solid rgba(255,255,255,.12);border-bottom:1px solid rgba(255,255,255,.12);transform:translateX(-50%) rotate(45deg)}
     .dsh-selection-count{position:relative;z-index:1;padding:0 7px;color:#94a3b8;font:600 11px/28px ui-rounded,"SF Pro Rounded",sans-serif}
     .dsh-selection-divider{position:relative;z-index:1;width:1px;height:20px;margin:0 2px;background:rgba(255,255,255,.14)}
-    .dsh-selection-action{position:relative;z-index:1;height:30px;padding:0 10px;border:0;border-radius:7px;background:transparent;color:#e2e8f0;font:600 12px/30px ui-rounded,"SF Pro Rounded",sans-serif;cursor:pointer;transition:background .12s ease,color .12s ease,transform .12s ease}
+    /* 选区工具条：更多下拉菜单 */
+.dsh-selection-more{position:relative;display:flex}
+.dsh-selection-menu{position:absolute;top:calc(100% + 6px);right:0;min-width:136px;display:flex;flex-direction:column;gap:2px;padding:6px;border:1px solid rgba(255,255,255,.14);border-radius:10px;background:rgba(15,18,24,.97);box-shadow:0 14px 34px rgba(15,23,42,.4);z-index:90}
+.dsh-selection-menu .dsh-selection-action{white-space:nowrap;width:100%;text-align:left}
+.dsh-selection-menu .dsh-selection-action:hover{background:rgba(255,255,255,.08)}
+.dsh-selection-action{position:relative;z-index:1;height:30px;padding:0 10px;border:0;border-radius:7px;background:transparent;color:#e2e8f0;font:600 12px/30px ui-rounded,"SF Pro Rounded",sans-serif;cursor:pointer;transition:background .12s ease,color .12s ease,transform .12s ease}
     .dsh-selection-action:hover{background:rgba(255,255,255,.1);color:#fff}
     .dsh-selection-action:active{transform:translateY(1px)}
     .dsh-selection-action.dsh-material-drag-action{cursor:grab}.dsh-selection-action.dsh-material-drag-action:active{cursor:grabbing}
@@ -1520,6 +1525,9 @@ function Main(){
     var tb=useState(null),toolbar=tb[0],setToolbar=tb[1];
     var ie=useState(null),imageEditor=ie[0],setImageEditor=ie[1];
     updateImageEditorState=setImageEditor;
+    var mo=useState(false),moreOpen=mo[0],setMoreOpen=mo[1];
+    /* 选区变化/移动时自动收起"更多"菜单 */
+    window.React.useEffect(function(){setMoreOpen(false);},[toolbar]);
     var lr=window.React.useRef("");
     var tr=window.React.useRef("");
     var updateLabels=function(elements,appState){var next=imageNameLabels(elements,appState),signature=next.map(function(item){return [item.id,item.name,item.displayName,item.left,item.top,item.width,item.fontSize,item.height,item.selected].join(":");}).join("|");if(signature!==lr.current){lr.current=signature;setLabels(next);}};
@@ -1597,17 +1605,22 @@ function Main(){
         toolbar.count>1?window.React.createElement('span',{className:'dsh-selection-count'},'已选 '+toolbar.count+' 张'):null,
         toolbar.count>1?window.React.createElement('span',{className:'dsh-selection-divider'}):null,
         window.React.createElement('button',{className:'dsh-selection-action dsh-primary',title:'把所选图片附加到聊天输入框',onClick:function(){sendSelectionToChat(toolbar.ids);}},'发送至聊天'),
-        window.React.createElement('button',{className:'dsh-selection-action dsh-material-drag-action',draggable:true,title:'点击保存；也可按住拖到右侧素材库',onDragStart:function(e){e.stopPropagation();beginMaterialDrag(toolbar.ids,e);},onDragEnd:function(){post({type:'material-drag-end'});},onClick:function(){saveSelectionToMaterials(toolbar.ids);}},'加入素材库'),
         toolbar.count===1?window.React.createElement('button',{className:'dsh-selection-action',title:'本地 rembg isnet-general-use 去除背景；首次使用自动准备环境和模型',onClick:function(){requestBackgroundRemoval(toolbar.ids[0]);}},'去除背景'):null,
         toolbar.count===1?window.React.createElement('button',{className:'dsh-selection-action',title:'画笔涂抹后智能擦除',onClick:function(){openImageEditor('erase',toolbar.ids[0]);}},'智能擦除'):null,
         toolbar.count===1?window.React.createElement('button',{className:'dsh-selection-action',title:'不经过主聊天，直接输入图片修改需求',onClick:function(){openImageEditor('edit',toolbar.ids[0]);}},'编辑图片'):null,
         toolbar.count===1&&["image","psd"].indexOf(toolbar.singleKind||"image")>=0?window.React.createElement('button',{className:'dsh-selection-action dsh-photoshop',title:'在 Photoshop 中打开链接文件；保存后自动刷新画布',onClick:function(){openInPhotoshop(toolbar.ids[0]);}},'Ps 编辑'):null,
         toolbar.count===1&&["svg","pdf","ai"].indexOf(toolbar.singleKind)>=0?window.React.createElement('button',{className:'dsh-selection-action dsh-illustrator',title:'在 Illustrator 中打开原文件；保存后自动刷新画布',onClick:function(){openInIllustrator(toolbar.ids[0]);}},'AI 编辑'):null,
-        toolbar.count===1&&["image","psd"].indexOf(toolbar.singleKind||"image")>=0?window.React.createElement('button',{className:'dsh-selection-action',title:'扁平稿专用：限色、去毛刺后生成结构化 SVG，原图不会被覆盖',onClick:function(){requestVectorize(toolbar.ids[0],"flat");}},'结构矢量'):null,
         toolbar.count===1&&["image","psd"].indexOf(toolbar.singleKind||"image")>=0?window.React.createElement('button',{className:'dsh-selection-action dsh-text-rebuild-action',title:'框选后由当前聊天模型理解文字，并生成可在 Photoshop 中继续编辑的 PSD',onClick:function(){requestTextRebuild(toolbar.ids[0]);}},'编辑文字'):null,
-        window.React.createElement('button',{className:'dsh-selection-action',title:'在画布中创建副本',onClick:function(){duplicateSelectedImages(toolbar.ids);}},'复制'),
-        toolbar.count===1?window.React.createElement('button',{className:'dsh-selection-action',title:'修改图片文件名（不显示扩展名）',onClick:function(){setEditing({id:toolbar.ids[0],value:displayImageName(toolbar.singleName)});}},'重命名'):null,
-        window.React.createElement('button',{className:'dsh-selection-action dsh-danger',title:'移入画布回收站，可撤销',onClick:function(){deleteSelectedImages(toolbar.ids);}},'删除')
+        window.React.createElement('div',{className:'dsh-selection-more'},
+          window.React.createElement('button',{className:'dsh-selection-action dsh-more-toggle',title:'更多操作',onClick:function(e){e.stopPropagation();setMoreOpen(!moreOpen);}},'更多 ▾'),
+          moreOpen?window.React.createElement('div',{className:'dsh-selection-menu',onClick:function(e){e.stopPropagation();setMoreOpen(false);}},
+            window.React.createElement('button',{className:'dsh-selection-action dsh-material-drag-action',draggable:true,title:'点击保存；也可按住拖到右侧素材库',onDragStart:function(e){e.stopPropagation();beginMaterialDrag(toolbar.ids,e);},onDragEnd:function(){post({type:'material-drag-end'});},onClick:function(){saveSelectionToMaterials(toolbar.ids);}},'加入素材库'),
+            toolbar.count===1&&["image","psd"].indexOf(toolbar.singleKind||"image")>=0?window.React.createElement('button',{className:'dsh-selection-action',title:'扁平稿专用：限色、去毛刺后生成结构化 SVG，原图不会被覆盖',onClick:function(){requestVectorize(toolbar.ids[0],"flat");}},'结构矢量'):null,
+            window.React.createElement('button',{className:'dsh-selection-action',title:'在画布中创建副本',onClick:function(){duplicateSelectedImages(toolbar.ids);}},'复制'),
+            toolbar.count===1?window.React.createElement('button',{className:'dsh-selection-action',title:'修改图片文件名（不显示扩展名）',onClick:function(){setEditing({id:toolbar.ids[0],value:displayImageName(toolbar.singleName)});}},'重命名'):null,
+            window.React.createElement('button',{className:'dsh-selection-action dsh-danger',title:'移入画布回收站，可撤销',onClick:function(){deleteSelectedImages(toolbar.ids);}},'删除'),
+          ):null
+        ),
       ):null),
       imageEditor?window.React.createElement(ImageEditDialog,{item:imageEditor,onClose:function(){if(!imageEditor.busy)setImageEditor(null);},onSubmit:submitImageEdit}):null
     );
