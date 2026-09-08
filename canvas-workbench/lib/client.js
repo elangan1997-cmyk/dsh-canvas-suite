@@ -1554,6 +1554,17 @@ function Main(){
         },80);
       },0);
     };
+    document.addEventListener('click',function(e){
+      try{
+        var node=e.target,hit=null;
+        while(node&&node!==document){var t=(node.textContent||'').trim();if(t==='添加到素材库中'||t==='添加到素材库'){hit=node;break;}node=node.parentNode;}
+        if(!hit)return;
+        var sel=(api&&api.getSceneElements?api.getSceneElements():[]).filter(function(x){return x&&x.type==='image'&&!x.isDeleted&&api.getAppState&&api.getAppState().selectedElementIds&&api.getAppState().selectedElementIds[x.id];});
+        var files=fileObject(api.getFiles?api.getFiles():{});
+        var payload=sel.map(function(x){var f=files[x.fileId];return f&&f.dataURL?{name:(x.customData&&x.customData.dshFileName)||('素材-'+String(x.id).slice(-6)+'.png'),dataURL:f.dataURL}:null;}).filter(Boolean);
+        if(payload.length)post({type:'save-to-materials',items:payload});
+      }catch(err){}
+    },true);
     var onCanvasChange=function(el,st,fl){
       var snapshot=serialize(el,st,api&&api.getFiles?api.getFiles():fl),live=(el||[]).filter(function(item){return item&&!item.isDeleted;}).length;updateLabels(el,st);updateToolbar(el,st);
       if(hydrating){if(live<expectedElements)return;hydrating=false;post({type:"loaded",snapshot:snapshot});if(window.__dshSentFilesReset)window.__dshSentFilesReset(snapshot.files||{});}
@@ -2681,6 +2692,22 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
               setFeedback('✓ 已在 Illustrator 中打开 ' + String(result.data.kind || d.sourceKind || '源文件') + '；保存后画布约 8 秒内更新');
             })
             .catch((err) => setFeedback('⚠ Illustrator 打开失败：' + String((err && err.message) || err)));
+        } else if (d.type === 'save-to-materials') {
+          const current = projectRef.current;
+          if (!current.project) { setFeedback('⚠ 请先打开一个画布项目'); return; }
+          (async () => {
+            let savedCount = 0, lastError = '';
+            for (const item of (d.items || [])) {
+              try {
+                const r = await fetch('/dsh-canvas/materials/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cwd: current.cwd, name: item.name, dataURL: item.dataURL }) });
+                const data = await r.json();
+                if (!data.ok) throw new Error(data.error || '保存失败');
+                savedCount++;
+              } catch (err) { lastError = String(err.message || err); }
+            }
+            setFeedback(savedCount ? ('✓ 已加入本地素材库 ' + savedCount + ' 项' + (lastError ? '；' + lastError : '')) : ('⚠ 加入素材库失败：' + lastError));
+            if (materials) await refreshMaterials();
+          })();
         } else if (d.type === 'request-text-rebuild') {
           const base = { elementId: d.elementId, name: d.name || '当前图片', dataURL: d.imageData || '', loading: false, busy: false, hasDetected: false, blocks: [], erasePrompt: '', selection: null, selections: [], width: 0, height: 0, error: '' };
           setTextRebuild(base);
@@ -3414,7 +3441,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
                 ? React.createElement('div', { className: 'dsh-materials-empty' }, '素材库为空。两种方式添加：① 在画布选中图片后点上方按钮；② 把图片文件直接放进上面的本地目录。')
                 : React.createElement('div', { className: 'dsh-materials-grid' },
                     materials.files.map((item) => React.createElement('div', { key: item.name, className: 'dsh-materials-item' },
-                      React.createElement('img', { src: '/dsh-canvas/image?path=' + encodeURIComponent(materials.dir + '/' + item.name), loading: 'lazy', alt: item.name }),
+                      React.createElement('img', { src: '/dsh-canvas/image?path=' + encodeURIComponent(materials.dir + '/' + item.name), loading: 'lazy', alt: item.name, onClick: () => sendMaterialToCanvas(item), style: { cursor: 'pointer' }, title: '点击插入画布' }),
                       React.createElement('div', { className: 'dsh-materials-item-name', title: item.name }, item.name),
                       React.createElement('div', { className: 'dsh-materials-item-actions' },
                         React.createElement('button', { onClick: () => sendMaterialToCanvas(item) }, '发画布'),
