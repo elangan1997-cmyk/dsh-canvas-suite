@@ -194,12 +194,8 @@ async function analyzeTextWithCurrentModel(ctx, uploaded, body, simplified) {
   const provider = String(body.provider || '').trim();
   const model = String(body.model || '').trim();
   if (!provider || !model) throw new Error('未取得当前聊天模型');
-  // 已知纯文本模型提前拦截：这类模型的 API 不接受图片输入，调用必然失败
-  if (/deepseek-chat|deepseek-reasoner|deepseek-v3|deepseek-r\d/i.test(provider + '/' + model)) {
-    throw new Error('该模型（' + model + '）为纯文本模型，不支持图片识别；请在聊天输入框切换到支持视觉的模型，或使用本地 OCR 结果');
-  }
-  // 已知纯文本模型提前拦截：这类模型的 API 不接受图片输入，调用必然失败
-  if (/deepseek-chat|deepseek-reasoner|deepseek-v3|deepseek-r\d/i.test(provider + '/' + model)) {
+  // 已知纯文本模型提前拦截（仅确认不支持图片的型号）；多模态型号放行由 API 自行判断
+  if (/deepseek-chat|deepseek-reasoner/i.test(provider + '/' + model)) {
     throw new Error('该模型（' + model + '）为纯文本模型，不支持图片识别；请在聊天输入框切换到支持视觉的模型，或使用本地 OCR 结果');
   }
   const mediaType = uploaded.mime === 'image/jpg' ? 'image/jpeg' : uploaded.mime;
