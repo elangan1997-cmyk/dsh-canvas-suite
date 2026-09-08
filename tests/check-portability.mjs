@@ -52,7 +52,12 @@ for (const marker of ['materialSelection', 'filteredMaterials', 'attachSelectedM
 for (const marker of ['materialSelectMode', 'materialPreview', 'application/x-dsh-material', 'application/x-dsh-canvas-image', 'material-drag-start', 'source:\'context-menu\'', '加入素材库']) {
   if (!client.includes(marker)) throw new Error(`material drawer workflow missing: ${marker}`);
 }
+for (const marker of ['MATERIAL_LIBRARY_KEY', 'materialLibrary.recent', 'chooseMaterialDirectory', '/dsh-canvas/materials/select', '最近访问']) {
+  if (!client.includes(marker)) throw new Error(`independent material directory workflow missing: ${marker}`);
+}
 if (!host.includes("'/dsh-canvas/materials/open'")) throw new Error('material library lacks native folder open endpoint');
+if (!host.includes("'/dsh-canvas/materials/select'")) throw new Error('material library lacks native folder picker endpoint');
+if (!host.includes('materialDirectory(params.dir, params.cwd)') || !host.includes('materialDirectory(body.dir, body.cwd)')) throw new Error('material routes remain coupled to the current project cwd');
 
 const macBuild = await readFile(resolve(root, 'mac-installer/build-macos-installer.sh'), 'utf8');
 if (macBuild.includes('dsh-codex-dsh2')) throw new Error('Mac installer still references a private checkout path');

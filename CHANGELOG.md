@@ -6,6 +6,12 @@
 - Keep the verified full Windows ZIP and standalone canvas ZIP with their published SHA-256 values.
 - Only Windows packages older than the r5 baseline are candidates for removal.
 
+## 1.6.4
+
+- 素材库目录与画布项目彻底解耦，可通过系统原生文件夹选择器自定义任意独立目录。
+- 当前素材库和最近访问的 8 个素材库目录保存在本机，切换项目或重启 DSH 后保持不变。
+- 素材侧栏增加当前目录卡片与“最近访问”快速切换；首次升级自动沿用旧工作区的“画布素材库”目录。
+
 ## 1.6.3
 
 - 素材库改为画布右侧侧拉栏，打开时画布仍可查看和操作；素材卡片改成双列瀑布流。

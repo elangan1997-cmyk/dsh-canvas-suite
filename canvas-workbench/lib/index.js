@@ -101,6 +101,17 @@ function normalizeLocalPath(value) {
   }
   return expandHome(path);
 }
+function materialDirectory(requestedDir, legacyCwd) {
+  const explicit = normalizeLocalPath(requestedDir);
+  if (explicit) {
+    if (!isAbsolutePath(explicit)) throw new Error('素材库目录必须使用绝对路径');
+    return explicit;
+  }
+  const cwd = normalizeLocalPath(legacyCwd);
+  if (!cwd || !isAbsolutePath(cwd)) throw new Error('尚未选择素材库目录');
+  // 首次升级沿用旧素材库；客户端收到真实目录后会把它持久化，后续不再随项目切换。
+  return join(cwd, '画布素材库');
+}
 function pathComparable(value) {
   const path = String(value || '').replace(/\\/g, '/').replace(/\/+/g, '/');
   return path.length > 1 ? path.replace(/\/+$/, '') : path;
@@ -710,7 +721,7 @@ function apply(ctx) {
             respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({
               ok: true,
               plugin: name,
-              version: '1.6.3',
+              version: '1.6.4',
               platform: platformCapabilities(),
               capabilities: {
                 webServer: Boolean(ctx.webServer),
@@ -1340,11 +1351,10 @@ function apply(ctx) {
         }
 
         if (pathname === '/dsh-canvas/materials' && req.method === 'GET') {
-          // 画布素材库：工作区下“画布素材库/”目录的图片清单
-          const mcwd = expandHome(parseQuery(query).cwd || '');
+          // 素材库是独立目录；cwd 只用于从旧版“工作区/画布素材库”平滑迁移。
+          const params = parseQuery(query);
           try {
-            if (!mcwd || !isAbsolutePath(mcwd)) throw new Error('missing cwd');
-            const mdir = join(mcwd, '画布素材库');
+            const mdir = materialDirectory(params.dir, params.cwd);
             await mkdir(mdir, { recursive: true });
             const entries = await readdir(mdir);
             const files = [];
@@ -1367,9 +1377,7 @@ function apply(ctx) {
         if (pathname === '/dsh-canvas/materials/save' && req.method === 'POST') {
           try {
             const body = JSON.parse(await readBody(req) || '{}');
-            const mcwd = expandHome(String(body.cwd || ''));
-            if (!mcwd || !isAbsolutePath(mcwd)) throw new Error('missing cwd');
-            const mdir = join(mcwd, '画布素材库');
+            const mdir = materialDirectory(body.dir, body.cwd);
             await mkdir(mdir, { recursive: true });
             const decoded = decodeImageData(body.dataURL);
             if (!decoded) throw new Error('图片数据无效或超过限制');
@@ -1387,9 +1395,7 @@ function apply(ctx) {
         if (pathname === '/dsh-canvas/materials/open' && req.method === 'POST') {
           try {
             const body = JSON.parse(await readBody(req) || '{}');
-            const mcwd = expandHome(String(body.cwd || ''));
-            if (!mcwd || !isAbsolutePath(mcwd)) throw new Error('missing cwd');
-            const mdir = join(mcwd, '画布素材库');
+            const mdir = materialDirectory(body.dir, body.cwd);
             await mkdir(mdir, { recursive: true });
             const outcome = await openFolder(ctx, runProcess, mdir);
             if (outcome.exitCode !== 0) throw new Error(isWindows ? '资源管理器打开失败' : '访达打开失败');
@@ -1399,13 +1405,27 @@ function apply(ctx) {
           }
           return;
         }
+        if (pathname === '/dsh-canvas/materials/select' && req.method === 'POST') {
+          try {
+            const body = JSON.parse(await readBody(req) || '{}');
+            let selected = normalizeLocalPath(body.path);
+            if (!selected) selected = await pickFolder(ctx, runProcess, '选择素材库文件夹');
+            if (!selected || !isAbsolutePath(selected)) throw new Error('素材库目录必须使用绝对路径');
+            const info = await stat(selected);
+            if (!info.isDirectory()) throw new Error('选择的不是文件夹');
+            respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true, dir: selected }));
+          } catch (err) {
+            respond(res, 500, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: String((err && err.message) || err) }));
+          }
+          return;
+        }
         if (pathname === '/dsh-canvas/materials/delete' && req.method === 'POST') {
           try {
             const body = JSON.parse(await readBody(req) || '{}');
-            const mcwd = expandHome(String(body.cwd || ''));
+            const mdir = materialDirectory(body.dir, body.cwd);
             const name = basename(String(body.name || '').replace(/[\\/:*?"<>|]/g, ''));
-            if (!mcwd || !name) throw new Error('missing cwd or name');
-            const target = join(mcwd, '画布素材库', name);
+            if (!name) throw new Error('missing material name');
+            const target = join(mdir, name);
             if (!isImagePath(target)) throw new Error('仅允许删除图片文件');
             await unlink(target);
             respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true }));
