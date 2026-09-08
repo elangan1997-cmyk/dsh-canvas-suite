@@ -58,6 +58,7 @@ if (!client.includes('dsh-material-drag-action') || !client.includes('attempt < 
 for (const marker of ['MATERIAL_LIBRARY_KEY', 'materialLibrary.recent', 'chooseMaterialDirectory', '/dsh-canvas/materials/select', '最近访问']) {
   if (!client.includes(marker)) throw new Error(`independent material directory workflow missing: ${marker}`);
 }
+if (!client.includes('materialControlsOpen') || !client.includes('dsh-materials-location-toggle') || !client.includes("materialControlsOpen || materialDropActive")) throw new Error('material directory controls are not collapsible or drag-aware');
 if (!host.includes("'/dsh-canvas/materials/open'")) throw new Error('material library lacks native folder open endpoint');
 if (!host.includes("'/dsh-canvas/materials/select'")) throw new Error('material library lacks native folder picker endpoint');
 if (!host.includes('materialDirectory(params.dir, params.cwd)') || !host.includes('materialDirectory(body.dir, body.cwd)')) throw new Error('material routes remain coupled to the current project cwd');

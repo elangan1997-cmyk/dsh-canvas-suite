@@ -6,6 +6,11 @@
 - Keep the verified full Windows ZIP and standalone canvas ZIP with their published SHA-256 values.
 - Only Windows packages older than the r5 baseline are candidates for removal.
 
+## 1.6.6
+
+- 素材库顶部目录区默认折叠为单行，只保留当前目录、切换和展开入口；完整路径、最近访问及拖拽说明按需展开，释放更多素材浏览空间。
+- 拖拽进入素材库时即使目录区处于折叠状态，也会自动显示落点提示。
+
 ## 1.6.5
 
 - 修复素材库显式“多选”模式只能保留一项的问题；现在普通点击即可逐项勾选或取消，无需按住 Command、Ctrl 或 Shift。
