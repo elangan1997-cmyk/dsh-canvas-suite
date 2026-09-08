@@ -198,6 +198,10 @@ async function analyzeTextWithCurrentModel(ctx, uploaded, body, simplified) {
   if (/deepseek-chat|deepseek-reasoner|deepseek-v3|deepseek-r\d/i.test(provider + '/' + model)) {
     throw new Error('该模型（' + model + '）为纯文本模型，不支持图片识别；请在聊天输入框切换到支持视觉的模型，或使用本地 OCR 结果');
   }
+  // 已知纯文本模型提前拦截：这类模型的 API 不接受图片输入，调用必然失败
+  if (/deepseek-chat|deepseek-reasoner|deepseek-v3|deepseek-r\d/i.test(provider + '/' + model)) {
+    throw new Error('该模型（' + model + '）为纯文本模型，不支持图片识别；请在聊天输入框切换到支持视觉的模型，或使用本地 OCR 结果');
+  }
   const mediaType = uploaded.mime === 'image/jpg' ? 'image/jpeg' : uploaded.mime;
   if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(mediaType)) throw new Error('当前图片格式不支持模型分析');
   const attachment = await ctx.attachments.saveImage({ data: new Uint8Array(uploaded.bytes), mediaType, name: String(body.name || '画布图片') });
