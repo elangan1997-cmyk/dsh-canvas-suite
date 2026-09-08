@@ -1668,7 +1668,7 @@ function apply(ctx) {
             const projectDir = projectDirectory(body.cwd, body.project);
             const path = expandHome(String(body.sourcePath || ''));
             const kind = sourceKindOf(path);
-            if (!projectDir || !path || !isSourceImagePath(path) || !['svg', 'pdf', 'ai'].includes(kind)) throw new Error('Illustrator 编辑需要项目中的 SVG、PDF 或 AI 源文件');
+            if (!projectDir || !path || !isSourceImagePath(path)) throw new Error('Illustrator 编辑需要项目中的源文件（图片/SVG/PDF/AI/PSD 均可）');
             const info = await stat(path);
             if (!info.isFile()) throw new Error('源文件不存在');
             let opened = false;
