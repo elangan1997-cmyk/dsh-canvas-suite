@@ -1872,6 +1872,80 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
         post({ type: 'load', snapshot: JSON.stringify(snapshot), token: canvasLoadToken.current });
       };
       const switchingProject = React.useRef(false);
+      // —— 素材库：本地“画布素材库/”目录映射，支持存入/发画布/发聊天 ——
+      const [materials, setMaterials] = React.useState(null);
+      const openMaterials = async () => {
+        const current = projectRef.current;
+        if (!current.cwd) { setFeedback('⚠ 请先打开一个画布项目'); return; }
+        setMaterials({ dir: '', files: [], busy: true, error: '' });
+        try {
+          const r = await fetch('/dsh-canvas/materials?cwd=' + encodeURIComponent(current.cwd));
+          const data = await r.json();
+          if (!data.ok) throw new Error(data.error || '读取失败');
+          setMaterials({ dir: data.dir, files: data.files || [], busy: false, error: '' });
+        } catch (err) { setMaterials({ dir: '', files: [], busy: false, error: String(err.message || err) }); }
+      };
+      const refreshMaterials = async () => {
+        const current = projectRef.current;
+        if (!current.cwd) return;
+        try {
+          const r = await fetch('/dsh-canvas/materials?cwd=' + encodeURIComponent(current.cwd));
+          const data = await r.json();
+          if (data.ok) setMaterials({ dir: data.dir, files: data.files || [], busy: false, error: '' });
+        } catch (err) {}
+      };
+      const addSelectedToLibrary = async () => {
+        const current = projectRef.current;
+        if (!current.project) { setFeedback('⚠ 请先打开一个画布项目'); return; }
+        setMaterials((prev) => prev ? { ...prev, busy: true, error: '' } : prev);
+        try {
+          const snapshot = await requestLiveSnapshot();
+          const appState = snapshot && snapshot.appState ? snapshot.appState : {};
+          const selectedIds = appState.selectedElementIds || {};
+          const el = (snapshot.elements || []).find((x) => x && x.type === 'image' && !x.isDeleted && selectedIds[x.id]);
+          if (!el) throw new Error('请先在画布中选中一张图片');
+          const file = (snapshot.files || {})[el.fileId];
+          if (!file || !file.dataURL) throw new Error('该图片数据不可用');
+          const name = (el.customData && el.customData.dshFileName) || ('素材-' + Date.now() + '.png');
+          const r = await fetch('/dsh-canvas/materials/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cwd: current.cwd, name, dataURL: file.dataURL }) });
+          const data = await r.json();
+          if (!data.ok) throw new Error(data.error || '保存失败');
+          setFeedback('✓ 已存入素材库：' + data.name);
+          await refreshMaterials();
+        } catch (err) { setMaterials((prev) => prev ? { ...prev, error: String(err.message || err) } : prev); }
+      };
+      const sendMaterialToCanvas = (item) => {
+        if (!item) return;
+        const path = materials.dir + '/' + item.name;
+        post({ type: 'add-image', explicit: true, url: '/dsh-canvas/image?path=' + encodeURIComponent(path), path, name: item.name });
+        setFeedback('✓ 已发送到画布：' + item.name);
+      };
+      const sendMaterialToChat = async (item) => {
+        if (!item) return;
+        const path = materials.dir + '/' + item.name;
+        try {
+          const blob = await fetch('/dsh-canvas/image?path=' + encodeURIComponent(path)).then((r) => r.blob());
+          const dataURL = await new Promise((resolve, reject) => {
+            const fr = new FileReader();
+            fr.onload = () => resolve(fr.result);
+            fr.onerror = () => reject(new Error('读取失败'));
+            fr.readAsDataURL(blob);
+          });
+          window.dispatchEvent(new CustomEvent('dsh-canvas:attach-selection', { detail: { images: [{ dataURL, name: item.name }] } }));
+          setFeedback('✓ 已发送到聊天输入框：' + item.name);
+        } catch (err) { setFeedback('⚠ 发送到聊天失败：' + String(err.message || err)); }
+      };
+      const deleteMaterial = async (item) => {
+        if (!item || !window.confirm('从素材库删除 ' + item.name + '？（不会影响画布上已有的图片）')) return;
+        const current = projectRef.current;
+        try {
+          const r = await fetch('/dsh-canvas/materials/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cwd: current.cwd, name: item.name }) });
+          const data = await r.json();
+          if (!data.ok) throw new Error(data.error || '删除失败');
+          setFeedback('✓ 已删除：' + item.name);
+          await refreshMaterials();
+        } catch (err) { setFeedback('⚠ 删除失败：' + String(err.message || err)); }
+      };
       const frameRef = React.useRef(null);
       const frameReady = React.useRef(false);
       const stateLoaded = React.useRef(false);
@@ -3174,6 +3248,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
             : React.createElement('span', { className: 'dsh-canvas-hint' }, '图片可移动/缩放/旋转/裁剪 · 画笔标注'),
           React.createElement('button', { className: 'dsh-canvas-tb', title: '按文件名排序并整理成网格，可撤销', onClick: () => post({ type: 'arrange-images' }) }, '整理图片'),
           React.createElement('button', { className: 'dsh-canvas-tb', onClick: () => post({ type: 'export' }) }, '导出 PNG'),
+          React.createElement('button', { className: 'dsh-canvas-tb', title: '本地素材库：常用图片发送到画布或聊天', onClick: () => openMaterials() }, '素材库'),
           React.createElement('button', {
             className: 'dsh-canvas-tb dsh-canvas-more',
             title: '更多画布操作',
@@ -3321,6 +3396,36 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
             )
           )
         ) : null,
+        materials ? React.createElement('div', { className: 'dsh-materials-overlay', onPointerDown: (e) => { if (e.target === e.currentTarget) setMaterials(null); } },
+          React.createElement('div', { className: 'dsh-materials-panel' },
+            React.createElement('div', { className: 'dsh-materials-head' },
+              React.createElement('div', null,
+                React.createElement('div', { className: 'dsh-materials-title' }, '素材库'),
+                React.createElement('div', { className: 'dsh-materials-sub' }, '本地目录：' + (materials.dir || '(未就绪)'))
+              ),
+              React.createElement('button', { className: 'dsh-materials-close', onClick: () => setMaterials(null) }, '×')
+            ),
+            React.createElement('div', { className: 'dsh-materials-actions' },
+              React.createElement('button', { onClick: addSelectedToLibrary, disabled: !!materials.busy || !projectInfo.project }, '＋ 把画布选中图片存入素材库')
+            ),
+            materials.error ? React.createElement('div', { className: 'dsh-materials-error' }, materials.error) : null,
+            React.createElement('div', { className: 'dsh-materials-body' },
+              !materials.files.length
+                ? React.createElement('div', { className: 'dsh-materials-empty' }, '素材库为空。两种方式添加：① 在画布选中图片后点上方按钮；② 把图片文件直接放进上面的本地目录。')
+                : React.createElement('div', { className: 'dsh-materials-grid' },
+                    materials.files.map((item) => React.createElement('div', { key: item.name, className: 'dsh-materials-item' },
+                      React.createElement('img', { src: '/dsh-canvas/image?path=' + encodeURIComponent(materials.dir + '/' + item.name), loading: 'lazy', alt: item.name }),
+                      React.createElement('div', { className: 'dsh-materials-item-name', title: item.name }, item.name),
+                      React.createElement('div', { className: 'dsh-materials-item-actions' },
+                        React.createElement('button', { onClick: () => sendMaterialToCanvas(item) }, '发画布'),
+                        React.createElement('button', { onClick: () => sendMaterialToChat(item) }, '发聊天'),
+                        React.createElement('button', { className: 'dsh-materials-del', onClick: () => deleteMaterial(item) }, '删')
+                      )
+                    ))
+                )
+            )
+          )
+        ) : null,
         textRebuild ? React.createElement(TextRebuildPanel, {
           data: textRebuild,
           onClose: () => { if (!textRebuild.busy) setTextRebuild(null); },
@@ -3334,6 +3439,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
 
     // ---- styles ----
     const CSS = [
+      '.dsh-materials-overlay{position:absolute;inset:58px 0 0;z-index:40;display:flex;justify-content:flex-end;padding:14px;box-sizing:border-box;background:rgba(15,23,42,.45)}.dsh-materials-panel{display:flex;flex-direction:column;width:min(880px,calc(100% - 12px));max-height:100%;overflow:hidden;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:#15181e;color:#e5e7eb;box-shadow:0 24px 70px rgba(0,0,0,.4)}.dsh-materials-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.1)}.dsh-materials-title{font-size:15px;font-weight:700}.dsh-materials-sub{margin-top:4px;color:#9ca3af;font-size:11px;word-break:break-all}.dsh-materials-close{width:30px;height:30px;border:1px solid rgba(255,255,255,.12);border-radius:8px;background:#252932;color:#e5e7eb;font-size:20px;cursor:pointer}.dsh-materials-actions{display:flex;gap:8px;padding:10px 16px;border-bottom:1px solid rgba(255,255,255,.08)}.dsh-materials-actions button{padding:7px 10px;border:1px solid rgba(96,165,250,.42);border-radius:8px;background:rgba(37,99,235,.14);color:#bfdbfe;font:12px system-ui,sans-serif;cursor:pointer}.dsh-materials-actions button:disabled{opacity:.5;cursor:not-allowed}.dsh-materials-error{margin:8px 16px 0;padding:8px 10px;border-radius:8px;background:#2a171b;color:#fecaca;font-size:12px}.dsh-materials-empty{margin:16px;padding:26px 12px;border:1px dashed rgba(255,255,255,.2);border-radius:10px;color:#9ca3af;font-size:12px;text-align:center;line-height:1.6}.dsh-materials-body{flex:1;min-height:0;overflow:auto;padding:12px 16px}.dsh-materials-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}.dsh-materials-item{border:1px solid rgba(255,255,255,.1);border-radius:10px;background:#1b1f27;overflow:hidden}.dsh-materials-item img{display:block;width:100%;height:130px;object-fit:cover;background:#0d1015}.dsh-materials-item-name{padding:6px 8px 2px;font-size:11px;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dsh-materials-item-actions{display:flex;gap:6px;padding:6px 8px 8px}.dsh-materials-item-actions button{flex:1;padding:5px 6px;border:1px solid rgba(255,255,255,.14);border-radius:6px;background:#252932;color:#d1d5db;font:11px system-ui,sans-serif;cursor:pointer}.dsh-materials-item-actions button:hover{background:#303640}.dsh-materials-del:hover{background:#7f1d1d!important;color:#fecaca!important}@media (prefers-color-scheme:light){.dsh-materials-panel{border-color:#e2e8f0;background:#fff;color:#111827}.dsh-materials-head{border-color:#e5e7eb}.dsh-materials-sub{color:#64748b}.dsh-materials-close{background:#f8fafc;border-color:#e5e7eb;color:#334155}.dsh-materials-item{border-color:#e2e8f0;background:#f8fafc}.dsh-materials-item img{background:#eef2f7}.dsh-materials-item-name{color:#334155}.dsh-materials-item-actions button{background:#fff;border-color:#cbd5e1;color:#334155}.dsh-materials-item-actions button:hover{background:#e5e7eb}.dsh-materials-empty{border-color:#cbd5e1;color:#64748b}',
       '.dsh-canvas-dock{display:flex;align-items:center;box-sizing:border-box;width:calc(100% - 32px);max-width:768px;margin:0 auto;padding:2px 0}',
       '.dsh-canvas-attach-state{margin-left:8px;font-size:12px;color:var(--dsw-alias-label-secondary, #666)}',
       '.dsh-canvas-mode{display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:13px;line-height:1;padding:5px 12px;border-radius:999px;border:1px solid rgba(128,128,128,.4);background:transparent;color:var(--dsw-alias-label-primary, #333);cursor:pointer}',

@@ -1339,6 +1339,66 @@ function apply(ctx) {
           return;
         }
 
+        if (pathname === '/dsh-canvas/materials' && req.method === 'GET') {
+          // 画布素材库：工作区下“画布素材库/”目录的图片清单
+          const mcwd = expandHome(parseQuery(query).cwd || '');
+          try {
+            if (!mcwd || !isAbsolutePath(mcwd)) throw new Error('missing cwd');
+            const mdir = join(mcwd, '画布素材库');
+            await mkdir(mdir, { recursive: true });
+            const entries = await readdir(mdir);
+            const files = [];
+            for (const name of entries) {
+              if (name.startsWith('.')) continue;
+              const full = join(mdir, name);
+              try {
+                const st = await stat(full);
+                if (!st.isFile() || !isImagePath(name)) continue;
+                files.push({ name, size: st.size, mtime: st.mtimeMs });
+              } catch (err) {}
+            }
+            files.sort((a, b) => b.mtime - a.mtime);
+            respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true, dir: mdir, files }));
+          } catch (err) {
+            respond(res, 500, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: String((err && err.message) || err) }));
+          }
+          return;
+        }
+        if (pathname === '/dsh-canvas/materials/save' && req.method === 'POST') {
+          try {
+            const body = JSON.parse(await readBody(req) || '{}');
+            const mcwd = expandHome(String(body.cwd || ''));
+            if (!mcwd || !isAbsolutePath(mcwd)) throw new Error('missing cwd');
+            const mdir = join(mcwd, '画布素材库');
+            await mkdir(mdir, { recursive: true });
+            const decoded = decodeImageData(body.dataURL);
+            if (!decoded) throw new Error('图片数据无效或超过限制');
+            let name = basename(String(body.name || '').replace(/[\\/:*?"<>|]/g, '-').trim()) || ('素材-' + Date.now() + '.png');
+            if (!isImagePath(name)) name += '.' + (decoded.ext || 'png');
+            let target = join(mdir, name);
+            try { await access(target); target = join(mdir, Date.now() + '-' + name); } catch (err) {}
+            await writeFile(target, decoded.bytes);
+            respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true, name: basename(target), path: target }));
+          } catch (err) {
+            respond(res, 500, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: String((err && err.message) || err) }));
+          }
+          return;
+        }
+        if (pathname === '/dsh-canvas/materials/delete' && req.method === 'POST') {
+          try {
+            const body = JSON.parse(await readBody(req) || '{}');
+            const mcwd = expandHome(String(body.cwd || ''));
+            const name = basename(String(body.name || '').replace(/[\\/:*?"<>|]/g, ''));
+            if (!mcwd || !name) throw new Error('missing cwd or name');
+            const target = join(mcwd, '画布素材库', name);
+            if (!isImagePath(target)) throw new Error('仅允许删除图片文件');
+            await unlink(target);
+            respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true }));
+          } catch (err) {
+            respond(res, 500, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: String((err && err.message) || err) }));
+          }
+          return;
+        }
         if (pathname === '/dsh-canvas/projects' && req.method === 'GET') {
           const cwd = expandHome(parseQuery(query).cwd || '');
           if (!cwd) { respond(res, 400, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ error: 'missing cwd' })); return; }
