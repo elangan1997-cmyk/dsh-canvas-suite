@@ -150,7 +150,7 @@ x/y/width/height 是 0-1000 的整图归一化坐标；fontSize 是相对整图�
 按视觉上的一行或一个连续文字对象输出，不要把同一行无故拆分。text 必须忠实抄录，看不清时降低 confidence，不要猜成无意义字符。backgroundHint 简述该文字下方应恢复的局部背景。erasePrompt 用中文简述如何仅擦除框选文字并恢复背景，不得要求改变框外内容。fontFamily 只用 sans-serif/serif/rounded/display/monospace/handwriting，fontWeight 只用 normal/medium/bold，textAlign 只用 left/center/right。`;
 
 function parseModelJson(text) {
-  let raw = String(text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  let raw = String(text || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
   const first = raw.indexOf('{');
   const last = raw.lastIndexOf('}');
   if (first >= 0 && last > first) raw = raw.slice(first, last + 1);
@@ -190,7 +190,7 @@ function visionBlocks(value, width, height) {
   }).filter(Boolean).sort((a, b) => a.y - b.y || a.x - b.x);
 }
 
-async function analyzeTextWithCurrentModel(ctx, uploaded, body) {
+async function analyzeTextWithCurrentModel(ctx, uploaded, body, simplified) {
   const provider = String(body.provider || '').trim();
   const model = String(body.model || '').trim();
   if (!provider || !model) throw new Error('未取得当前聊天模型');
@@ -206,7 +206,9 @@ async function analyzeTextWithCurrentModel(ctx, uploaded, body) {
     y: Math.round(Math.max(0, Number(item.y || 0)) * 1000 / Math.max(1, attachment.height)),
     width: Math.round(Math.max(0, Number(item.width || 0)) * 1000 / Math.max(1, attachment.width)),
     height: Math.round(Math.max(0, Number(item.height || 0)) * 1000 / Math.max(1, attachment.height)) }));
-  const instruction = '用户框选区域（0-1000 整图归一化坐标）为：' + JSON.stringify(normalized)
+  const instruction = simplified
+    ? '请识别这张图片中出现的所有文字。只输出 JSON：{"blocks":[{"text":"文字内容","x":左,"y":上,"width":宽,"height":高}]}，坐标为 0-1000 整图归一化（左上角为原点）。尽量列全，看不清的也要尝试。'
+    : '用户框选区域（0-1000 整图归一化坐标）为：' + JSON.stringify(normalized)
     + '。只识别这些矩形内用户准备移除的文字。框外内容即使清晰可见也不要输出。请同时返回局部背景特征和 erasePrompt。';
   const message = createUserMessage({ source: { kind: 'plugin', plugin: name }, content: [{ type: 'text', text: instruction }, { type: 'image', attachment }] });
   const assembler = new BlockAssembler();
@@ -215,7 +217,9 @@ async function analyzeTextWithCurrentModel(ctx, uploaded, body) {
   const finish = assembler.finish;
   if (finish.kind !== 'stop') throw new Error('当前聊天模型识别未正常完成：' + finish.kind);
   const text = assembler.blocks().flatMap((block) => block.type === 'text' ? [block.text] : []).join('').trim();
-  return { value: parseModelJson(text), width: attachment.width, height: attachment.height, provider, model };
+  const value = parseModelJson(text);
+  if (!Array.isArray(value.blocks) || !value.blocks.length) throw new Error('模型返回 blocks 为空');
+  return { value: value, width: attachment.width, height: attachment.height, provider, model };
 }
 
 function sourcePathFromImageUrl(value) {
@@ -968,28 +972,32 @@ function apply(ctx) {
             const requestedCrops = Array.isArray(body.crops) ? body.crops.filter(validCrop).slice(0, 24) : (validCrop(body.crop) ? [body.crop] : []);
             // 用户先框选，再由聊天输入框当前模型理解选区内文字与背景。
             if (requestedCrops.length && body.provider && body.model) {
-              try {
-                const analyzed = await analyzeTextWithCurrentModel(ctx, uploaded, body);
+              let analyzed = null, visionErr = '';
+              // 两次尝试：第一次按选区任务；空结果/失败后自动换简化指令重试一次
+              for (let attempt = 0; attempt < 2 && !analyzed; attempt++) {
+                try {
+                  analyzed = await analyzeTextWithCurrentModel(ctx, uploaded, body, attempt === 1);
+                } catch (err) { visionErr = String((err && err.message) || err); }
+              }
+              if (!analyzed) {
+                visionWarning = '当前聊天模型(' + String(body.provider || '') + '/' + String(body.model || '') + ')识别失败，已自动切换本地 OCR：' + visionErr;
+              } else {
                 const intersects = (block, region) => Math.max(0, Math.min(block.x + block.width, region.x + region.width) - Math.max(block.x, region.x))
                   * Math.max(0, Math.min(block.y + block.height, region.y + region.height) - Math.max(block.y, region.y)) > 0;
                 const allBlocks = visionBlocks(analyzed.value, analyzed.width, analyzed.height);
                 const blocks = allBlocks.filter((block) => requestedCrops.some((region) => intersects(block, region)));
-                if (!allBlocks.length) throw new Error('模型未返回任何文字块（返回内容 ' + String(analyzed.value && analyzed.value.blocks ? 'blocks 为空' : '无法解析为文字块') + '，可能未理解选区或模型不支持该图）');
                 let cropWarning = '';
                 if (!blocks.length) {
-                  // 模型识别到了文字但坐标与选区不重叠：不再直接失败降级，
-                  // 返回全部结果由用户在面板中逐条排除（面板支持逐项勾选）。
+                  // 模型识别到了文字但坐标与选区不重叠：返回全部结果由用户逐条排除
                   cropWarning = '模型返回的 ' + allBlocks.length + ' 个文字块与选区坐标不重叠，已列出全部结果，请排除选区外的项';
                 }
                 respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({
-                  ok: true, width: analyzed.width, height: analyzed.height, blocks, crops: requestedCrops,
+                  ok: true, width: analyzed.width, height: analyzed.height, blocks: blocks.length ? blocks : allBlocks, crops: requestedCrops,
                   erasePrompt: String(analyzed.value.erasePrompt || '').slice(0, 1200),
                   engine: 'current-chat-model', provider: analyzed.provider, model: analyzed.model, styleEngine: 'current-chat-model',
                   warning: cropWarning
                 }));
                 return;
-              } catch (err) {
-                visionWarning = '当前聊天模型识别失败，已自动切换本地 OCR：' + String((err && err.message) || err);
               }
             } else if (requestedCrops.length) {
               visionWarning = '未取得聊天输入框的当前模型，已使用本地 OCR';
