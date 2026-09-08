@@ -52,6 +52,9 @@ for (const marker of ['materialSelection', 'filteredMaterials', 'attachSelectedM
 for (const marker of ['materialSelectMode', 'materialPreview', 'application/x-dsh-material', 'application/x-dsh-canvas-image', 'material-drag-start', 'source:\'context-menu\'', '加入素材库']) {
   if (!client.includes(marker)) throw new Error(`material drawer workflow missing: ${marker}`);
 }
+if (!client.includes("prev.includes(item.name) ? prev.filter((name) => name !== item.name) : prev.concat(item.name)")) throw new Error('material multi-select does not independently toggle each item');
+if (client.includes('const additive = !!(event && (event.metaKey || event.ctrlKey || event.shiftKey))')) throw new Error('material multi-select still requires keyboard modifiers');
+if (!client.includes('dsh-material-drag-action') || !client.includes('attempt < 12') || !client.includes("}, 1200);")) throw new Error('canvas-to-material drag handoff lacks a visible handle or iframe race protection');
 for (const marker of ['MATERIAL_LIBRARY_KEY', 'materialLibrary.recent', 'chooseMaterialDirectory', '/dsh-canvas/materials/select', '最近访问']) {
   if (!client.includes(marker)) throw new Error(`independent material directory workflow missing: ${marker}`);
 }

@@ -6,6 +6,11 @@
 - Keep the verified full Windows ZIP and standalone canvas ZIP with their published SHA-256 values.
 - Only Windows packages older than the r5 baseline are candidates for removal.
 
+## 1.6.5
+
+- 修复素材库显式“多选”模式只能保留一项的问题；现在普通点击即可逐项勾选或取消，无需按住 Command、Ctrl 或 Shift。
+- 修复高清画布图片快速拖入素材库时跨 iframe 数据尚未到达导致保存失败的问题；“加入素材库”按钮同时成为明确的拖拽入口。
+
 ## 1.6.4
 
 - 素材库目录与画布项目彻底解耦，可通过系统原生文件夹选择器自定义任意独立目录。

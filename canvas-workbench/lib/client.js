@@ -1396,6 +1396,7 @@ const EXCALIDRAW_SRCDOC = `<!doctype html><html><head><meta charset="utf-8"><sty
     .dsh-selection-action{position:relative;z-index:1;height:30px;padding:0 10px;border:0;border-radius:7px;background:transparent;color:#e2e8f0;font:600 12px/30px ui-rounded,"SF Pro Rounded",sans-serif;cursor:pointer;transition:background .12s ease,color .12s ease,transform .12s ease}
     .dsh-selection-action:hover{background:rgba(255,255,255,.1);color:#fff}
     .dsh-selection-action:active{transform:translateY(1px)}
+    .dsh-selection-action.dsh-material-drag-action{cursor:grab}.dsh-selection-action.dsh-material-drag-action:active{cursor:grabbing}
     .dsh-selection-action.dsh-primary{background:#2563eb;color:#fff}.dsh-selection-action.dsh-primary:hover{background:#3b82f6}
     .dsh-selection-action.dsh-photoshop{background:#001e36;color:#31a8ff}.dsh-selection-action.dsh-photoshop:hover{background:#0b2b46;color:#8dceff}
     .dsh-selection-action.dsh-illustrator{background:#3b1b08;color:#ff9a3d}.dsh-selection-action.dsh-illustrator:hover{background:#5a2608;color:#ffc078}
@@ -1596,7 +1597,7 @@ function Main(){
         toolbar.count>1?window.React.createElement('span',{className:'dsh-selection-count'},'已选 '+toolbar.count+' 张'):null,
         toolbar.count>1?window.React.createElement('span',{className:'dsh-selection-divider'}):null,
         window.React.createElement('button',{className:'dsh-selection-action dsh-primary',title:'把所选图片附加到聊天输入框',onClick:function(){sendSelectionToChat(toolbar.ids);}},'发送至聊天'),
-        window.React.createElement('button',{className:'dsh-selection-action',title:'把所选图片保存到当前打开的素材库',onClick:function(){saveSelectionToMaterials(toolbar.ids);}},'加入素材库'),
+        window.React.createElement('button',{className:'dsh-selection-action dsh-material-drag-action',draggable:true,title:'点击保存；也可按住拖到右侧素材库',onDragStart:function(e){e.stopPropagation();beginMaterialDrag(toolbar.ids,e);},onDragEnd:function(){post({type:'material-drag-end'});},onClick:function(){saveSelectionToMaterials(toolbar.ids);}},'加入素材库'),
         toolbar.count===1?window.React.createElement('button',{className:'dsh-selection-action',title:'本地 rembg isnet-general-use 去除背景；首次使用自动准备环境和模型',onClick:function(){requestBackgroundRemoval(toolbar.ids[0]);}},'去除背景'):null,
         toolbar.count===1?window.React.createElement('button',{className:'dsh-selection-action',title:'画笔涂抹后智能擦除',onClick:function(){openImageEditor('erase',toolbar.ids[0]);}},'智能擦除'):null,
         toolbar.count===1?window.React.createElement('button',{className:'dsh-selection-action',title:'不经过主聊天，直接输入图片修改需求',onClick:function(){openImageEditor('edit',toolbar.ids[0]);}},'编辑图片'):null,
@@ -2020,13 +2021,11 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
       };
       const selectedMaterials = materials ? materials.files.filter((item) => materialSelection.includes(item.name)) : [];
       const filteredMaterials = materials ? materials.files.filter((item) => !materialQuery.trim() || item.name.toLocaleLowerCase().includes(materialQuery.trim().toLocaleLowerCase())) : [];
-      const toggleMaterialSelection = (item, event) => {
+      const toggleMaterialSelection = (item) => {
         if (!item || !materialSelectMode) return;
-        const additive = !!(event && (event.metaKey || event.ctrlKey || event.shiftKey));
-        setMaterialSelection((prev) => {
-          if (!additive) return prev.length === 1 && prev[0] === item.name ? [] : [item.name];
-          return prev.includes(item.name) ? prev.filter((name) => name !== item.name) : prev.concat(item.name);
-        });
+        // “多选”本身就是显式模式：每次点击都追加或取消当前项，
+        // 不再要求用户额外按住 Command/Ctrl/Shift。
+        setMaterialSelection((prev) => prev.includes(item.name) ? prev.filter((name) => name !== item.name) : prev.concat(item.name));
       };
       const addSelectedMaterialsToCanvas = () => {
         if (!selectedMaterials.length) return;
@@ -2094,6 +2093,14 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
           let items = canvasMaterialDrag.current.slice();
           const files = Array.from(transfer.files || []).filter((file) => /^image\//i.test(file.type || '') || /\.(?:png|jpe?g|webp|gif|avif|bmp|svg)$/i.test(file.name || ''));
           if (files.length) items = await Promise.all(files.map(readDroppedFile));
+          // 高清 Base64 从 srcdoc iframe 传到父窗口可能比拖拽手势晚几十到数百毫秒。
+          // 松手后短暂等待数据到达，避免快速拖放被误判为“没有可保存的图片”。
+          if (!files.length && !items.length && materialTransferHas(transfer, 'application/x-dsh-canvas-image')) {
+            for (let attempt = 0; attempt < 12 && !items.length; attempt += 1) {
+              await new Promise((resolve) => setTimeout(resolve, 50));
+              items = canvasMaterialDrag.current.slice();
+            }
+          }
           await saveMaterialItems(items, files.length ? '已导入本地图片到当前素材库' : '已把画布图片拖入当前素材库');
           canvasMaterialDrag.current = [];
         } catch (err) {
@@ -2845,7 +2852,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
           canvasMaterialDrag.current = Array.isArray(d.items) ? d.items.filter((item) => item && item.dataURL) : [];
           setMaterialDropActive(false);
         } else if (d.type === 'material-drag-end') {
-          setTimeout(() => { canvasMaterialDrag.current = []; setMaterialDropActive(false); }, 120);
+          setTimeout(() => { canvasMaterialDrag.current = []; setMaterialDropActive(false); }, 1200);
         } else if (d.type === 'save-to-materials') {
           saveMaterialItems(d.items || [], d.source === 'context-menu' ? '右键所选图片已加入当前素材库' : '画布所选图片已加入当前素材库')
             .catch((err) => setFeedback('⚠ 加入当前素材库失败：' + String(err.message || err)));
@@ -3625,10 +3632,10 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
                       className: 'dsh-materials-item' + (materialSelection.includes(item.name) ? ' is-selected' : ''),
                       role: 'button', tabIndex: 0, draggable: true,
                       onDragStart: (event) => startMaterialDrag(event, item),
-                      onClick: (event) => materialSelectMode ? toggleMaterialSelection(item, event) : setMaterialPreview(item),
+                      onClick: () => materialSelectMode ? toggleMaterialSelection(item) : setMaterialPreview(item),
                       onDoubleClick: () => sendMaterialToCanvas(item),
-                      onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); materialSelectMode ? toggleMaterialSelection(item, event) : setMaterialPreview(item); } },
-                      title: materialSelectMode ? '点击勾选；按住 Command/Ctrl 可连续多选' : '拖入画布；单击预览；双击加入画布'
+                      onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); materialSelectMode ? toggleMaterialSelection(item) : setMaterialPreview(item); } },
+                      title: materialSelectMode ? '点击勾选或取消，可连续选择多张' : '拖入画布；单击预览；双击加入画布'
                     },
                       materialSelectMode
                         ? React.createElement('span', { className: 'dsh-materials-check', 'aria-hidden': true }, materialSelection.includes(item.name) ? '✓' : '')
