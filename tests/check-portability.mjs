@@ -49,6 +49,9 @@ if (!client.includes('/[*\\[\\]{}]/.test(candidate.split(/[?#]/, 1)[0])')) throw
 for (const marker of ['materialSelection', 'filteredMaterials', 'attachSelectedMaterialsToChat', 'deleteSelectedMaterials', '搜索文件名', '已选 ']) {
   if (!client.includes(marker)) throw new Error(`material library interaction missing: ${marker}`);
 }
+for (const marker of ['materialSelectMode', 'materialPreview', 'application/x-dsh-material', 'application/x-dsh-canvas-image', 'material-drag-start', 'source:\'context-menu\'', '加入素材库']) {
+  if (!client.includes(marker)) throw new Error(`material drawer workflow missing: ${marker}`);
+}
 if (!host.includes("'/dsh-canvas/materials/open'")) throw new Error('material library lacks native folder open endpoint');
 
 const macBuild = await readFile(resolve(root, 'mac-installer/build-macos-installer.sh'), 'utf8');

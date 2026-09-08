@@ -6,6 +6,13 @@
 - Keep the verified full Windows ZIP and standalone canvas ZIP with their published SHA-256 values.
 - Only Windows packages older than the r5 baseline are candidates for removal.
 
+## 1.6.3
+
+- 素材库改为画布右侧侧拉栏，打开时画布仍可查看和操作；素材卡片改成双列瀑布流。
+- 增加双向拖拽：素材可拖到画布落点，画布已选图片或本地图片可拖入当前素材库。
+- 默认卡片右上角显示放大预览；进入“多选”后才显示勾选框和底部批量操作。
+- 画布右键“添加到素材库中”和选中工具栏“加入素材库”统一保存到当前画布项目对应的素材库，并立即刷新侧栏。
+
 ## 1.6.2
 
 - 重新设计素材库交互：卡片单击选择、Command/Ctrl/Shift 多选、双击加入画布，移除每张卡片重复的三组操作按钮。

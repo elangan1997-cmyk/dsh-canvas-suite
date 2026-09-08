@@ -1442,7 +1442,7 @@ html,body,#ex-root,#ex-root>div,.excalidraw,.excalidraw-container{margin:0;width
   function pathWithin2(parent,child){var base=pathComparable2(parent),target=pathComparable2(child);if(!base||!target)return false;var insensitive=/^[A-Za-z]:/.test(base)||/^[A-Za-z]:/.test(target),left=insensitive?base.toLowerCase():base,right=insensitive?target.toLowerCase():target;return right===left||right.indexOf(left+"/")===0;}
   function cleanImageName(value,dataURL,forcedExt){var raw=Array.from(baseName2(value)).map(function(ch){var code=ch.charCodeAt(0);return code<32||[34,42,47,58,60,62,63,92,124].indexOf(code)>=0?"-":ch;}).join("").trim().slice(0,120);var mime=(String(dataURL||"").match(/^data:([^;]+)/i)||[])[1]||"image/png";var fallback=forcedExt||(mime==="image/jpeg"?"jpg":((mime.split("/")[1]||"png").replace("svg+xml","svg")));var dot=raw.lastIndexOf("."),base=(dot>0?raw.slice(0,dot):raw).replace(/[. ]+$/g,"").trim()||"画布图片";return base+"."+fallback;}
   function uniqueImageName(value,dataURL,exceptId,forcedExt){var wanted=cleanImageName(value,dataURL,forcedExt),dot=wanted.lastIndexOf("."),base=dot>0?wanted.slice(0,dot):wanted,ext=dot>0?wanted.slice(dot):"";var used={};(api&&api.getSceneElements?api.getSceneElements():[]).forEach(function(item){if(item&&item.type==="image"&&!item.isDeleted&&item.id!==exceptId){var n=item.customData&&item.customData.dshFileName;if(n)used[String(n).toLowerCase()]=true;}});var out=wanted,index=2;while(used[out.toLowerCase()])out=base+"-"+(index++)+ext;return out;}
-  function addImageDataURL(dataURL,dm,meta){if(!api)throw new Error("画布尚未就绪");if(typeof api.addFiles!=="function")throw new Error("当前 Excalidraw 不支持 addFiles");var now=Date.now();var token=now.toString(36)+"_"+Math.random().toString(36).slice(2,10);var fileId="f_"+token;var ratio=(dm&&dm.w&&dm.h&&dm.h>0)?dm.w/dm.h:1.6;var maxW=240,maxH=240,w,h;if(ratio>=1){w=maxW;h=Math.max(1,Math.round(maxW/ratio));}else{h=maxH;w=Math.max(1,Math.round(maxH*ratio));}var mime=(String(dataURL).match(/^data:([^;]+)/i)||[])[1]||"image/png";var appState=api.getAppState()||empty;var zoom=appState.zoom&&appState.zoom.value?appState.zoom.value:1;var baseX=(-Number(appState.scrollX||0))+80/zoom,baseY=(-Number(appState.scrollY||0))+90/zoom;var total=Number(meta&&meta.batchTotal||1),index=Number(meta&&meta.batchIndex);if(!(index>=0)){index=insertCount++;total=1;}var columns=total>1?Number(meta&&meta.batchColumns||Math.min(5,Math.ceil(Math.sqrt(total*1.35)))):4;var slot=total>1?index:(index%12),col=slot%columns,row=Math.floor(slot/columns);var x=baseX+col*300+(maxW-w)/2,y=baseY+row*320;var sourceExt=meta&&["psd","svg","pdf","ai"].indexOf(meta.kind)>=0?meta.kind:"";var fileName=uniqueImageName(meta&&meta.name,dataURL,null,sourceExt);var el={type:"image",id:"e_"+token,fileId:fileId,x:x,y:y,width:w,height:h,angle:0,strokeColor:"transparent",backgroundColor:"transparent",fillStyle:"solid",strokeWidth:1,strokeStyle:"solid",roughness:0,opacity:100,seed:Math.floor(Math.random()*1e9),version:1,versionNonce:Math.floor(Math.random()*1e9),isDeleted:false,groupIds:[],frameId:null,boundElements:null,updated:now,link:null,locked:false,customData:{dshFileName:fileName,dshSourcePath:String(meta&&meta.path||""),dshSourceMtime:Number(meta&&meta.mtime||0),dshSourceSize:Number(meta&&meta.size||0),dshSourceKind:String(meta&&meta.kind||"image"),dshManaged:!(meta&&meta.managed===false)},roundness:null,status:"saved",scale:[1,1]};api.addFiles([{id:fileId,dataURL:dataURL,mimeType:mime,created:now,lastRetrieved:now}]);api.updateScene({elements:(api.getSceneElements()||[]).concat([el]),appState:Object.assign({},appState)});if(total>1&&index===total-1)insertCount+=total;post({type:"added",name:fileName});}
+  function addImageDataURL(dataURL,dm,meta){if(!api)throw new Error("画布尚未就绪");if(typeof api.addFiles!=="function")throw new Error("当前 Excalidraw 不支持 addFiles");var now=Date.now();var token=now.toString(36)+"_"+Math.random().toString(36).slice(2,10);var fileId="f_"+token;var ratio=(dm&&dm.w&&dm.h&&dm.h>0)?dm.w/dm.h:1.6;var maxW=240,maxH=240,w,h;if(ratio>=1){w=maxW;h=Math.max(1,Math.round(maxW/ratio));}else{h=maxH;w=Math.max(1,Math.round(maxH*ratio));}var mime=(String(dataURL).match(/^data:([^;]+)/i)||[])[1]||"image/png";var appState=api.getAppState()||empty;var zoom=appState.zoom&&appState.zoom.value?appState.zoom.value:1;var baseX=(-Number(appState.scrollX||0))+80/zoom,baseY=(-Number(appState.scrollY||0))+90/zoom;var total=Number(meta&&meta.batchTotal||1),index=Number(meta&&meta.batchIndex);if(!(index>=0)){index=insertCount++;total=1;}var columns=total>1?Number(meta&&meta.batchColumns||Math.min(5,Math.ceil(Math.sqrt(total*1.35)))):4;var slot=total>1?index:(index%12),col=slot%columns,row=Math.floor(slot/columns);var hasDrop=meta&&Number.isFinite(Number(meta.dropClientX))&&Number.isFinite(Number(meta.dropClientY));var x=hasDrop?((Number(meta.dropClientX)-Number(appState.offsetLeft||0))/zoom-Number(appState.scrollX||0)-w/2):(baseX+col*300+(maxW-w)/2),y=hasDrop?((Number(meta.dropClientY)-Number(appState.offsetTop||0))/zoom-Number(appState.scrollY||0)-h/2):(baseY+row*320);var sourceExt=meta&&["psd","svg","pdf","ai"].indexOf(meta.kind)>=0?meta.kind:"";var fileName=uniqueImageName(meta&&meta.name,dataURL,null,sourceExt);var el={type:"image",id:"e_"+token,fileId:fileId,x:x,y:y,width:w,height:h,angle:0,strokeColor:"transparent",backgroundColor:"transparent",fillStyle:"solid",strokeWidth:1,strokeStyle:"solid",roughness:0,opacity:100,seed:Math.floor(Math.random()*1e9),version:1,versionNonce:Math.floor(Math.random()*1e9),isDeleted:false,groupIds:[],frameId:null,boundElements:null,updated:now,link:null,locked:false,customData:{dshFileName:fileName,dshSourcePath:String(meta&&meta.path||""),dshSourceMtime:Number(meta&&meta.mtime||0),dshSourceSize:Number(meta&&meta.size||0),dshSourceKind:String(meta&&meta.kind||"image"),dshManaged:!(meta&&meta.managed===false)},roundness:null,status:"saved",scale:[1,1]};api.addFiles([{id:fileId,dataURL:dataURL,mimeType:mime,created:now,lastRetrieved:now}]);api.updateScene({elements:(api.getSceneElements()||[]).concat([el]),appState:Object.assign({},appState)});if(total>1&&index===total-1)insertCount+=total;post({type:"added",name:fileName});}
 
 function dims2(d){return new Promise(function(res){var i=new Image();i.onload=function(){res({w:i.naturalWidth,h:i.naturalHeight})};i.onerror=function(){res({w:200,h:130})};i.src=d});}
   function aspectCorrectedSize(item,dm){var actual=dm&&dm.w&&dm.h?dm.w/dm.h:0,current=Number(item&&item.width||1)/Math.max(1,Number(item&&item.height||1));if(!actual||Math.abs(current/actual-1)<.01)return null;var edge=Math.max(1,Number(item.width||240),Number(item.height||240));return actual>=1?{width:edge,height:Math.max(1,Math.round(edge/actual))}:{width:Math.max(1,Math.round(edge*actual)),height:edge};}
@@ -1563,10 +1563,11 @@ function Main(){
         var node=e.target,hit=null;
         while(node&&node!==document){var t=(node.textContent||'').trim();if(t==='添加到素材库中'||t==='添加到素材库'){hit=node;break;}node=node.parentNode;}
         if(!hit)return;
+        e.preventDefault();e.stopPropagation();if(typeof e.stopImmediatePropagation==='function')e.stopImmediatePropagation();
         var sel=(api&&api.getSceneElements?api.getSceneElements():[]).filter(function(x){return x&&x.type==='image'&&!x.isDeleted&&api.getAppState&&api.getAppState().selectedElementIds&&api.getAppState().selectedElementIds[x.id];});
         var files=fileObject(api.getFiles?api.getFiles():{});
         var payload=sel.map(function(x){var f=files[x.fileId];return f&&f.dataURL?{name:(x.customData&&x.customData.dshFileName)||('素材-'+String(x.id).slice(-6)+'.png'),dataURL:f.dataURL}:null;}).filter(Boolean);
-        if(payload.length)post({type:'save-to-materials',items:payload});
+        if(payload.length){post({type:'save-to-materials',items:payload,source:'context-menu'});if(api&&api.updateScene)api.updateScene({appState:Object.assign({},api.getAppState()||empty,{openMenu:null,contextMenu:null})});}
       }catch(err){}
     },true);
     var onCanvasChange=function(el,st,fl){
@@ -1580,6 +1581,9 @@ function Main(){
     var openInIllustrator=function(id){if(!api)return;var target=(api.getSceneElements?api.getSceneElements():[]).find(function(item){return item&&item.id===id&&item.type==="image"&&!item.isDeleted;}),custom=target&&target.customData||{},kind=String(custom.dshSourceKind||"");if(!target||["svg","pdf","ai"].indexOf(kind)<0||!custom.dshSourcePath){post({type:"error",message:"Illustrator 编辑需要 SVG、PDF 或 AI 源文件"});return;}post({type:"request-illustrator-edit",elementId:id,name:custom.dshFileName||("画布文件-"+String(id).slice(-6)),sourcePath:custom.dshSourcePath,sourceKind:kind});};
     var requestVectorize=function(id,vectorMode){if(!api)return;var target=(api.getSceneElements?api.getSceneElements():[]).find(function(item){return item&&item.id===id&&item.type==="image"&&!item.isDeleted;}),files=fileObject(api.getFiles?api.getFiles():{}),file=target&&files[target.fileId],custom=target&&target.customData||{},kind=String(custom.dshSourceKind||"image"),mimeMatch=String(file&&file.dataURL||"").match(/^data:([^;]+);base64,/i),mime=mimeMatch?String(mimeMatch[1]).toLowerCase():"",rasterMime=["image/png","image/jpeg","image/jpg","image/webp","image/gif","image/avif","image/bmp"].indexOf(mime)>=0;if(!target||!file||!file.dataURL||["image","psd"].indexOf(kind)<0||!rasterMime){post({type:"error",message:"当前图片不适合转矢量，请选择 PNG/JPG/WebP 等栅格图片"});return;}post({type:"request-vectorize",elementId:id,fileId:target.fileId,name:custom.dshFileName||("画布图片-"+String(id).slice(-6)+".png"),sourcePath:custom.dshSourcePath||"",imageData:file.dataURL,vectorMode:vectorMode||"flat"});};
     var requestTextRebuild=function(id){if(!api)return;var target=(api.getSceneElements?api.getSceneElements():[]).find(function(item){return item&&item.id===id&&item.type==="image"&&!item.isDeleted;}),files=fileObject(api.getFiles?api.getFiles():{}),file=target&&files[target.fileId];if(!target||!file||!file.dataURL){post({type:"error",message:"当前图片数据不可用"});return;}var custom=target.customData||{};post({type:"request-text-rebuild",elementId:id,fileId:target.fileId,name:custom.dshFileName||("画布图片-"+String(id).slice(-6)+".png"),sourcePath:custom.dshSourcePath||"",imageData:file.dataURL});};
+    var materialPayloadForSelection=function(ids){if(!api)return[];var wanted=new Set(Array.isArray(ids)?ids:[]),files=fileObject(api.getFiles?api.getFiles():{});return (api.getSceneElements?api.getSceneElements():[]).filter(function(item){return item&&item.type==="image"&&!item.isDeleted&&wanted.has(item.id);}).map(function(item,index){var file=files[item.fileId],custom=item.customData||{};return file&&file.dataURL?{dataURL:file.dataURL,name:custom.dshFileName||("画布素材-"+(index+1)+"-"+String(item.id).slice(-6)+".png")}:null;}).filter(Boolean);};
+    var saveSelectionToMaterials=function(ids){var items=materialPayloadForSelection(ids);if(items.length)post({type:"save-to-materials",items:items,source:"selection-toolbar"});else post({type:"error",message:"所选图片暂时无法读取"});};
+    var beginMaterialDrag=function(ids,event){var items=materialPayloadForSelection(ids);if(!items.length)return;if(event&&event.dataTransfer){event.dataTransfer.effectAllowed="copy";event.dataTransfer.setData("application/x-dsh-canvas-image",JSON.stringify({count:items.length}));event.dataTransfer.setData("text/plain",items.length===1?items[0].name:(items.length+" 张画布图片"));}post({type:"material-drag-start",items:items});};
     var sendSelectionToChat=function(ids){if(!api)return;var wanted=new Set(Array.isArray(ids)?ids:[]),files=fileObject(api.getFiles?api.getFiles():{}),images=(api.getSceneElements?api.getSceneElements():[]).filter(function(item){return item&&item.type==="image"&&!item.isDeleted&&wanted.has(item.id);}).map(function(item,index){var file=files[item.fileId],custom=item.customData||{};return file&&file.dataURL?{dataURL:file.dataURL,name:custom.dshFileName||("canvas-selection-"+(index+1)+"-"+String(item.id).slice(-6)+".png"),width:Math.max(1,Number(item.width||0)),height:Math.max(1,Number(item.height||0)),sourceKind:String(custom.dshSourceKind||"image")} : null;}).filter(Boolean);if(!images.length){post({type:"error",message:"所选图片暂时无法读取，请稍后重试"});return;}var batchId="chat_"+Date.now().toString(36)+"_"+Math.random().toString(36).slice(2,7);images.forEach(function(image,index){setTimeout(function(){post({type:"request-send-selection-item",batchId:batchId,index:index+1,total:images.length,image:image});},index*90);});};
     var requestBackgroundRemoval=function(id){if(!api)return;var target=(api.getSceneElements()||[]).find(function(item){return item&&item.id===id&&item.type==="image"&&!item.isDeleted;}),files=fileObject(api.getFiles?api.getFiles():{}),file=target&&files[target.fileId];if(!target||!file||!file.dataURL){post({type:"error",message:"当前图片数据不可用"});return;}try{var custom=target.customData||{},job=createEditPlaceholder({id:id},"本地 rembg · isnet-general-use · 首次使用自动准备"),name=custom.dshFileName||("画布图片-"+String(id).slice(-6)+".png");post({type:"request-remove-background",requestId:job.requestId,placeholderId:job.placeholderId,elementId:id,fileId:target.fileId,name:name,imageData:file.dataURL,imagePath:custom.dshSourcePath||""});}catch(err){post({type:"error",message:String(err&&err.message||err)});}};
     var submitImageEdit=function(payload){if(!imageEditor||imageEditor.busy)return;try{var job=createEditPlaceholder(imageEditor),request=Object.assign({},imageEditor);setImageEditor(null);post({type:"request-image-edit",requestId:job.requestId,placeholderId:job.placeholderId,elementId:request.id,fileId:request.fileId,name:request.name,imageData:request.dataURL,imagePath:request.sourcePath,editRootPath:request.editRootPath,editHistory:request.editHistory,editDepth:request.editDepth,mode:request.mode,prompt:payload.prompt,maskData:payload.maskData,width:request.width,height:request.height});}catch(err){setImageEditor(Object.assign({},imageEditor,{busy:false,error:String(err&&err.message||err)}));}};
@@ -1587,10 +1591,11 @@ function Main(){
       window.React.createElement('div',{style:{position:'absolute',inset:0}},window.React.createElement(window.ExcalidrawLib.Excalidraw,{excalidrawAPI:function(a){api=a;if(!ready){ready=true;post({type:"ready"})}},initialData:{elements:[],appState:empty,files:{}},onChange:onCanvasChange,viewModeEnabled:false,zenModeEnabled:false,langCode:"zh-CN"})),
       window.React.createElement('div',{className:'dsh-name-layer'},labels.filter(function(item){return (editing&&editing.id===item.id)||item.selected;}).map(function(item){var labelStyle={left:item.left+'px',top:item.top+'px',width:item.width+'px',minWidth:item.minWidth+'px',maxWidth:item.maxWidth+'px',height:item.height+'px',padding:'3px '+item.paddingX+'px',fontSize:item.fontSize+'px',lineHeight:Math.max(10,item.height-6)+'px',borderRadius:Math.max(4,Math.round(6*item.fontSize/11))+'px',transform:'translateY(-'+item.offsetY+'px)'};return editing&&editing.id===item.id
         ?window.React.createElement('input',{key:item.id,className:'dsh-image-name-input',style:labelStyle,autoFocus:true,value:editing.value,spellCheck:false,onPointerDown:function(e){e.stopPropagation()},onChange:function(e){setEditing({id:item.id,value:e.target.value})},onBlur:commitName,onKeyDown:function(e){e.stopPropagation();if(e.key==='Enter')commitName();else if(e.key==='Escape')setEditing(null)}})
-        :window.React.createElement('div',{key:item.id,className:'dsh-image-name-plain',style:{left:item.left+'px',top:item.top+'px',transform:'translateY(-'+item.offsetY+'px)',fontSize:item.fontSize+'px',lineHeight:1.15,color:'#94a3b8',fontWeight:500,letterSpacing:'.2px',whiteSpace:'nowrap',pointerEvents:'auto',cursor:'pointer',textShadow:'0 1px 2px rgba(255,255,255,.55)'},title:'双击修改文件名：'+item.name,onDoubleClick:function(e){e.preventDefault();e.stopPropagation();setEditing({id:item.id,value:displayImageName(item.name)})}},item.displayName);}),toolbar?window.React.createElement('div',{className:'dsh-selection-toolbar',style:{left:toolbar.left+'px',top:toolbar.top+'px'},onPointerDown:function(e){e.preventDefault();e.stopPropagation();},onClick:function(e){e.stopPropagation();}},
+        :window.React.createElement('div',{key:item.id,className:'dsh-image-name-plain',draggable:true,style:{left:item.left+'px',top:item.top+'px',transform:'translateY(-'+item.offsetY+'px)',fontSize:item.fontSize+'px',lineHeight:1.15,color:'#94a3b8',fontWeight:500,letterSpacing:'.2px',whiteSpace:'nowrap',pointerEvents:'auto',cursor:'grab',textShadow:'0 1px 2px rgba(255,255,255,.55)'},title:'拖到右侧素材库；双击修改文件名：'+item.name,onDragStart:function(e){e.stopPropagation();beginMaterialDrag((api&&api.getAppState&&Object.keys(api.getAppState().selectedElementIds||{}))||[item.id],e);},onDragEnd:function(){post({type:'material-drag-end'});},onDoubleClick:function(e){e.preventDefault();e.stopPropagation();setEditing({id:item.id,value:displayImageName(item.name)})}},item.displayName);}),toolbar?window.React.createElement('div',{className:'dsh-selection-toolbar',style:{left:toolbar.left+'px',top:toolbar.top+'px'},onPointerDown:function(e){e.preventDefault();e.stopPropagation();},onClick:function(e){e.stopPropagation();}},
         toolbar.count>1?window.React.createElement('span',{className:'dsh-selection-count'},'已选 '+toolbar.count+' 张'):null,
         toolbar.count>1?window.React.createElement('span',{className:'dsh-selection-divider'}):null,
         window.React.createElement('button',{className:'dsh-selection-action dsh-primary',title:'把所选图片附加到聊天输入框',onClick:function(){sendSelectionToChat(toolbar.ids);}},'发送至聊天'),
+        window.React.createElement('button',{className:'dsh-selection-action',title:'把所选图片保存到当前项目的素材库',onClick:function(){saveSelectionToMaterials(toolbar.ids);}},'加入素材库'),
         toolbar.count===1?window.React.createElement('button',{className:'dsh-selection-action',title:'本地 rembg isnet-general-use 去除背景；首次使用自动准备环境和模型',onClick:function(){requestBackgroundRemoval(toolbar.ids[0]);}},'去除背景'):null,
         toolbar.count===1?window.React.createElement('button',{className:'dsh-selection-action',title:'画笔涂抹后智能擦除',onClick:function(){openImageEditor('erase',toolbar.ids[0]);}},'智能擦除'):null,
         toolbar.count===1?window.React.createElement('button',{className:'dsh-selection-action',title:'不经过主聊天，直接输入图片修改需求',onClick:function(){openImageEditor('edit',toolbar.ids[0]);}},'编辑图片'):null,
@@ -1639,8 +1644,11 @@ function prepareExternalImage(file){
 function uniqueExternalFiles(list){var seen=new Set();return list.filter(function(file){var key=[file.name||"",file.size||0,file.lastModified||0,file.type||""].join("|");if(seen.has(key))return false;seen.add(key);return true;});}
 function externalFileKind(file){var name=String(file&&file.name||"");if(!name||name.charAt(0)==="."||name.slice(0,2)==="._")return"";var m=/\.([a-z0-9]+)$/i.exec(name),ext=m?m[1].toLowerCase():"",mime=String(file&&file.type||"").toLowerCase();if(ext==="psd"||mime==="image/vnd.adobe.photoshop")return"psd";if(ext==="svg")return"svg";if(ext==="pdf")return"pdf";if(ext==="ai")return"ai";if(["png","jpg","jpeg","webp","gif","avif","bmp"].indexOf(ext)>=0||(mime.indexOf("image/")===0&&mime!=="image/vnd.adobe.photoshop"))return"image";return"";}
 function isSupportedExternalFile(file){return !!externalFileKind(file);}
-window.addEventListener("dragover",function(e){var files=e.dataTransfer&&e.dataTransfer.files;if(files&&Array.prototype.some.call(files,isSupportedExternalFile)){e.preventDefault();e.stopImmediatePropagation();e.dataTransfer.dropEffect="copy";}},true);
+function transferHas(dt,type){return Array.prototype.indexOf.call(dt&&dt.types||[],type)>=0;}
+window.addEventListener("dragover",function(e){var files=e.dataTransfer&&e.dataTransfer.files;if((files&&Array.prototype.some.call(files,isSupportedExternalFile))||transferHas(e.dataTransfer,"application/x-dsh-material")){e.preventDefault();e.stopImmediatePropagation();e.dataTransfer.dropEffect="copy";}},true);
 window.addEventListener("drop",function(e){
+  var materialRaw=e.dataTransfer&&e.dataTransfer.getData("application/x-dsh-material");
+  if(materialRaw){e.preventDefault();e.stopImmediatePropagation();try{var material=JSON.parse(materialRaw);if(!material||!material.url)throw new Error("素材数据无效");insertChain=insertChain.catch(function(){}).then(function(){return fetch(material.url,{cache:"no-store"}).then(function(r){if(!r.ok)throw new Error("读取素材失败 HTTP "+r.status);return r.blob();}).then(blobToDataURL).then(function(dataURL){return dims2(dataURL).then(function(dm){addImageDataURL(dataURL,dm,{name:material.name||"素材.png",path:material.path||"",size:Number(material.size||0),managed:false,dropClientX:e.clientX,dropClientY:e.clientY});});});}).catch(function(err){post({type:"error",message:"素材拖入画布失败: "+String(err&&err.message||err)});});}catch(err){post({type:"error",message:"素材拖入画布失败: "+String(err&&err.message||err)});}return;}
   var files=e.dataTransfer&&e.dataTransfer.files?uniqueExternalFiles(Array.from(e.dataTransfer.files).filter(isSupportedExternalFile)):[];
   if(!files.length)return;e.preventDefault();e.stopImmediatePropagation();
   insertChain=insertChain.catch(function(){}).then(async function(){
@@ -1891,11 +1899,17 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
       const [materials, setMaterials] = React.useState(null);
       const [materialQuery, setMaterialQuery] = React.useState('');
       const [materialSelection, setMaterialSelection] = React.useState([]);
+      const [materialSelectMode, setMaterialSelectMode] = React.useState(false);
+      const [materialPreview, setMaterialPreview] = React.useState(null);
+      const [materialDropActive, setMaterialDropActive] = React.useState(false);
+      const canvasMaterialDrag = React.useRef([]);
       const openMaterials = async () => {
         const current = projectRef.current;
         if (!current.cwd) { setFeedback('⚠ 请先打开一个画布项目'); return; }
         setMaterialQuery('');
         setMaterialSelection([]);
+        setMaterialSelectMode(false);
+        setMaterialPreview(null);
         setMaterials({ dir: '', files: [], busy: true, error: '' });
         try {
           const r = await fetch('/dsh-canvas/materials?cwd=' + encodeURIComponent(current.cwd));
@@ -1922,6 +1936,23 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
           setFeedback('✓ 已打开素材目录');
         } catch (err) { setFeedback('⚠ 无法打开素材目录：' + String(err.message || err)); }
       };
+      const saveMaterialItems = async (items, sourceLabel) => {
+        const current = projectRef.current;
+        if (!current.project) throw new Error('请先打开一个画布项目');
+        const valid = (Array.isArray(items) ? items : []).filter((item) => item && item.dataURL);
+        if (!valid.length) throw new Error('没有可保存的图片数据');
+        let saved = 0;
+        for (const item of valid) {
+          const r = await fetch('/dsh-canvas/materials/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cwd: current.cwd, project: current.project, name: item.name, dataURL: item.dataURL }) });
+          const data = await r.json();
+          if (!r.ok || !data.ok) throw new Error(data.error || '保存失败');
+          saved += 1;
+        }
+        setFeedback('✓ ' + (sourceLabel || '已存入当前素材库') + ' ' + saved + ' 项');
+        if (materials) await refreshMaterials();
+        else await openMaterials();
+        return saved;
+      };
       const addSelectedToLibrary = async () => {
         const current = projectRef.current;
         if (!current.project) { setFeedback('⚠ 请先打开一个画布项目'); return; }
@@ -1932,19 +1963,13 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
           const selectedIds = appState.selectedElementIds || {};
           const selected = (snapshot.elements || []).filter((x) => x && x.type === 'image' && !x.isDeleted && selectedIds[x.id]);
           if (!selected.length) throw new Error('请先在画布中选中图片');
-          let saved = 0;
+          const items = [];
           for (const el of selected) {
             const file = (snapshot.files || {})[el.fileId];
             if (!file || !file.dataURL) continue;
-            const name = (el.customData && el.customData.dshFileName) || ('素材-' + Date.now() + '-' + saved + '.png');
-            const r = await fetch('/dsh-canvas/materials/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cwd: current.cwd, name, dataURL: file.dataURL }) });
-            const data = await r.json();
-            if (!data.ok) throw new Error(data.error || '保存失败');
-            saved += 1;
+            items.push({ name: (el.customData && el.customData.dshFileName) || ('素材-' + Date.now() + '-' + items.length + '.png'), dataURL: file.dataURL });
           }
-          if (!saved) throw new Error('选中的图片数据不可用');
-          setFeedback('✓ 已存入素材库 ' + saved + ' 项');
-          await refreshMaterials();
+          await saveMaterialItems(items, '已把画布选中图片存入当前素材库');
         } catch (err) { setMaterials((prev) => prev ? { ...prev, busy: false, error: String(err.message || err) } : prev); }
       };
       const sendMaterialToCanvas = (item) => {
@@ -1956,7 +1981,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
       const selectedMaterials = materials ? materials.files.filter((item) => materialSelection.includes(item.name)) : [];
       const filteredMaterials = materials ? materials.files.filter((item) => !materialQuery.trim() || item.name.toLocaleLowerCase().includes(materialQuery.trim().toLocaleLowerCase())) : [];
       const toggleMaterialSelection = (item, event) => {
-        if (!item) return;
+        if (!item || !materialSelectMode) return;
         const additive = !!(event && (event.metaKey || event.ctrlKey || event.shiftKey));
         setMaterialSelection((prev) => {
           if (!additive) return prev.length === 1 && prev[0] === item.name ? [] : [item.name];
@@ -2003,6 +2028,43 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
           setFeedback('✓ 已从素材库删除 ' + selectedMaterials.length + ' 项');
           await refreshMaterials();
         } catch (err) { setMaterials((prev) => prev ? { ...prev, busy: false, error: String(err.message || err) } : prev); }
+      };
+      const materialTransferHas = (dataTransfer, type) => Array.from(dataTransfer && dataTransfer.types || []).includes(type);
+      const readDroppedFile = (file) => new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve({ name: file.name || ('素材-' + Date.now() + '.png'), dataURL: reader.result });
+        reader.onerror = () => reject(new Error((file.name || '图片') + ' 读取失败'));
+        reader.readAsDataURL(file);
+      });
+      const onMaterialDragOver = (event) => {
+        const transfer = event.dataTransfer;
+        if (!materialTransferHas(transfer, 'application/x-dsh-canvas-image') && !materialTransferHas(transfer, 'Files')) return;
+        event.preventDefault();
+        event.stopPropagation();
+        transfer.dropEffect = 'copy';
+        setMaterialDropActive(true);
+      };
+      const onMaterialDrop = async (event) => {
+        const transfer = event.dataTransfer;
+        if (!materialTransferHas(transfer, 'application/x-dsh-canvas-image') && !materialTransferHas(transfer, 'Files')) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setMaterialDropActive(false);
+        try {
+          let items = canvasMaterialDrag.current.slice();
+          const files = Array.from(transfer.files || []).filter((file) => /^image\//i.test(file.type || '') || /\.(?:png|jpe?g|webp|gif|avif|bmp|svg)$/i.test(file.name || ''));
+          if (files.length) items = await Promise.all(files.map(readDroppedFile));
+          await saveMaterialItems(items, files.length ? '已导入本地图片到当前素材库' : '已把画布图片拖入当前素材库');
+          canvasMaterialDrag.current = [];
+        } catch (err) {
+          setFeedback('⚠ 拖入素材库失败：' + String(err.message || err));
+        }
+      };
+      const startMaterialDrag = (event, item) => {
+        const path = materials.dir + '/' + item.name;
+        event.dataTransfer.effectAllowed = 'copy';
+        event.dataTransfer.setData('application/x-dsh-material', JSON.stringify({ url: '/dsh-canvas/image?path=' + encodeURIComponent(path), path, name: item.name, size: item.size || 0 }));
+        event.dataTransfer.setData('text/plain', item.name);
       };
       const frameRef = React.useRef(null);
       const frameReady = React.useRef(false);
@@ -2739,22 +2801,14 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
               setFeedback('✓ 已在 Illustrator 中打开 ' + String(result.data.kind || d.sourceKind || '源文件') + '；保存后画布约 8 秒内更新');
             })
             .catch((err) => setFeedback('⚠ Illustrator 打开失败：' + String((err && err.message) || err)));
+        } else if (d.type === 'material-drag-start') {
+          canvasMaterialDrag.current = Array.isArray(d.items) ? d.items.filter((item) => item && item.dataURL) : [];
+          setMaterialDropActive(false);
+        } else if (d.type === 'material-drag-end') {
+          setTimeout(() => { canvasMaterialDrag.current = []; setMaterialDropActive(false); }, 120);
         } else if (d.type === 'save-to-materials') {
-          const current = projectRef.current;
-          if (!current.project) { setFeedback('⚠ 请先打开一个画布项目'); return; }
-          (async () => {
-            let savedCount = 0, lastError = '';
-            for (const item of (d.items || [])) {
-              try {
-                const r = await fetch('/dsh-canvas/materials/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cwd: current.cwd, name: item.name, dataURL: item.dataURL }) });
-                const data = await r.json();
-                if (!data.ok) throw new Error(data.error || '保存失败');
-                savedCount++;
-              } catch (err) { lastError = String(err.message || err); }
-            }
-            setFeedback(savedCount ? ('✓ 已加入本地素材库 ' + savedCount + ' 项' + (lastError ? '；' + lastError : '')) : ('⚠ 加入素材库失败：' + lastError));
-            if (materials) await refreshMaterials();
-          })();
+          saveMaterialItems(d.items || [], d.source === 'context-menu' ? '右键所选图片已加入当前素材库' : '画布所选图片已加入当前素材库')
+            .catch((err) => setFeedback('⚠ 加入当前素材库失败：' + String(err.message || err)));
         } else if (d.type === 'request-text-rebuild') {
           const base = { elementId: d.elementId, name: d.name || '当前图片', dataURL: d.imageData || '', loading: false, busy: false, hasDetected: false, blocks: [], erasePrompt: '', selection: null, selections: [], width: 0, height: 0, error: '' };
           setTextRebuild(base);
@@ -3470,14 +3524,24 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
             )
           )
         ) : null,
-        materials ? React.createElement('div', { className: 'dsh-materials-overlay', onPointerDown: (e) => { if (e.target === e.currentTarget) setMaterials(null); } },
-          React.createElement('div', { className: 'dsh-materials-panel' },
+        materials ? React.createElement('div', { className: 'dsh-materials-overlay' },
+          React.createElement('aside', {
+            className: 'dsh-materials-panel' + (materialDropActive ? ' is-drop-active' : ''),
+            onDragOver: onMaterialDragOver,
+            onDragEnter: onMaterialDragOver,
+            onDragLeave: (event) => { if (!event.currentTarget.contains(event.relatedTarget)) setMaterialDropActive(false); },
+            onDrop: onMaterialDrop
+          },
             React.createElement('div', { className: 'dsh-materials-head' },
               React.createElement('div', null,
                 React.createElement('div', { className: 'dsh-materials-title' }, '素材库', React.createElement('span', { className: 'dsh-materials-count' }, materials.files.length + ' 项')),
-                React.createElement('div', { className: 'dsh-materials-sub', title: materials.dir || '' }, materials.dir || '正在读取本地素材目录…')
+                React.createElement('div', { className: 'dsh-materials-sub', title: materials.dir || '' }, projectInfo.project ? ('当前项目 · ' + basename(projectInfo.project)) : '正在读取当前项目…')
               ),
               React.createElement('button', { className: 'dsh-materials-close', title: '关闭素材库', 'aria-label': '关闭素材库', onClick: () => setMaterials(null) }, '×')
+            ),
+            React.createElement('div', { className: 'dsh-materials-dropzone' },
+              React.createElement('strong', null, materialDropActive ? '松开即可存入当前素材库' : '拖入画布图片或本地图片'),
+              React.createElement('span', null, '也可把下方素材拖到左侧画布')
             ),
             React.createElement('div', { className: 'dsh-materials-toolbar' },
               React.createElement('label', { className: 'dsh-materials-search' },
@@ -3485,9 +3549,10 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
                 React.createElement('input', { value: materialQuery, placeholder: '搜索文件名', onChange: (e) => setMaterialQuery(e.target.value), autoFocus: true })
               ),
               React.createElement('div', { className: 'dsh-materials-toolbar-actions' },
-                React.createElement('button', { onClick: addSelectedToLibrary, disabled: !!materials.busy || !projectInfo.project, title: '把当前画布中选中的一张或多张图片保存为常用素材' }, '＋ 保存画布选中项'),
-                React.createElement('button', { onClick: refreshMaterials, disabled: !!materials.busy, title: '重新读取素材目录' }, '刷新'),
-                React.createElement('button', { onClick: openMaterialsFolder, disabled: !materials.dir, title: '在系统文件管理器中打开素材目录' }, '打开目录')
+                React.createElement('button', { className: materialSelectMode ? 'is-active' : '', onClick: () => { setMaterialSelectMode((value) => !value); setMaterialSelection([]); }, title: materialSelectMode ? '退出多选' : '批量选择素材' }, materialSelectMode ? '完成' : '多选'),
+                React.createElement('button', { onClick: addSelectedToLibrary, disabled: !!materials.busy || !projectInfo.project, title: '把当前画布中选中的一张或多张图片保存到这里' }, '＋'),
+                React.createElement('button', { onClick: refreshMaterials, disabled: !!materials.busy, title: '刷新素材' }, '↻'),
+                React.createElement('button', { onClick: openMaterialsFolder, disabled: !materials.dir, title: '打开素材目录' }, '⌁')
               )
             ),
             materials.error ? React.createElement('div', { className: 'dsh-materials-error' }, materials.error) : null,
@@ -3499,15 +3564,19 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
                 : !filteredMaterials.length
                 ? React.createElement('div', { className: 'dsh-materials-empty' }, React.createElement('strong', null, '没有匹配的素材'), React.createElement('span', null, '换个关键词，或清空搜索条件。'))
                 : React.createElement('div', { className: 'dsh-materials-grid' },
-                    filteredMaterials.map((item) => React.createElement('button', {
+                    filteredMaterials.map((item) => React.createElement('div', {
                       key: item.name,
-                      type: 'button',
                       className: 'dsh-materials-item' + (materialSelection.includes(item.name) ? ' is-selected' : ''),
-                      onClick: (event) => toggleMaterialSelection(item, event),
+                      role: 'button', tabIndex: 0, draggable: true,
+                      onDragStart: (event) => startMaterialDrag(event, item),
+                      onClick: (event) => materialSelectMode ? toggleMaterialSelection(item, event) : setMaterialPreview(item),
                       onDoubleClick: () => sendMaterialToCanvas(item),
-                      title: '单击选择；按住 Command/Ctrl 可多选；双击加入画布'
+                      onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); materialSelectMode ? toggleMaterialSelection(item, event) : setMaterialPreview(item); } },
+                      title: materialSelectMode ? '点击勾选；按住 Command/Ctrl 可连续多选' : '拖入画布；单击预览；双击加入画布'
                     },
-                      React.createElement('span', { className: 'dsh-materials-check', 'aria-hidden': true }, materialSelection.includes(item.name) ? '✓' : ''),
+                      materialSelectMode
+                        ? React.createElement('span', { className: 'dsh-materials-check', 'aria-hidden': true }, materialSelection.includes(item.name) ? '✓' : '')
+                        : React.createElement('button', { className: 'dsh-materials-zoom', title: '放大查看', 'aria-label': '放大查看 ' + item.name, onClick: (event) => { event.preventDefault(); event.stopPropagation(); setMaterialPreview(item); } }, '↗'),
                       React.createElement('span', { className: 'dsh-materials-thumb' },
                         React.createElement('img', { src: '/dsh-canvas/image?path=' + encodeURIComponent(materials.dir + '/' + item.name), loading: 'lazy', alt: item.name })
                       ),
@@ -3518,7 +3587,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
                     ))
                 )
             ),
-            React.createElement('div', { className: 'dsh-materials-selectionbar' + (selectedMaterials.length ? ' is-visible' : '') },
+            materialSelectMode ? React.createElement('div', { className: 'dsh-materials-selectionbar is-visible' },
               React.createElement('div', { className: 'dsh-materials-selection-summary' },
                 React.createElement('strong', null, '已选 ' + selectedMaterials.length + ' 项'),
                 React.createElement('button', { onClick: () => setMaterialSelection([]), disabled: !selectedMaterials.length }, '取消选择')
@@ -3528,6 +3597,16 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
                 React.createElement('button', { onClick: attachSelectedMaterialsToChat, disabled: !selectedMaterials.length }, '附加到聊天'),
                 React.createElement('button', { className: 'is-danger', onClick: deleteSelectedMaterials, disabled: !selectedMaterials.length || !!materials.busy }, '删除')
               )
+            ) : null
+          )
+        ) : null,
+        materialPreview && materials ? React.createElement('div', { className: 'dsh-materials-preview', role: 'dialog', 'aria-modal': 'true', onClick: () => setMaterialPreview(null) },
+          React.createElement('div', { className: 'dsh-materials-preview-card', onClick: (event) => event.stopPropagation() },
+            React.createElement('img', { src: '/dsh-canvas/image?path=' + encodeURIComponent(materials.dir + '/' + materialPreview.name), alt: materialPreview.name }),
+            React.createElement('div', { className: 'dsh-materials-preview-bar' },
+              React.createElement('strong', null, materialPreview.name.replace(/\.[^.]+$/, '')),
+              React.createElement('button', { onClick: () => { sendMaterialToCanvas(materialPreview); setMaterialPreview(null); } }, '加入画布'),
+              React.createElement('button', { onClick: () => setMaterialPreview(null) }, '关闭')
             )
           )
         ) : null,
@@ -3545,6 +3624,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
     // ---- styles ----
     const CSS = [
       '.dsh-materials-overlay{position:absolute;inset:58px 0 0;z-index:40;display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box;background:rgba(8,12,20,.58);backdrop-filter:blur(8px)}.dsh-materials-panel{--ml-bg:#151922;--ml-card:#1d2330;--ml-line:rgba(255,255,255,.11);--ml-muted:#97a2b4;--ml-accent:#76a8ff;display:flex;flex-direction:column;width:min(1120px,100%);height:min(780px,100%);overflow:hidden;border:1px solid var(--ml-line);border-radius:20px;background:var(--ml-bg);color:#f5f7fb;box-shadow:0 30px 90px rgba(0,0,0,.5);font-family:"PingFang SC","Microsoft YaHei",sans-serif}.dsh-materials-head{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:18px 22px 14px}.dsh-materials-title{display:flex;align-items:center;gap:9px;font-size:20px;font-weight:700;letter-spacing:-.02em}.dsh-materials-count{padding:3px 8px;border-radius:999px;background:rgba(118,168,255,.14);color:#a9c7ff;font-size:11px;font-weight:600;letter-spacing:0}.dsh-materials-sub{max-width:720px;margin-top:6px;color:var(--ml-muted);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dsh-materials-close{width:38px;height:38px;flex:none;border:1px solid var(--ml-line);border-radius:11px;background:rgba(255,255,255,.04);color:#dbe2ee;font-size:24px;line-height:1;cursor:pointer}.dsh-materials-close:hover{background:rgba(255,255,255,.1)}.dsh-materials-toolbar{display:flex;align-items:center;gap:12px;padding:12px 22px;border-block:1px solid var(--ml-line);background:rgba(255,255,255,.025)}.dsh-materials-search{display:flex;align-items:center;gap:8px;min-width:220px;max-width:380px;flex:1;padding:0 12px;border:1px solid var(--ml-line);border-radius:11px;background:rgba(5,8,14,.35);color:var(--ml-muted)}.dsh-materials-search:focus-within{border-color:var(--ml-accent);box-shadow:0 0 0 3px rgba(91,145,255,.14)}.dsh-materials-search input{width:100%;height:38px;border:0;outline:0;background:transparent;color:inherit;font:13px inherit}.dsh-materials-toolbar-actions{display:flex;gap:7px}.dsh-materials-toolbar button,.dsh-materials-selectionbar button{padding:9px 12px;border:1px solid var(--ml-line);border-radius:10px;background:rgba(255,255,255,.055);color:#dce3ee;font:12px inherit;white-space:nowrap;cursor:pointer}.dsh-materials-toolbar button:hover,.dsh-materials-selectionbar button:hover{background:rgba(255,255,255,.11)}.dsh-materials-toolbar button:disabled,.dsh-materials-selectionbar button:disabled{opacity:.38;cursor:not-allowed}.dsh-materials-error{margin:10px 22px 0;padding:9px 11px;border:1px solid rgba(248,113,113,.3);border-radius:9px;background:rgba(127,29,29,.28);color:#fecaca;font-size:12px}.dsh-materials-body{flex:1;min-height:0;overflow:auto;padding:18px 22px}.dsh-materials-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px}.dsh-materials-item{position:relative;display:flex;min-width:0;flex-direction:column;padding:0;overflow:hidden;border:1px solid var(--ml-line);border-radius:13px;background:var(--ml-card);color:inherit;text-align:left;cursor:pointer;transition:transform .14s ease,border-color .14s ease,box-shadow .14s ease}.dsh-materials-item:hover{transform:translateY(-2px);border-color:rgba(118,168,255,.5);box-shadow:0 12px 30px rgba(0,0,0,.22)}.dsh-materials-item.is-selected{border-color:var(--ml-accent);box-shadow:0 0 0 2px rgba(91,145,255,.25)}.dsh-materials-check{position:absolute;z-index:2;top:9px;right:9px;display:grid;width:23px;height:23px;place-items:center;border:1px solid rgba(255,255,255,.4);border-radius:8px;background:rgba(9,14,24,.58);color:white;font-size:13px;backdrop-filter:blur(6px)}.dsh-materials-item.is-selected .dsh-materials-check{border-color:#87b2ff;background:#397cf0}.dsh-materials-thumb{display:block;aspect-ratio:16/10;overflow:hidden;background:#0b0f16}.dsh-materials-thumb img{display:block;width:100%;height:100%;object-fit:cover;transition:transform .24s ease}.dsh-materials-item:hover img{transform:scale(1.025)}.dsh-materials-meta{display:flex;align-items:center;gap:8px;padding:10px 11px}.dsh-materials-item-name{min-width:0;flex:1;color:#e7ebf2;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dsh-materials-item-info{flex:none;color:var(--ml-muted);font-size:10px}.dsh-materials-empty{display:flex;min-height:240px;align-items:center;justify-content:center;flex-direction:column;gap:8px;border:1px dashed var(--ml-line);border-radius:14px;color:var(--ml-muted);font-size:12px;text-align:center}.dsh-materials-empty strong{color:#dce3ee;font-size:15px}.dsh-materials-selectionbar{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:64px;padding:10px 22px;border-top:1px solid var(--ml-line);background:rgba(8,12,20,.42)}.dsh-materials-selection-summary,.dsh-materials-selection-actions{display:flex;align-items:center;gap:8px}.dsh-materials-selection-summary strong{min-width:66px;font-size:12px}.dsh-materials-selection-summary button{padding:6px 8px;border-color:transparent;background:transparent;color:var(--ml-muted)}.dsh-materials-selection-actions .is-primary{border-color:#4f8fff;background:#3b7bec;color:#fff}.dsh-materials-selection-actions .is-primary:hover{background:#4b89f5}.dsh-materials-selection-actions .is-danger{color:#fca5a5}.dsh-materials-selection-actions .is-danger:hover{border-color:rgba(248,113,113,.4);background:rgba(127,29,29,.32)}@media(max-width:760px){.dsh-materials-overlay{padding:8px}.dsh-materials-panel{height:100%;border-radius:14px}.dsh-materials-toolbar{align-items:stretch;flex-direction:column}.dsh-materials-search{max-width:none}.dsh-materials-toolbar-actions{display:grid;grid-template-columns:1fr 1fr}.dsh-materials-toolbar-actions button:first-child{grid-column:1/-1}.dsh-materials-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.dsh-materials-selectionbar{align-items:stretch;flex-direction:column}.dsh-materials-selection-actions{display:grid;grid-template-columns:1fr 1fr}.dsh-materials-selection-actions .is-primary{grid-column:1/-1}}@media(prefers-color-scheme:light){.dsh-materials-panel{--ml-bg:#f9fafc;--ml-card:#fff;--ml-line:#dfe4ec;--ml-muted:#6f7b8e;--ml-accent:#397cf0;color:#172033}.dsh-materials-toolbar{background:#f3f6fa}.dsh-materials-search{background:#fff}.dsh-materials-close,.dsh-materials-toolbar button,.dsh-materials-selectionbar button{color:#354156}.dsh-materials-item-name,.dsh-materials-empty strong{color:#172033}.dsh-materials-check{border-color:rgba(23,32,51,.25);background:rgba(255,255,255,.82);color:#fff}.dsh-materials-selectionbar{background:#f3f6fa}}',
+      '.dsh-materials-overlay{align-items:stretch;justify-content:flex-end;padding:0;background:transparent;backdrop-filter:none;pointer-events:none}.dsh-materials-panel{width:min(390px,calc(100% - 28px));height:100%;max-height:none;border-width:0 0 0 1px;border-radius:18px 0 0 18px;pointer-events:auto;box-shadow:-18px 0 48px rgba(0,0,0,.28);animation:dsh-materials-slide-in .2s cubic-bezier(.22,.8,.3,1)}@keyframes dsh-materials-slide-in{from{transform:translateX(28px);opacity:.3}to{transform:translateX(0);opacity:1}}.dsh-materials-head{padding:16px 16px 10px}.dsh-materials-title{font-size:18px}.dsh-materials-sub{max-width:290px}.dsh-materials-dropzone{display:flex;flex-direction:column;gap:2px;margin:0 16px 10px;padding:11px 12px;border:1px dashed var(--ml-line);border-radius:11px;background:rgba(118,168,255,.045);color:var(--ml-muted);font-size:10px;transition:.15s ease}.dsh-materials-dropzone strong{color:#dce3ee;font-size:12px}.dsh-materials-panel.is-drop-active .dsh-materials-dropzone{border-color:var(--ml-accent);background:rgba(59,124,236,.18);box-shadow:0 0 0 3px rgba(59,124,236,.12)}.dsh-materials-toolbar{gap:8px;padding:9px 16px}.dsh-materials-search{min-width:0;max-width:none}.dsh-materials-toolbar-actions{gap:5px}.dsh-materials-toolbar-actions button{min-width:36px;padding:9px}.dsh-materials-toolbar-actions button:first-child{min-width:48px}.dsh-materials-toolbar-actions button.is-active{border-color:var(--ml-accent);background:rgba(59,124,236,.2);color:#bcd4ff}.dsh-materials-body{padding:12px 14px}.dsh-materials-grid{display:block;columns:2 150px;column-gap:10px}.dsh-materials-item{display:inline-flex;width:100%;margin:0 0 10px;break-inside:avoid;border-radius:11px;vertical-align:top}.dsh-materials-thumb{aspect-ratio:auto;min-height:90px}.dsh-materials-thumb img{height:auto;min-height:90px;max-height:230px;object-fit:cover}.dsh-materials-meta{padding:8px 9px}.dsh-materials-item-info{display:none}.dsh-materials-zoom{position:absolute;z-index:3;top:8px;right:8px;display:grid;width:27px;height:27px;padding:0;place-items:center;border:1px solid rgba(255,255,255,.32);border-radius:8px;background:rgba(9,14,24,.68);color:#fff;font:15px/1 inherit;cursor:pointer;backdrop-filter:blur(6px);opacity:.82}.dsh-materials-zoom:hover{opacity:1;background:#397cf0}.dsh-materials-selectionbar{min-height:58px;padding:8px 14px;gap:8px}.dsh-materials-selection-summary strong{min-width:auto}.dsh-materials-selection-actions{gap:5px}.dsh-materials-selection-actions button{padding:8px 9px}.dsh-materials-preview{position:absolute;inset:58px 0 0;z-index:48;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(5,8,14,.82);backdrop-filter:blur(10px)}.dsh-materials-preview-card{display:flex;max-width:min(1000px,92%);max-height:92%;flex-direction:column;overflow:hidden;border:1px solid rgba(255,255,255,.13);border-radius:16px;background:#121722;box-shadow:0 30px 90px rgba(0,0,0,.55)}.dsh-materials-preview-card>img{display:block;max-width:100%;max-height:calc(90vh - 130px);object-fit:contain;background:#090d14}.dsh-materials-preview-bar{display:flex;align-items:center;gap:8px;padding:10px 12px}.dsh-materials-preview-bar strong{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-materials-preview-bar button{padding:7px 10px;border:1px solid rgba(255,255,255,.15);border-radius:8px;background:#232a38;color:#f2f5fa;cursor:pointer}@media(max-width:620px){.dsh-materials-panel{width:min(350px,calc(100% - 12px))}.dsh-materials-grid{columns:2 120px}.dsh-materials-selectionbar{align-items:stretch}.dsh-materials-selection-actions{display:grid;grid-template-columns:1fr 1fr 1fr}.dsh-materials-selection-actions .is-primary{grid-column:auto}}@media(prefers-color-scheme:light){.dsh-materials-dropzone strong{color:#263247}.dsh-materials-zoom{border-color:rgba(255,255,255,.75);background:rgba(24,34,52,.68)}.dsh-materials-preview-card{border-color:#d7dde8;background:#fff}.dsh-materials-preview-bar button{border-color:#d7dde8;background:#f2f5f9;color:#273247}}',
       '.dsh-canvas-dock{display:flex;align-items:center;box-sizing:border-box;width:calc(100% - 32px);max-width:768px;margin:0 auto;padding:2px 0}',
       '.dsh-canvas-attach-state{margin-left:8px;font-size:12px;color:var(--dsw-alias-label-secondary, #666)}',
       '.dsh-canvas-mode{display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:13px;line-height:1;padding:5px 12px;border-radius:999px;border:1px solid rgba(128,128,128,.4);background:transparent;color:var(--dsw-alias-label-primary, #333);cursor:pointer}',
