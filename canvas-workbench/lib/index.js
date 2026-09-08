@@ -218,7 +218,7 @@ async function analyzeTextWithCurrentModel(ctx, uploaded, body, simplified) {
   if (finish.kind !== 'stop') throw new Error('当前聊天模型识别未正常完成：' + finish.kind);
   const text = assembler.blocks().flatMap((block) => block.type === 'text' ? [block.text] : []).join('').trim();
   const value = parseModelJson(text);
-  if (!Array.isArray(value.blocks) || !value.blocks.length) throw new Error('模型返回 blocks 为空');
+  if (!Array.isArray(value.blocks) || !value.blocks.length) throw new Error('模型返回 blocks 为空；模型原始回复前200字：' + text.slice(0, 200).replace(/\s+/g, ' '));
   return { value: value, width: attachment.width, height: attachment.height, provider, model };
 }
 
