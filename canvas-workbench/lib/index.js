@@ -972,12 +972,20 @@ function apply(ctx) {
                 const analyzed = await analyzeTextWithCurrentModel(ctx, uploaded, body);
                 const intersects = (block, region) => Math.max(0, Math.min(block.x + block.width, region.x + region.width) - Math.max(block.x, region.x))
                   * Math.max(0, Math.min(block.y + block.height, region.y + region.height) - Math.max(block.y, region.y)) > 0;
-                const blocks = visionBlocks(analyzed.value, analyzed.width, analyzed.height).filter((block) => requestedCrops.some((region) => intersects(block, region)));
-                if (!blocks.length) throw new Error('模型未识别到可用文字');
+                const allBlocks = visionBlocks(analyzed.value, analyzed.width, analyzed.height);
+                const blocks = allBlocks.filter((block) => requestedCrops.some((region) => intersects(block, region)));
+                if (!allBlocks.length) throw new Error('模型未返回任何文字块（返回内容 ' + String(analyzed.value && analyzed.value.blocks ? 'blocks 为空' : '无法解析为文字块') + '，可能未理解选区或模型不支持该图）');
+                let cropWarning = '';
+                if (!blocks.length) {
+                  // 模型识别到了文字但坐标与选区不重叠：不再直接失败降级，
+                  // 返回全部结果由用户在面板中逐条排除（面板支持逐项勾选）。
+                  cropWarning = '模型返回的 ' + allBlocks.length + ' 个文字块与选区坐标不重叠，已列出全部结果，请排除选区外的项';
+                }
                 respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({
                   ok: true, width: analyzed.width, height: analyzed.height, blocks, crops: requestedCrops,
                   erasePrompt: String(analyzed.value.erasePrompt || '').slice(0, 1200),
-                  engine: 'current-chat-model', provider: analyzed.provider, model: analyzed.model, styleEngine: 'current-chat-model'
+                  engine: 'current-chat-model', provider: analyzed.provider, model: analyzed.model, styleEngine: 'current-chat-model',
+                  warning: cropWarning
                 }));
                 return;
               } catch (err) {
