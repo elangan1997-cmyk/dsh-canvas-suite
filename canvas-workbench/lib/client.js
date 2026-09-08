@@ -1147,7 +1147,7 @@ window.__ModuleLoader__.load({
                 React.createElement('img', { ref: imageRef, src: data.dataURL, alt: data.name || '图片预览', decoding: 'async', onLoad: (event) => { const next = { width: event.currentTarget.naturalWidth || 1, height: event.currentTarget.naturalHeight || 1, source: String(data.dataURL || '') }; naturalImageSizeRef.current = next; setImageSize({ width: next.width, height: next.height }); } }),
                 React.createElement('div', { className: 'dsh-text-select-overlay', onPointerDown: beginSelection, onPointerMove: moveSelection, onPointerUp: endSelection, onPointerCancel: endSelection },
                   visualSelections.map((item, index) => React.createElement('div', { key: 'selection-' + index, className: 'dsh-text-select-box', style: visualSelectionStyle(item) })),
-                  !selections.length && !draftSelection && !data.loading ? React.createElement('div', { className: 'dsh-text-select-hint' }, '在图片上拖拽框选要移除的文字\n可连续添加多个区域') : null
+                  null
                 )
               ) : null,
               data.dataURL && !data.loading ? React.createElement('button', { type: 'button', className: 'dsh-text-select-zoom', onClick: openZoomPreview }, '放大编辑 · 框选文字') : null,
