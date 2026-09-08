@@ -46,6 +46,10 @@ if (!client.includes('result.data.sourcePath || result.data.path')) throw new Er
 if (!client.includes('latestSnapshot.current = {')) throw new Error('client rename does not patch latest snapshot before save');
 if (!client.includes('reconcileFinalImages')) throw new Error('client lacks stable final-image reconciliation');
 if (!client.includes('/[*\\[\\]{}]/.test(candidate.split(/[?#]/, 1)[0])')) throw new Error('client does not reject image glob placeholders');
+for (const marker of ['materialSelection', 'filteredMaterials', 'attachSelectedMaterialsToChat', 'deleteSelectedMaterials', '搜索文件名', '已选 ']) {
+  if (!client.includes(marker)) throw new Error(`material library interaction missing: ${marker}`);
+}
+if (!host.includes("'/dsh-canvas/materials/open'")) throw new Error('material library lacks native folder open endpoint');
 
 const macBuild = await readFile(resolve(root, 'mac-installer/build-macos-installer.sh'), 'utf8');
 if (macBuild.includes('dsh-codex-dsh2')) throw new Error('Mac installer still references a private checkout path');

@@ -6,6 +6,13 @@
 - Keep the verified full Windows ZIP and standalone canvas ZIP with their published SHA-256 values.
 - Only Windows packages older than the r5 baseline are candidates for removal.
 
+## 1.6.2
+
+- 重新设计素材库交互：卡片单击选择、Command/Ctrl/Shift 多选、双击加入画布，移除每张卡片重复的三组操作按钮。
+- 增加文件名搜索、素材计数、刷新、跨平台打开素材目录，以及固定的批量操作栏。
+- 支持把画布中选中的一张或多张图片批量存入素材库；支持素材批量加入画布、一次附加到聊天及确认后删除。
+- 优化素材库明暗主题、窄窗口响应式布局、空状态、载入状态和错误反馈。
+
 ## 1.6.1
 
 - **关键修复**：画布文件表丢失向量根治——onChange/hydrate 完成路径的 serialize 改用 api.getFiles()（Excalidraw 0.17 onChange 不传第三参数，原实现恒得空文件表）；父层合并增加"防清空守卫"：存活图片元素引用的 fileId 缺失时自动从已有文件表补齐，文件表只允许因元素删除而收缩。

@@ -710,7 +710,7 @@ function apply(ctx) {
             respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({
               ok: true,
               plugin: name,
-              version: '1.5.8',
+              version: '1.6.2',
               platform: platformCapabilities(),
               capabilities: {
                 webServer: Boolean(ctx.webServer),
@@ -1379,6 +1379,21 @@ function apply(ctx) {
             try { await access(target); target = join(mdir, Date.now() + '-' + name); } catch (err) {}
             await writeFile(target, decoded.bytes);
             respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true, name: basename(target), path: target }));
+          } catch (err) {
+            respond(res, 500, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: String((err && err.message) || err) }));
+          }
+          return;
+        }
+        if (pathname === '/dsh-canvas/materials/open' && req.method === 'POST') {
+          try {
+            const body = JSON.parse(await readBody(req) || '{}');
+            const mcwd = expandHome(String(body.cwd || ''));
+            if (!mcwd || !isAbsolutePath(mcwd)) throw new Error('missing cwd');
+            const mdir = join(mcwd, '画布素材库');
+            await mkdir(mdir, { recursive: true });
+            const outcome = await openFolder(ctx, runProcess, mdir);
+            if (outcome.exitCode !== 0) throw new Error(isWindows ? '资源管理器打开失败' : '访达打开失败');
+            respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true, dir: mdir }));
           } catch (err) {
             respond(res, 500, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: String((err && err.message) || err) }));
           }

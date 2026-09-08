@@ -1889,9 +1889,13 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
       const switchingProject = React.useRef(false);
       // —— 素材库：本地“画布素材库/”目录映射，支持存入/发画布/发聊天 ——
       const [materials, setMaterials] = React.useState(null);
+      const [materialQuery, setMaterialQuery] = React.useState('');
+      const [materialSelection, setMaterialSelection] = React.useState([]);
       const openMaterials = async () => {
         const current = projectRef.current;
         if (!current.cwd) { setFeedback('⚠ 请先打开一个画布项目'); return; }
+        setMaterialQuery('');
+        setMaterialSelection([]);
         setMaterials({ dir: '', files: [], busy: true, error: '' });
         try {
           const r = await fetch('/dsh-canvas/materials?cwd=' + encodeURIComponent(current.cwd));
@@ -1909,6 +1913,15 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
           if (data.ok) setMaterials({ dir: data.dir, files: data.files || [], busy: false, error: '' });
         } catch (err) {}
       };
+      const openMaterialsFolder = async () => {
+        const current = projectRef.current;
+        try {
+          const r = await fetch('/dsh-canvas/materials/open', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cwd: current.cwd }) });
+          const data = await r.json();
+          if (!r.ok || !data.ok) throw new Error(data.error || '打开失败');
+          setFeedback('✓ 已打开素材目录');
+        } catch (err) { setFeedback('⚠ 无法打开素材目录：' + String(err.message || err)); }
+      };
       const addSelectedToLibrary = async () => {
         const current = projectRef.current;
         if (!current.project) { setFeedback('⚠ 请先打开一个画布项目'); return; }
@@ -1917,17 +1930,22 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
           const snapshot = await requestLiveSnapshot();
           const appState = snapshot && snapshot.appState ? snapshot.appState : {};
           const selectedIds = appState.selectedElementIds || {};
-          const el = (snapshot.elements || []).find((x) => x && x.type === 'image' && !x.isDeleted && selectedIds[x.id]);
-          if (!el) throw new Error('请先在画布中选中一张图片');
-          const file = (snapshot.files || {})[el.fileId];
-          if (!file || !file.dataURL) throw new Error('该图片数据不可用');
-          const name = (el.customData && el.customData.dshFileName) || ('素材-' + Date.now() + '.png');
-          const r = await fetch('/dsh-canvas/materials/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cwd: current.cwd, name, dataURL: file.dataURL }) });
-          const data = await r.json();
-          if (!data.ok) throw new Error(data.error || '保存失败');
-          setFeedback('✓ 已存入素材库：' + data.name);
+          const selected = (snapshot.elements || []).filter((x) => x && x.type === 'image' && !x.isDeleted && selectedIds[x.id]);
+          if (!selected.length) throw new Error('请先在画布中选中图片');
+          let saved = 0;
+          for (const el of selected) {
+            const file = (snapshot.files || {})[el.fileId];
+            if (!file || !file.dataURL) continue;
+            const name = (el.customData && el.customData.dshFileName) || ('素材-' + Date.now() + '-' + saved + '.png');
+            const r = await fetch('/dsh-canvas/materials/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cwd: current.cwd, name, dataURL: file.dataURL }) });
+            const data = await r.json();
+            if (!data.ok) throw new Error(data.error || '保存失败');
+            saved += 1;
+          }
+          if (!saved) throw new Error('选中的图片数据不可用');
+          setFeedback('✓ 已存入素材库 ' + saved + ' 项');
           await refreshMaterials();
-        } catch (err) { setMaterials((prev) => prev ? { ...prev, error: String(err.message || err) } : prev); }
+        } catch (err) { setMaterials((prev) => prev ? { ...prev, busy: false, error: String(err.message || err) } : prev); }
       };
       const sendMaterialToCanvas = (item) => {
         if (!item) return;
@@ -1935,31 +1953,56 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
         post({ type: 'add-image', explicit: true, url: '/dsh-canvas/image?path=' + encodeURIComponent(path), path, name: item.name });
         setFeedback('✓ 已发送到画布：' + item.name);
       };
-      const sendMaterialToChat = async (item) => {
+      const selectedMaterials = materials ? materials.files.filter((item) => materialSelection.includes(item.name)) : [];
+      const filteredMaterials = materials ? materials.files.filter((item) => !materialQuery.trim() || item.name.toLocaleLowerCase().includes(materialQuery.trim().toLocaleLowerCase())) : [];
+      const toggleMaterialSelection = (item, event) => {
         if (!item) return;
-        const path = materials.dir + '/' + item.name;
+        const additive = !!(event && (event.metaKey || event.ctrlKey || event.shiftKey));
+        setMaterialSelection((prev) => {
+          if (!additive) return prev.length === 1 && prev[0] === item.name ? [] : [item.name];
+          return prev.includes(item.name) ? prev.filter((name) => name !== item.name) : prev.concat(item.name);
+        });
+      };
+      const addSelectedMaterialsToCanvas = () => {
+        if (!selectedMaterials.length) return;
+        selectedMaterials.forEach(sendMaterialToCanvas);
+        setFeedback('✓ 已加入画布 ' + selectedMaterials.length + ' 项');
+      };
+      const attachSelectedMaterialsToChat = async () => {
+        if (!selectedMaterials.length) return;
         try {
-          const blob = await fetch('/dsh-canvas/image?path=' + encodeURIComponent(path)).then((r) => r.blob());
-          const dataURL = await new Promise((resolve, reject) => {
-            const fr = new FileReader();
-            fr.onload = () => resolve(fr.result);
-            fr.onerror = () => reject(new Error('读取失败'));
-            fr.readAsDataURL(blob);
-          });
-          window.dispatchEvent(new CustomEvent('dsh-canvas:attach-selection', { detail: { images: [{ dataURL, name: item.name }] } }));
-          setFeedback('✓ 已发送到聊天输入框：' + item.name);
+          const images = [];
+          for (const item of selectedMaterials) {
+            const path = materials.dir + '/' + item.name;
+            const response = await fetch('/dsh-canvas/image?path=' + encodeURIComponent(path));
+            if (!response.ok) throw new Error(item.name + ' 读取失败');
+            const blob = await response.blob();
+            const dataURL = await new Promise((resolve, reject) => {
+              const fr = new FileReader();
+              fr.onload = () => resolve(fr.result);
+              fr.onerror = () => reject(new Error(item.name + ' 读取失败'));
+              fr.readAsDataURL(blob);
+            });
+            images.push({ dataURL, name: item.name });
+          }
+          window.dispatchEvent(new CustomEvent('dsh-canvas:attach-selection', { detail: { images } }));
+          setFeedback('✓ 已附加到聊天输入框 ' + images.length + ' 项');
         } catch (err) { setFeedback('⚠ 发送到聊天失败：' + String(err.message || err)); }
       };
-      const deleteMaterial = async (item) => {
-        if (!item || !window.confirm('从素材库删除 ' + item.name + '？（不会影响画布上已有的图片）')) return;
+      const deleteSelectedMaterials = async () => {
+        if (!selectedMaterials.length || !window.confirm('从素材库删除选中的 ' + selectedMaterials.length + ' 项？\n不会影响已经放入画布的图片。')) return;
         const current = projectRef.current;
+        setMaterials((prev) => prev ? { ...prev, busy: true, error: '' } : prev);
         try {
-          const r = await fetch('/dsh-canvas/materials/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cwd: current.cwd, name: item.name }) });
-          const data = await r.json();
-          if (!data.ok) throw new Error(data.error || '删除失败');
-          setFeedback('✓ 已删除：' + item.name);
+          for (const item of selectedMaterials) {
+            const r = await fetch('/dsh-canvas/materials/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cwd: current.cwd, name: item.name }) });
+            const data = await r.json();
+            if (!data.ok) throw new Error(data.error || (item.name + ' 删除失败'));
+          }
+          setMaterialSelection([]);
+          setFeedback('✓ 已从素材库删除 ' + selectedMaterials.length + ' 项');
           await refreshMaterials();
-        } catch (err) { setFeedback('⚠ 删除失败：' + String(err.message || err)); }
+        } catch (err) { setMaterials((prev) => prev ? { ...prev, busy: false, error: String(err.message || err) } : prev); }
       };
       const frameRef = React.useRef(null);
       const frameReady = React.useRef(false);
@@ -3431,29 +3474,60 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
           React.createElement('div', { className: 'dsh-materials-panel' },
             React.createElement('div', { className: 'dsh-materials-head' },
               React.createElement('div', null,
-                React.createElement('div', { className: 'dsh-materials-title' }, '素材库'),
-                React.createElement('div', { className: 'dsh-materials-sub' }, '本地目录：' + (materials.dir || '(未就绪)'))
+                React.createElement('div', { className: 'dsh-materials-title' }, '素材库', React.createElement('span', { className: 'dsh-materials-count' }, materials.files.length + ' 项')),
+                React.createElement('div', { className: 'dsh-materials-sub', title: materials.dir || '' }, materials.dir || '正在读取本地素材目录…')
               ),
-              React.createElement('button', { className: 'dsh-materials-close', onClick: () => setMaterials(null) }, '×')
+              React.createElement('button', { className: 'dsh-materials-close', title: '关闭素材库', 'aria-label': '关闭素材库', onClick: () => setMaterials(null) }, '×')
             ),
-            React.createElement('div', { className: 'dsh-materials-actions' },
-              React.createElement('button', { onClick: addSelectedToLibrary, disabled: !!materials.busy || !projectInfo.project }, '＋ 把画布选中图片存入素材库')
+            React.createElement('div', { className: 'dsh-materials-toolbar' },
+              React.createElement('label', { className: 'dsh-materials-search' },
+                React.createElement('span', null, '⌕'),
+                React.createElement('input', { value: materialQuery, placeholder: '搜索文件名', onChange: (e) => setMaterialQuery(e.target.value), autoFocus: true })
+              ),
+              React.createElement('div', { className: 'dsh-materials-toolbar-actions' },
+                React.createElement('button', { onClick: addSelectedToLibrary, disabled: !!materials.busy || !projectInfo.project, title: '把当前画布中选中的一张或多张图片保存为常用素材' }, '＋ 保存画布选中项'),
+                React.createElement('button', { onClick: refreshMaterials, disabled: !!materials.busy, title: '重新读取素材目录' }, '刷新'),
+                React.createElement('button', { onClick: openMaterialsFolder, disabled: !materials.dir, title: '在系统文件管理器中打开素材目录' }, '打开目录')
+              )
             ),
             materials.error ? React.createElement('div', { className: 'dsh-materials-error' }, materials.error) : null,
             React.createElement('div', { className: 'dsh-materials-body' },
-              !materials.files.length
-                ? React.createElement('div', { className: 'dsh-materials-empty' }, '素材库为空。两种方式添加：① 在画布选中图片后点上方按钮；② 把图片文件直接放进上面的本地目录。')
+              materials.busy && !materials.files.length
+                ? React.createElement('div', { className: 'dsh-materials-empty' }, React.createElement('strong', null, '正在读取素材…'))
+                : !materials.files.length
+                ? React.createElement('div', { className: 'dsh-materials-empty' }, React.createElement('strong', null, '还没有常用素材'), React.createElement('span', null, '在画布中选中图片，再点击“保存画布选中项”；也可以直接把图片放进素材目录。'))
+                : !filteredMaterials.length
+                ? React.createElement('div', { className: 'dsh-materials-empty' }, React.createElement('strong', null, '没有匹配的素材'), React.createElement('span', null, '换个关键词，或清空搜索条件。'))
                 : React.createElement('div', { className: 'dsh-materials-grid' },
-                    materials.files.map((item) => React.createElement('div', { key: item.name, className: 'dsh-materials-item' },
-                      React.createElement('img', { src: '/dsh-canvas/image?path=' + encodeURIComponent(materials.dir + '/' + item.name), loading: 'lazy', alt: item.name, onClick: () => sendMaterialToCanvas(item), style: { cursor: 'pointer' }, title: '点击插入画布' }),
-                      React.createElement('div', { className: 'dsh-materials-item-name', title: item.name }, item.name),
-                      React.createElement('div', { className: 'dsh-materials-item-actions' },
-                        React.createElement('button', { onClick: () => sendMaterialToCanvas(item) }, '发画布'),
-                        React.createElement('button', { onClick: () => sendMaterialToChat(item) }, '发聊天'),
-                        React.createElement('button', { className: 'dsh-materials-del', onClick: () => deleteMaterial(item) }, '删')
+                    filteredMaterials.map((item) => React.createElement('button', {
+                      key: item.name,
+                      type: 'button',
+                      className: 'dsh-materials-item' + (materialSelection.includes(item.name) ? ' is-selected' : ''),
+                      onClick: (event) => toggleMaterialSelection(item, event),
+                      onDoubleClick: () => sendMaterialToCanvas(item),
+                      title: '单击选择；按住 Command/Ctrl 可多选；双击加入画布'
+                    },
+                      React.createElement('span', { className: 'dsh-materials-check', 'aria-hidden': true }, materialSelection.includes(item.name) ? '✓' : ''),
+                      React.createElement('span', { className: 'dsh-materials-thumb' },
+                        React.createElement('img', { src: '/dsh-canvas/image?path=' + encodeURIComponent(materials.dir + '/' + item.name), loading: 'lazy', alt: item.name })
+                      ),
+                      React.createElement('span', { className: 'dsh-materials-meta' },
+                        React.createElement('span', { className: 'dsh-materials-item-name' }, item.name.replace(/\.[^.]+$/, '')),
+                        React.createElement('span', { className: 'dsh-materials-item-info' }, Math.max(1, Math.round((item.size || 0) / 1024)) + ' KB')
                       )
                     ))
                 )
+            ),
+            React.createElement('div', { className: 'dsh-materials-selectionbar' + (selectedMaterials.length ? ' is-visible' : '') },
+              React.createElement('div', { className: 'dsh-materials-selection-summary' },
+                React.createElement('strong', null, '已选 ' + selectedMaterials.length + ' 项'),
+                React.createElement('button', { onClick: () => setMaterialSelection([]), disabled: !selectedMaterials.length }, '取消选择')
+              ),
+              React.createElement('div', { className: 'dsh-materials-selection-actions' },
+                React.createElement('button', { className: 'is-primary', onClick: addSelectedMaterialsToCanvas, disabled: !selectedMaterials.length }, '加入画布'),
+                React.createElement('button', { onClick: attachSelectedMaterialsToChat, disabled: !selectedMaterials.length }, '附加到聊天'),
+                React.createElement('button', { className: 'is-danger', onClick: deleteSelectedMaterials, disabled: !selectedMaterials.length || !!materials.busy }, '删除')
+              )
             )
           )
         ) : null,
@@ -3470,7 +3544,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
 
     // ---- styles ----
     const CSS = [
-      '.dsh-materials-overlay{position:absolute;inset:58px 0 0;z-index:40;display:flex;justify-content:flex-end;padding:14px;box-sizing:border-box;background:rgba(15,23,42,.45)}.dsh-materials-panel{display:flex;flex-direction:column;width:min(880px,calc(100% - 12px));max-height:100%;overflow:hidden;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:#15181e;color:#e5e7eb;box-shadow:0 24px 70px rgba(0,0,0,.4)}.dsh-materials-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.1)}.dsh-materials-title{font-size:15px;font-weight:700}.dsh-materials-sub{margin-top:4px;color:#9ca3af;font-size:11px;word-break:break-all}.dsh-materials-close{width:30px;height:30px;border:1px solid rgba(255,255,255,.12);border-radius:8px;background:#252932;color:#e5e7eb;font-size:20px;cursor:pointer}.dsh-materials-actions{display:flex;gap:8px;padding:10px 16px;border-bottom:1px solid rgba(255,255,255,.08)}.dsh-materials-actions button{padding:7px 10px;border:1px solid rgba(96,165,250,.42);border-radius:8px;background:rgba(37,99,235,.14);color:#bfdbfe;font:12px system-ui,sans-serif;cursor:pointer}.dsh-materials-actions button:disabled{opacity:.5;cursor:not-allowed}.dsh-materials-error{margin:8px 16px 0;padding:8px 10px;border-radius:8px;background:#2a171b;color:#fecaca;font-size:12px}.dsh-materials-empty{margin:16px;padding:26px 12px;border:1px dashed rgba(255,255,255,.2);border-radius:10px;color:#9ca3af;font-size:12px;text-align:center;line-height:1.6}.dsh-materials-body{flex:1;min-height:0;overflow:auto;padding:12px 16px}.dsh-materials-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}.dsh-materials-item{border:1px solid rgba(255,255,255,.1);border-radius:10px;background:#1b1f27;overflow:hidden}.dsh-materials-item img{display:block;width:100%;height:130px;object-fit:cover;background:#0d1015}.dsh-materials-item-name{padding:6px 8px 2px;font-size:11px;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dsh-materials-item-actions{display:flex;gap:6px;padding:6px 8px 8px}.dsh-materials-item-actions button{flex:1;padding:5px 6px;border:1px solid rgba(255,255,255,.14);border-radius:6px;background:#252932;color:#d1d5db;font:11px system-ui,sans-serif;cursor:pointer}.dsh-materials-item-actions button:hover{background:#303640}.dsh-materials-del:hover{background:#7f1d1d!important;color:#fecaca!important}@media (prefers-color-scheme:light){.dsh-materials-panel{border-color:#e2e8f0;background:#fff;color:#111827}.dsh-materials-head{border-color:#e5e7eb}.dsh-materials-sub{color:#64748b}.dsh-materials-close{background:#f8fafc;border-color:#e5e7eb;color:#334155}.dsh-materials-item{border-color:#e2e8f0;background:#f8fafc}.dsh-materials-item img{background:#eef2f7}.dsh-materials-item-name{color:#334155}.dsh-materials-item-actions button{background:#fff;border-color:#cbd5e1;color:#334155}.dsh-materials-item-actions button:hover{background:#e5e7eb}.dsh-materials-empty{border-color:#cbd5e1;color:#64748b}',
+      '.dsh-materials-overlay{position:absolute;inset:58px 0 0;z-index:40;display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box;background:rgba(8,12,20,.58);backdrop-filter:blur(8px)}.dsh-materials-panel{--ml-bg:#151922;--ml-card:#1d2330;--ml-line:rgba(255,255,255,.11);--ml-muted:#97a2b4;--ml-accent:#76a8ff;display:flex;flex-direction:column;width:min(1120px,100%);height:min(780px,100%);overflow:hidden;border:1px solid var(--ml-line);border-radius:20px;background:var(--ml-bg);color:#f5f7fb;box-shadow:0 30px 90px rgba(0,0,0,.5);font-family:"PingFang SC","Microsoft YaHei",sans-serif}.dsh-materials-head{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:18px 22px 14px}.dsh-materials-title{display:flex;align-items:center;gap:9px;font-size:20px;font-weight:700;letter-spacing:-.02em}.dsh-materials-count{padding:3px 8px;border-radius:999px;background:rgba(118,168,255,.14);color:#a9c7ff;font-size:11px;font-weight:600;letter-spacing:0}.dsh-materials-sub{max-width:720px;margin-top:6px;color:var(--ml-muted);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dsh-materials-close{width:38px;height:38px;flex:none;border:1px solid var(--ml-line);border-radius:11px;background:rgba(255,255,255,.04);color:#dbe2ee;font-size:24px;line-height:1;cursor:pointer}.dsh-materials-close:hover{background:rgba(255,255,255,.1)}.dsh-materials-toolbar{display:flex;align-items:center;gap:12px;padding:12px 22px;border-block:1px solid var(--ml-line);background:rgba(255,255,255,.025)}.dsh-materials-search{display:flex;align-items:center;gap:8px;min-width:220px;max-width:380px;flex:1;padding:0 12px;border:1px solid var(--ml-line);border-radius:11px;background:rgba(5,8,14,.35);color:var(--ml-muted)}.dsh-materials-search:focus-within{border-color:var(--ml-accent);box-shadow:0 0 0 3px rgba(91,145,255,.14)}.dsh-materials-search input{width:100%;height:38px;border:0;outline:0;background:transparent;color:inherit;font:13px inherit}.dsh-materials-toolbar-actions{display:flex;gap:7px}.dsh-materials-toolbar button,.dsh-materials-selectionbar button{padding:9px 12px;border:1px solid var(--ml-line);border-radius:10px;background:rgba(255,255,255,.055);color:#dce3ee;font:12px inherit;white-space:nowrap;cursor:pointer}.dsh-materials-toolbar button:hover,.dsh-materials-selectionbar button:hover{background:rgba(255,255,255,.11)}.dsh-materials-toolbar button:disabled,.dsh-materials-selectionbar button:disabled{opacity:.38;cursor:not-allowed}.dsh-materials-error{margin:10px 22px 0;padding:9px 11px;border:1px solid rgba(248,113,113,.3);border-radius:9px;background:rgba(127,29,29,.28);color:#fecaca;font-size:12px}.dsh-materials-body{flex:1;min-height:0;overflow:auto;padding:18px 22px}.dsh-materials-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px}.dsh-materials-item{position:relative;display:flex;min-width:0;flex-direction:column;padding:0;overflow:hidden;border:1px solid var(--ml-line);border-radius:13px;background:var(--ml-card);color:inherit;text-align:left;cursor:pointer;transition:transform .14s ease,border-color .14s ease,box-shadow .14s ease}.dsh-materials-item:hover{transform:translateY(-2px);border-color:rgba(118,168,255,.5);box-shadow:0 12px 30px rgba(0,0,0,.22)}.dsh-materials-item.is-selected{border-color:var(--ml-accent);box-shadow:0 0 0 2px rgba(91,145,255,.25)}.dsh-materials-check{position:absolute;z-index:2;top:9px;right:9px;display:grid;width:23px;height:23px;place-items:center;border:1px solid rgba(255,255,255,.4);border-radius:8px;background:rgba(9,14,24,.58);color:white;font-size:13px;backdrop-filter:blur(6px)}.dsh-materials-item.is-selected .dsh-materials-check{border-color:#87b2ff;background:#397cf0}.dsh-materials-thumb{display:block;aspect-ratio:16/10;overflow:hidden;background:#0b0f16}.dsh-materials-thumb img{display:block;width:100%;height:100%;object-fit:cover;transition:transform .24s ease}.dsh-materials-item:hover img{transform:scale(1.025)}.dsh-materials-meta{display:flex;align-items:center;gap:8px;padding:10px 11px}.dsh-materials-item-name{min-width:0;flex:1;color:#e7ebf2;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dsh-materials-item-info{flex:none;color:var(--ml-muted);font-size:10px}.dsh-materials-empty{display:flex;min-height:240px;align-items:center;justify-content:center;flex-direction:column;gap:8px;border:1px dashed var(--ml-line);border-radius:14px;color:var(--ml-muted);font-size:12px;text-align:center}.dsh-materials-empty strong{color:#dce3ee;font-size:15px}.dsh-materials-selectionbar{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:64px;padding:10px 22px;border-top:1px solid var(--ml-line);background:rgba(8,12,20,.42)}.dsh-materials-selection-summary,.dsh-materials-selection-actions{display:flex;align-items:center;gap:8px}.dsh-materials-selection-summary strong{min-width:66px;font-size:12px}.dsh-materials-selection-summary button{padding:6px 8px;border-color:transparent;background:transparent;color:var(--ml-muted)}.dsh-materials-selection-actions .is-primary{border-color:#4f8fff;background:#3b7bec;color:#fff}.dsh-materials-selection-actions .is-primary:hover{background:#4b89f5}.dsh-materials-selection-actions .is-danger{color:#fca5a5}.dsh-materials-selection-actions .is-danger:hover{border-color:rgba(248,113,113,.4);background:rgba(127,29,29,.32)}@media(max-width:760px){.dsh-materials-overlay{padding:8px}.dsh-materials-panel{height:100%;border-radius:14px}.dsh-materials-toolbar{align-items:stretch;flex-direction:column}.dsh-materials-search{max-width:none}.dsh-materials-toolbar-actions{display:grid;grid-template-columns:1fr 1fr}.dsh-materials-toolbar-actions button:first-child{grid-column:1/-1}.dsh-materials-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.dsh-materials-selectionbar{align-items:stretch;flex-direction:column}.dsh-materials-selection-actions{display:grid;grid-template-columns:1fr 1fr}.dsh-materials-selection-actions .is-primary{grid-column:1/-1}}@media(prefers-color-scheme:light){.dsh-materials-panel{--ml-bg:#f9fafc;--ml-card:#fff;--ml-line:#dfe4ec;--ml-muted:#6f7b8e;--ml-accent:#397cf0;color:#172033}.dsh-materials-toolbar{background:#f3f6fa}.dsh-materials-search{background:#fff}.dsh-materials-close,.dsh-materials-toolbar button,.dsh-materials-selectionbar button{color:#354156}.dsh-materials-item-name,.dsh-materials-empty strong{color:#172033}.dsh-materials-check{border-color:rgba(23,32,51,.25);background:rgba(255,255,255,.82);color:#fff}.dsh-materials-selectionbar{background:#f3f6fa}}',
       '.dsh-canvas-dock{display:flex;align-items:center;box-sizing:border-box;width:calc(100% - 32px);max-width:768px;margin:0 auto;padding:2px 0}',
       '.dsh-canvas-attach-state{margin-left:8px;font-size:12px;color:var(--dsw-alias-label-secondary, #666)}',
       '.dsh-canvas-mode{display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:13px;line-height:1;padding:5px 12px;border-radius:999px;border:1px solid rgba(128,128,128,.4);background:transparent;color:var(--dsw-alias-label-primary, #333);cursor:pointer}',
