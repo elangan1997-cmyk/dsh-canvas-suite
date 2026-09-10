@@ -4,7 +4,7 @@
 > 仓库：<https://github.com/elangan1997-cmyk/dsh-canvas-suite>  
 > 本机源码：`/Users/ganzhenglin/设计工作台/dsh-canvas-suite`  
 > 当前分支：`main`  
-> 当前提交：`9d8ebd706105e7e1dd5025443a7c7bafb7b8acdb`  
+> 当前功能代码基线：`9d8ebd706105e7e1dd5025443a7c7bafb7b8acdb`（交接文档提交在其后）
 > 当前标签：`v1.6.6`  
 > 画布插件版本：`1.6.6`  
 > DSH Desktop：`2.0.4` 兼容模式  
@@ -60,7 +60,7 @@ git log -5 --oneline --decorate
 ```text
 origin: https://github.com/elangan1997-cmyk/dsh-canvas-suite.git
 branch: main
-HEAD:   9d8ebd706105e7e1dd5025443a7c7bafb7b8acdb
+功能代码基线: 9d8ebd706105e7e1dd5025443a7c7bafb7b8acdb
 tag:    v1.6.6
 ```
 
@@ -440,7 +440,7 @@ Windows preview.4 是已验证旧基线，但 1.6.x 素材库、文件表瘦身�
 2026-09-10 本文档编写时已确认：
 
 ```text
-git main 与 origin/main 一致：9d8ebd706105e7e1dd5025443a7c7bafb7b8acdb
+交接时 main 与 origin/main 一致；功能代码基线：9d8ebd706105e7e1dd5025443a7c7bafb7b8acdb
 canvas-workbench：1.6.6
 dsh-codex：0.3.0-dsh2.0.1
 四层 canvas-workbench 运行副本一致
