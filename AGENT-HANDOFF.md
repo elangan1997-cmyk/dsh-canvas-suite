@@ -548,3 +548,19 @@ git diff --check：通过
 - **本阶段刻意没做**：未运行 `sync-local-plugins.sh`、未启动 DSH——用户正在进行 1.7.0「彻底卸载 → 另一 AI 从 GitHub 全新安装」干净测试（四份副本与 Codex 登录记录于 09-16 23:57 清空，备份在 `~/设计工作台/插件备份/uninstall-retest-20260916-235709/`），同步会污染该测试。UI 截图、API 响应样例、性能数据四项基线缺项待该测试完成后补（BASELINE.md §9），**补齐前不得开始 Phase 2**。
 - 注意：`package.json` 无 `files` 白名单、sync 脚本整目录 `cp -R`，src/ 的 README 会随副本一起复制（无害，几 KB）。Phase 5 引入构建管线时一并加白名单。
 - 下一步（Phase 2 Host 拆分）开工条件：① 干净重装测试 PASS 并回填 REGRESSION 基线列；② 六个核心端点真实响应 JSON 存档；③ 一个不含个人图片的小型样例项目放入 `tests/fixtures/`。
+
+## 14. 2026-09-17 凌晨：v1.8 重构 Phase 2–8 自主执行完成（分支 `refactor/v1.8`，未合 main、未发布）
+
+用户授权整夜自主执行执行文档全部阶段与测试。提交链（自 main 72bdc33）：aa36de7 fix system-appearance → ac702ff/9dd6ea6 基线取证工具 → d36b03e Phase 2 → a913d71 Phase 3 → ce2b2f3 Phase 4 → 2160dfd/fbf8c8b Phase 5a/5b → 46c78b9 运行时检查点 → 55d4f6b Phase 6 → 5a7ba41 Phase 7+8 → 文档收尾。权威进度 `docs/refactor/PROGRESS.md`，回归证据 `docs/refactor/REGRESSION-v1.7.0.md`「v1.8 重构验证证据」+ `docs/refactor/regression-1.8/`。
+
+**接手必读：**
+- **源码在 `canvas-workbench/src/`**；`lib/index.js`、`lib/image-engine.js` 是 re-export 薄壳，`lib/client.js` 是 `npm run build` 的产物（`src/client/build-manifest.json` 定顺序）。改 UI 改分段文件再 build；`npm run check` 有漂移守卫。
+- 分段是同一工厂函数闭包的连续片段（不是 ES 模块）；`order[].inline` 条目把 `src/shared/**` 共享模块构建期内联进 bundle（去 import/export，故共享模块之间不要互相 import）。
+- `scripts/refactor/split-{host,client}.mjs` 是一次性工具（从 `refactor-baseline` 标签读原文），**不要再运行**。
+- 验证纪律新增两条：① `node tests/integration/api-parity.mjs`（git 基线 vs 工作树 55 条逐字段 diff，非 0 即失败）；② 真实 DSH 用 `open -a "DSH Desktop" --args --remote-debugging-port=9222` 启动后 `tests/smoke/cdp-client.mjs` 在页面内 fetch（外部 curl 被 DSH 网关 403 是常态，不是插件问题）。
+- DSH 透明材质窗口下 CDP 像素截图与 DOM 不一致（渲染呈浅色、DOM 为深色），UI 对比以 `tests/smoke/ui-snapshot.mjs` 的 DOM 真值为准。
+- macOS 会对 ZCode 弹屏幕录制确认框，未代点；期间 screencapture/computer-use 只能截到壁纸。
+
+**当前运行副本 = 重构版**（sync 于 02:2x，DSH 保持运行以便用户查看）。回滚：`git checkout main && ./sync-local-plugins.sh` 并重启 DSH。
+
+**§40 发布条件未满足项（诚实）：** Windows 实机回归（J3/J4/E8）；scripts/ 物理重组；CanvasOverlay 2,100 行分段未按 Feature 再拆（state 归属表待画）；Command 层未接入具体 UI 操作；性能内存计时。这些不阻塞在 macOS 上使用重构版，但阻塞打 v1.8.0 tag。

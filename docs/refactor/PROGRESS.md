@@ -15,12 +15,12 @@
 | Phase 3 Provider 抽象 | ✅ | src/providers/{registry,image-engine}.js + image/{dsh-codex,openai-compatible}.provider.js + host/services/image-engine-settings.js；lib/image-engine.js 成薄壳；11 项单元测试；对等 55/0 |
 | Phase 4 Job Manager | ✅ | ce2b2f3；unit 8 项 + jobs 集成；路由中间件接入，handler 零改动 |
 | Phase 5 Client 拆分 | ✅ | 5a 2160dfd：24 段字节一致（sha256 eee99d37…）；5b fbf8c8b：删 tldraw 死链，2,344,322→414,929 B（−82.3%） |
-| Phase 6 Command + History | ⏳ | |
-| Phase 7 CanvasObject / Asset | ⏳ | |
-| Phase 8 Text Feature 整合 | ⏳ | |
-| 测试套件 unit/integration/smoke/migration | ⏳ | |
+| Phase 6 Command + History | ✅ 55d4f6b | shared/commands + 内联进 bundle + window.__dshCanvas；unit 5 项 |
+| Phase 7 CanvasObject / Asset | ✅ 5a7ba41 | contracts/{canvas-object,asset}.js、schemas/project.schema.js（v2 迁移）、GET /assets；unit 8 + migration 3 |
+| Phase 8 Text Feature 整合 | ✅ 5a7ba41（部分） | text-service 已独立（Phase 2）、TextRebuildPanel 独立分段、Python Tool Registry 建立；scripts/ 物理重组与路由改经注册表**未做**（避免同一提交动路径又动调用方） |
+| 测试套件 | ✅ | unit 32 + migration 3 + integration 3 套（parity/jobs/contracts）+ smoke 工具 |
 | 重构后运行时回归对比 | ⏳ | |
-| 文档/交接/报告 | ⏳ | |
+| 文档/交接/报告 | ✅ | CHANGELOG 1.8.0 未发布段、REGRESSION 回填、AGENT-HANDOFF §14、BASELINE §9 |
 
 ## 环境（开工时）
 
@@ -44,3 +44,7 @@
   - Client（414KB 新构建）：DOM 快照与 1.7.0 基线**结构 0 差异**（设计模式/工具栏 6 按钮/iframe 主题变量/聊天图片输出 2 张/项目恢复）
   - 30 条真实 API 样例 vs 1.7.0 基线：**仅 system-appearance 3 字段差异 = aa36de7 预期修复**
   - DSH 保持运行重构版，供早上直接查看
+
+- [Phase 6–8] Command/History + Feature Registry + 契约 + schema v2 + Python Tool Registry + 三个只读端点；bundle 内联机制；unit+migration 35/35，集成 3 套 PASS，对等 55/0。
+- [最终回归] sync → 重启 DSH：health/capabilities(12 features, 10 enabled)/jobs/python-tools/system-appearance 全部经真实网关通过；`window.__dshCanvas` 内核就绪；DOM 快照 0 结构差异；干净 fixture 重采 30 条 API 仅 3 处 = system-appearance 修复；**Codex edit-image 端到端 13s 通过**，Job 记录 completed。证据目录 `docs/refactor/regression-1.8/`。
+- [未做/诚实记录] scripts/ 物理重组；CanvasOverlay（2,100 行分段）未按 Feature 再拆；Command 层未接入具体 UI 操作（Excalidraw 自带 undo 覆盖画布操作，业务级命令留给 Text Edit v2/替换资产）；Windows 实机回归；性能内存计时。

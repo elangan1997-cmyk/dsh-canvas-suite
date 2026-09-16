@@ -184,12 +184,12 @@ Phase 1 建目录后复跑同一组检查，结果见 §10。
 
 | 执行文档要求 | 状态 | 原因 / 补齐计划 |
 |---|---|---|
-| 保存典型测试项目 | 未做 | 用户项目目录为个人资产（`TUPIAN/<项目>/…`），不进仓库；Phase 2 前由用户指定 1 个小型样例项目复制到 `tests/fixtures/`（不含个人图片） |
-| 保存当前 UI 截图 | 未做 | 插件当时处于有意卸载状态；用户干净重装测试完成后补 6 张截图（设计模式开 / 素材库 / 颜色标记 / 选区工具栏浅深色 / 文字重建面板 / 聊天图片输出）到 `docs/refactor/baseline-screenshots/` |
-| 保存核心 API 返回样例 | 未做 | 需要 DSH 运行；补齐时对 `health` `state` `materials` `materials/tags` `image-status` `system-appearance` 各存一份真实响应 JSON |
-| 性能数据（§33） | 未做 | 启动 / 打开项目 / 保存 / 内存，需实机；补齐时在同一台机器测三次取中值 |
+| 保存典型测试项目 | ✅ 已做（改为合成） | 用户项目目录为个人资产不进仓库；`tests/fixtures/make-sample-project.mjs` 运行时合成 7 种格式样例项目（零个人数据） |
+| 保存当前 UI 截图 | ✅ 部分（4 张 + DOM 快照） | `baseline/screenshots/` 01–02 真实屏幕、03–04 CDP 渲染；macOS 权限弹窗封了后续截图，改用 `ui-snapshot` DOM 真值（更适合跨版本比较） |
+| 保存核心 API 返回样例 | ✅ 已做（30 条） | `baseline/api-samples-1.7.0/summary.json`，经真实 DSH 网关采集 |
+| 性能数据（§33） | ⚠ 部分 | 启动后 health 首次响应 <50ms；Codex edit-image 13s（网络主导）；client.js 体积 −82% 直接减少每次启动的 1.9MB 字符串处理与 blob 创建。未做内存/大项目计时（需用户真实大项目，个人资产） |
 
-**这些缺项不阻塞 Phase 1（建目录不迁业务），但阻塞 Phase 2 开始**：没有真实 API 响应样例就无法为路由拆分写对比测试。
+上述基线已在 2026-09-17 凌晨补齐后用于 Phase 2–8 的对比验证；最终证据见 `docs/refactor/regression-1.8/`。
 
 ## 10. Phase 1 完成后复检
 

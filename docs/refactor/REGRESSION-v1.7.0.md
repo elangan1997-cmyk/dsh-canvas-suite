@@ -156,3 +156,31 @@
 | 日期 | 提交 | Phase | 执行者 | 摘要 |
 |---|---|---|---|---|
 | 2026-09-17 | `72bdc33` → refactor/v1.8 | 0 / 1 | ZCode | A1–A3 实跑 PASS；B–K 标 PASS*（开发期确认）/ PENDING，等待用户干净重装测试作正式基线 |
+| 2026-09-17 凌晨 | `aa36de7`…`5a7ba41` | 2–8 | ZCode（自主） | 见下方「v1.8 重构验证证据」 |
+
+## v1.8 重构验证证据（2026-09-17 凌晨，分支 refactor/v1.8 至 5a7ba41）
+
+| 组 | 覆盖方式 | 结果 |
+|---|---|---|
+| A 静态 | `npm run check`（portability + 递归 node --check 64 文件 + 构建漂移守卫）、`npm test` 35 项 | **PASS** |
+| B1/B2/B4/B6 启动·设计模式·旧项目·会话记忆 | 真实 DSH（sync 四副本后重启）DOM 快照 vs 1.7.0 基线 | **PASS**（结构 0 差异：overlay、6 个工具栏按钮、项目「超滤棉」恢复、iframe theme 变量） |
+| B3/B5/B7/B8 项目读写·备份 | API 对等 55 条（state GET/POST/stale、projects、open/rename/delete-project、backup-canvas） | **PASS**（0 差异） |
+| C5/C7/C8 标签·选区工具栏·七色标记 | DOM 快照：`.dsh-selection-action` 8 项、`tagDots` 7、计算样式一致 | **PASS** |
+| C1/C2/C3/C4/C6/C9/C10/C11 画布交互 | 未在本轮自动化（需鼠标手势）；client.js 相关分段逐字节未改（构建一致性证明） | PASS*（承袭） |
+| D1/D11 引擎设置·health | 真实 DSH `health`/`image-settings` 与基线一致 | **PASS** |
+| D2/D5 Codex 生成·编辑 | 真实 DSH `edit-image`（dsh-codex）：13s 返回 200，产物 `b-wide-green-编辑.png` 内容正确（绿→蓝、尺寸保持），Job 记录 completed | **PASS**（证据 `regression-1.8/codex-edit-image-output.png`） |
+| D3/D4/D6–D10 API 引擎·擦除·去背景·矢量化 | 未触发（D3 需 API Key；其余 handler 逐字迁移 + 对等测试覆盖 ocr/export 错误路径） | PASS*（承袭）/ D3 BLOCKED（未配置 API Key） |
+| E1–E7 文字识别·PSD | `ocr-image`/`export-text-psd` 错误路径对等 0 差异；字体白名单分段逐字节未改 | PASS*（承袭） |
+| E8 Windows 字体 | 无 Windows 机器 | PENDING |
+| F1–F5 素材库 | API 对等：materials 列表/尺寸探测/标记 set·clear·bad-color/save/delete 0 差异；DOM 快照素材面板 | **PASS** |
+| F6/F7 拖拽·预览 | preview-svg/bad 对等 0 差异；拖拽未自动化 | PASS*（承袭） |
+| G1–G9 聊天图片输出 | DOM 快照：图片输出块 1、图片 2、按钮齐全，与基线一致；提取管线分段逐字节未改 | **PASS**（结构）/ PASS*（管线承袭） |
+| H1–H4 归档层级 | chat-image-router.js 未改动 | PASS*（承袭） |
+| I1–I4 主题跟随 | DOM 快照 iframe 六个 `--dsh-*` 变量、colorScheme、Excalidraw theme 类与基线一致 | **PASS** |
+| I5 跟随系统 | `system-appearance` 1.7.0 恒 `known:false`（缺陷）→ 修复后 `{ok:true,known:true,dark:true}` | **PASS（修复后首次真正通过）** |
+| J1/J2 打开文件夹·Adobe | 会启动外部应用，未自动化；handler 逐字迁移 | PASS*（承袭） |
+| J3/J4 Windows | 无 Windows 机器 | PENDING（阻塞 v1.8.0 发布，§40） |
+| J5 Python 不可用降级 | capability 判定单元测试 + `/capabilities` 集成 | **PASS** |
+| K1 操作日志 | 未改动 | PASS*（承袭） |
+
+**结论：无 FAIL。** 未自动化项均为 handler/分段逐字迁移且有构建一致性或对等测试背书；J3/J4/E8 Windows 项按执行文档 §40 阻塞 v1.8.0 正式发布，需用户在 Windows 机器上跑一遍 B1–B3、C1、F1、E8。

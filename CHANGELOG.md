@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.8.0（未发布 — 分支 refactor/v1.8，Architecture Refactor）
+
+> 架构版本，不新增大型业务能力；用户可见行为与 1.7.0 一致（真实 DSH 回归：DOM 结构 0 差异、30 条 API 样例仅 1 处预期修复差异、Codex 端到端生成通过）。发布前仍需 Windows 实机回归（执行文档 §40）。
+
+- **Host 拆分**：`lib/index.js` 2,256 行的单个 `apply()` 拆为 `src/host/`（routes 9 文件 / services / server / jobs / adapters）与 `src/shared/utils/`，handler 逐字迁移，`lib/index.js` 成薄壳；API 对等测试 55 条请求 0 差异。
+- **Provider Registry**：`image-engine.js` 拆为 dsh-codex / openai-compatible 两个 Provider + 注册表 + 门面（签名与行为不变）；设置与 API Key 存储路径不变（本地 0600）。
+- **Job Manager**：Job 契约与状态机、内存 Store、事件总线；edit-image / remove-background / vectorize / ocr / export-psd 自动登记，新增只读 `GET /dsh-canvas/jobs`、`/jobs/get`、`POST /jobs/cancel`。
+- **Client 构建管线**：`client.js` 切成分段源码（`src/client/**` + `build-manifest.json`），`npm run build` 拼接为 `lib/client.js`（首构建与原文件逐字节一致）；**删除 tldraw 时代死链**（`TLDR_BUNDLE` 等，无引用），`lib/client.js` 2,344,322 → 426,932 bytes（−81.8%），启动少做一次 1.9MB 字符串处理。
+- **Command / History**：共享 Command 基类、CommandBus、HistoryManager（undo/redo 双栈）；构建期内联进 bundle，挂 `window.__dshCanvas`。
+- **契约层**：CanvasObject（含 Excalidraw element 双向 adapter）、Asset（稳定 assetId、类型/来源推断）、Job、Feature；`project.json` schemaVersion 2（v1→v2 只加字段、幂等、旧插件可读）。
+- **Feature Registry / Capability**：12 项内置 Feature 声明，按 `/health` 推导 capability 启用；新增只读 `GET /dsh-canvas/capabilities`、`/assets`、`/python-tools`（§28 统一 `{ok,data}` 形状）。
+- **Python Tool Registry**：10 个脚本按 id 注册解析（物理目录重组待路由改经注册表后进行）。
+- **修复**：`/dsh-canvas/system-appearance` 把布尔常量 `isMac`/`isWindows` 当函数调用导致永远 `known:false`（「画布背景跟随系统」主机探测在 1.7.0 从未生效）。
+- **测试与工具**：`npm test`（unit 32 + migration 3）、`npm run test:integration`（git 基线 vs 工作树 API 对等）、`npm run check`（portability + 递归语法 + 构建漂移守卫）；`tests/smoke/` CDP 客户端（页面内 fetch 绕过 DSH 网关 403、DOM 真值快照）；`tests/fixtures/` 零个人数据样例项目；npm 打包白名单加入 `src/`。
+
 ## 1.7.0
 
 - 素材库多维整理：可按修改时间、文件类型、图片尺寸、文件大小、文件名称排序（选择本地记忆），卡片与预览显示宽高/大小/时间。
