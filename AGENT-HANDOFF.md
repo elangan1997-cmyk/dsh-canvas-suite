@@ -536,3 +536,15 @@ git diff --check：通过
 - 2026-09-17 画布背景模式开关（用户需求：除跟随 DSH 外也要能跟随系统外观）：顶栏「更多 ···」菜单首项新增「画布背景跟随系统」勾选项，存 localStorage（`dsh-canvas-bg-follow-system`）。关闭则跟随 DSH 的五元组推送。
   - 首版用页面 `matchMedia(prefers-color-scheme)` 判系统外观——**被实测证伪**：Electron 会按 DSH 应用主题覆盖 webview 的媒体查询（DSH 浅色 + 系统深色时读到 false，画布误保持白色）。追修：主机进程新增 `GET /dsh-canvas/system-appearance`（macOS `defaults read -g AppleInterfaceStyle` 含 Dark → 深色；Windows `reg query ...AppsUseLightTheme` 为 0x0 → 深色；`runProcess` 执行）；客户端系统模式下 3 秒轮询该接口，结果存 `realSystemDarkRef`，推送优先用它、未到时才退回页面媒体查询。系统切换的 matchMedia change 监听保留作即时触发。
 - 验证：srcdoc 模板内的 iframe 脚本抽出反转义后独立 `node --check` 通过（模板字符串内部的语法错误 node --check 整文件查不出，这条要保留在流程里）；静态检查全绿、四层副本已同步；**需完全重启 DSH 后真实验收**：标记→角标显示→按色整理；图片尺寸排序实际跑一次（观察排序结果与大图在前是否一致）。
+
+## 13. 2026-09-17 v1.8 架构重构启动：Phase 0 / 1（分支 `refactor/v1.8`）
+
+依据《DSH Canvas Suite v1.8 架构重构执行文档》（用户提供，`~/Downloads/DSH-Canvas-Suite-v1.8-Architecture-Refactor.md`），只做 Phase 0 + Phase 1，**未进入 Phase 2**。
+
+- **基线取 main `72bdc33` 而非 tag `v1.7.0`**：tag 实际指向 `05944ec`，落后两提交，缺 `bec5bd3`（Windows 字体目录修复，真实代码）。在 tag 上重构会制造假回归。分支 `refactor/v1.8` 自 `72bdc33` 创建。
+- **client.js 2.34 MB 的 82% 是一行**：第 1537 行 `TLDR_BUNDLE`（1,927,330 B，内嵌 Excalidraw 厂商包）。手写代码约 400 KB。God File 第一刀应是外置 vendor（`/dsh-canvas/vendor/` 路由与 `TLDR_BUNDLE_URL` 双路径雏形已存在），须先验证 srcdoc iframe 在 DSH CSP 下能否 `<script src>` 加载本地 vendor；验证不过则保持内嵌、改为构建期拼接。
+- **index.js 结构**：28 个顶层纯函数（55–428）+ 单个 `apply(ctx)`（429–2256）内联全部 41 条 `/dsh-canvas/*` 路由。拆分顺序：先按路由切 handler（代码逐字不动）→ 跑回归 → 再下沉 services。
+- 产物：`docs/refactor/BASELINE.md`（职责地图、41 路由清单、拆分建议、诚实缺项）、`docs/refactor/REGRESSION-v1.7.0.md`（A–K 共 60+ 项，静态 A1–A3 实跑 PASS，运行时项标 `PASS*`=开发期确认待正式复测 / `PENDING`）、`canvas-workbench/src/**` 与 `canvas-workbench/tests/{unit,integration,migration,smoke}` 共 27 个占位 README（**无任何入口加载，行为零变化**；Phase 1 后 A1–A3 复跑 PASS）。
+- **本阶段刻意没做**：未运行 `sync-local-plugins.sh`、未启动 DSH——用户正在进行 1.7.0「彻底卸载 → 另一 AI 从 GitHub 全新安装」干净测试（四份副本与 Codex 登录记录于 09-16 23:57 清空，备份在 `~/设计工作台/插件备份/uninstall-retest-20260916-235709/`），同步会污染该测试。UI 截图、API 响应样例、性能数据四项基线缺项待该测试完成后补（BASELINE.md §9），**补齐前不得开始 Phase 2**。
+- 注意：`package.json` 无 `files` 白名单、sync 脚本整目录 `cp -R`，src/ 的 README 会随副本一起复制（无害，几 KB）。Phase 5 引入构建管线时一并加白名单。
+- 下一步（Phase 2 Host 拆分）开工条件：① 干净重装测试 PASS 并回填 REGRESSION 基线列；② 六个核心端点真实响应 JSON 存档；③ 一个不含个人图片的小型样例项目放入 `tests/fixtures/`。
