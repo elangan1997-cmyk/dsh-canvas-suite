@@ -437,6 +437,18 @@ Windows preview.4 是已验证旧基线，但 1.6.x 素材库、文件表瘦身�
 
 ## 11. 当前检查证据摘要
 
+2026-09-17（1.7.0 提交时确认）：
+
+```text
+版本：canvas-workbench 1.7.0（package.json + /dsh-canvas/health 三处一致）
+静态检查：五文件 node --check + check-portability + git diff --check 全过
+iframe 内联脚本：抽取反转义后独立 node --check 通过
+四层运行副本：同步一致（global/desktop/web/设计d s）
+diff 审查：无密钥/个人数据/调试残留
+GitHub：origin = elangan1997-cmyk/dsh-canvas-suite，gh 已认证
+1.7.0 代码基线：见下方提交（docs 提交前的 feat 提交即功能代码基线）
+```
+
 2026-09-10 本文档编写时已确认：
 
 ```text
@@ -452,3 +464,75 @@ npm registry：dsh-canvas-workbench 查询 E404，尚不能视为已公开发布
 ```
 
 接手 Agent 完成任何新修改后，应更新本节日期、HEAD、版本、Release/npm 状态和验证证据。
+
+## 12. 2026-09-11 未提交修复：聊天生成图推送（待 UI 验收）
+
+会话数据分析（羊绒棉详情页会话）发现：设计模式下 imagegen 生成的图片从未以消息形式进入聊天对话流，全部只存在于工具结果中；工具结果被 compaction 清理后，聊天里就看不到历史生成图（用户误以为是“只显示 9 张”的数量上限）。
+
+根因（已修复，**尚未提交、尚未真实 UI 验收**）：
+
+- `canvas-workbench/lib/chat-image-router.js` 推送条件误写为 `exec.parent !== undefined`。DSH `dsh-tools` 中 `exec.parent` 仅在嵌套子调用（code-dispatch）时存在，聊天顶层 imagegen 恒为 undefined，导致 `deferContext` 一次都未触发。
+- 修复：条件改为 `typeof exec.deferContext === 'function'`（deferContext 在 exec 上恒存在），与 DSH 核心 `tools-code-mode` 推送图片的模式一致。
+- 依据：`dsh-tools/lib/index.js` 中 `createExecution`（parent 条件展开、deferContext 恒定义）与调度器 `additionalContexts` 合并逻辑。
+
+已完成的静态证据：
+
+```text
+node --check：client.js / index.js / chat-image-router.js 全部通过
+tests/check-portability.mjs：通过
+git diff --check：通过
+./sync-local-plugins.sh && --check：四层副本一致、dsh-codex 兼容、活动 Profile 注入、HTTP 403 监听正常
+```
+
+待办：
+
+1. 真实 DSH UI 验收：设计模式开启后生成一张图，确认聊天对话流出现带图上下文消息且落盘到 `DSH聊天生成图片/`；重启 DSH 后仍成立。
+2. 验收通过后提交（当前工作树有未提交修改：`canvas-workbench/lib/chat-image-router.js`），并按 §7.3 决定是否随下个版本更新 CHANGELOG/版本号。
+3. 与用户确认推送频率策略：目前每张生成图都会推一条带图上下文消息，若嫌刷屏可改为仅在最终结果推送。
+
+补充（2026-09-12，8d 棉会话排查）：修复未生效是因为该聊天**没有绑定画布项目**——canvas 路由抛「请先在右侧画布选择或新建项目」后，聊天 agent 自行切换到 `pixel-image2` 技能直连 Pixel API（ai-pixel.online）生图，完全绕开了画布管线；聊天里的图片卡片实为 DSH 官方交付物 UI（dsh-client-ui-deliverables）对 `read_image` 结果的预览，空白是官方 UI 渲染问题（文件、附件存储、surfaceOp 均完好）。验收修复前必须先在右侧画布为当前聊天绑定项目。
+
+补充（2026-09-12，第二项未提交修复，待 UI 验收）：`chat-image-router.js` 未绑定项目时不再抛错阻断。原因：那个报错会把聊天 agent 逼向 pixel-image2 等旁路技能，图片完全脱离画布管线（不归档、不推送聊天）。新行为：设计模式开启 + 未绑定项目时，图片照常经画布引擎生成并 deferContext 推送聊天，仅跳过归档，结果带 `notice` 提示绑定；归档失败写入 `writeError` 不再中断生成；`presentResult` 标题区分归档/未归档/失败三种状态。output schema 新增可选 `notice` 字段。静态检查全绿、四层副本已同步；**需完全重启 DSH 后真实验收**：未绑定项目聊天中生图 → 图片应出现在对话流且带未归档提示。
+
+补充（2026-09-12，第三项未提交修复，待 UI 验收）：聊天“图片输出”卡片的 9 张上限与旧图混入。定位：卡片由 canvas-workbench client.js 的 `ImageTail`（`conversation.chat.turnTail` 结构插槽）渲染，`select` 里 `images.slice(-9)` 硬性只显示最后 9 张；旧图混入是因为本轮内 agent `read_image` 对比旧版本、最终回复提及旧文件名时，旧图被收进本轮聚合。修复（纯客户端，`/dsh-canvas/image-status` 已返回 mtime）：① 去掉 slice(-9)，显示本轮全部图片；② turn/start 的 `time` 记为 `startTime` 并写进每个聚合条目；③ `extractImagePaths` 附件条目携带同名文件路径 `sourcePath`；④ `ImageTail` 对本地路径和附件 sourcePath 做 mtime 判定——早于 `startTime-2000ms`（文件系统时间戳 2 秒容差）即视为旧图引用并隐藏。语义：**本轮卡片 = 本轮开始后新建/改写的文件 + 无法判定时间的纯附件**（DSH 原生 imagegen 无文件路径，保持显示）。旧会话条目无 startTime 字段，过滤自动跳过，行为不变。静态检查全绿、四层副本已同步；**需完全重启 DSH 后真实验收**：一轮内连生成 12 张图应全部显示；本轮 read_image 旧图不应出现在卡片。
+
+补充（2026-09-12，第四项未提交功能，待 UI 验收）：素材库多维整理 + Mac 式颜色标记。
+
+- 排序：工具栏下新增“整理”行，可选 修改时间（默认）/ 文件类型（同类型内按时间）/ 图片尺寸（像素数）/ 文件大小 / 文件名称（中文数字感知 localeCompare）；选择持久化在 localStorage（`dsh-canvas-material-sort-v1`）。
+- 尺寸数据：服务端 `/materials` 新增 `width/height`，由 `parseImageHeaderSize` 只读文件头 64KB 解析（PNG/GIF/BMP/WebP 三容器/JPEG SOF 扫描/SVG width-height 与 viewBox 回退），按 path+mtime+size 记忆缓存（`materialSizeCache`），外置盘二次刷新零开销。已用真实文件对比 sips 验证 PNG/JPEG/SVG。
+- 颜色标记：Mac 七色（红橙黄绿蓝紫灰，hex 对齐 Finder）。卡片左上角圆点按钮设单张标记；多选栏“标记”按钮批量设色/清除；工具栏七色圆点按色筛选（再次点击取消）。标记集中存放在 `~/.dsh/canvas-workbench/material-tags.json`（绝对路径索引，跨项目共享），端点：GET `/dsh-canvas/materials/tags?dir=`、POST `/dsh-canvas/materials/tag`（names+color，空 color 清除）；删除素材时同步清标记。注意：按绝对路径索引意味着移动/改名文件会丢标记（同名重建文件不带旧标记，删除时已清理）；不写入 Finder xattr，DSH 内部生效。
+- 静态检查全绿、四层副本已同步；**需完全重启 DSH 后真实验收**：排序各档生效、标记单张/批量/筛选/删除清理、宽高显示（预览弹层含 宽高·大小·修改时间）。
+
+补充（2026-09-12，第五项未提交功能，待 UI 验收）：**画布图片**同步获得整理与颜色标记能力。
+
+- 标记：框选画布图片 → 悬浮工具栏「更多 ▾」菜单顶部出现七色调色板（红橙黄绿蓝紫灰，同素材库/Finder 色值），点色即批量标记选中项，「清除」取消标记。标记写入元素 `customData.dshTagColor`（随 canvas.json 持久化、随项目备份/恢复），走 updateScene+commitToHistory（可 Ctrl+Z 撤销）。
+- 显示：已标记图片左上角常显颜色圆点（未选中时也显示）；选中时名称标签前缀色点。
+- 整理：顶栏「整理图片」按钮改为弹层——排序（文件名称/文件类型/修改时间/图片尺寸/文件大小）× 范围（全部图片/仅未标记/七色各档）。文件类型按扩展名分组内按时间；图片尺寸按真实像素排序（iframe 内按 fileId 去重解码 dataURL 一次，结果只进局部 map 不写回场景，防序列化污染 canvas.json）；范围=颜色时只整理该色标记的图片，其余不动。仍是 240px 网格 + scrollToContent + 可撤销。
+- 数据源：时间/大小来自元素 customData 的 dshSourceMtime/dshSourceSize（无源文件的内嵌图退化为 0，排序时落到队尾）。
+- 2026-09-12 用户反馈修正：文件类型排序原来是单一连续网格，不同格式混在一起看不出分组。已改为**按扩展名分块布局**——每种格式独立网格带，块间留约 460px（1.5 行）空白间隔；反馈文案带区块数（“分成 N 个格式区块”）。
+- 2026-09-14 修复“切换会话后第一轮无图片输出卡片”：根因是归档撞名链路——画布路由 `uniqueOutputPath` 自动给重名文件加 `-2/-3` 后缀，模型最终回复却写原始名；`reconcileFinalImages` 按名字精确匹配失败后，用裸名替换掉真实附件条目，裸名在归档目录 404 → 重试后全部隐藏 → 卡片整个消失（新会话在同一项目目录首次生成必现）。修复：名字匹配先精确、再按剥掉 `-数字` 后缀的基础名匹配，最终回复的原始名能映射回带后缀的真实附件。该 bug 在旧版本就存在，非 9 张上限修复引入。
+- 2026-09-14 第二轮排查（用户反馈“还是不显示 + 最后一轮 12 张全没”）：用真实源码函数对真实会话事件做聚合模拟，发现并修复两个叠加缺陷——
+  ① **最终文本替换逻辑毁灭性**：dd 会话 turn 20 的最终回复顺带提到旧参考基准图 `00_真实材质微距基准.jpg`，旧逻辑“最终文本引用=整体替换”把本轮 12 张 imagegen 附件全部挤掉，叠加 mtime 过滤后卡片清空。修复：`update()` 的 visible 分支从“替换”改为“合并+名字校准”（去重追加），新旧甄别完全交给 mtime 过滤；`finalImagesSeen` 仍阻断后续扫描。
+  ② **`<output_path>` 路径不被提取**：`collectImagePaths` 只认 `<path>`/JSON/Markdown/反引号等形态，画布路由的 `<output_path operation="create">` 归档路径被漏掉，附件拿不到 sourcePath，mtime 新旧判定失效。修复：新增 `<output_path[^>]*>([^<]+)</output_path>` 提取。
+  - 验证方式（可复用）：从 client.js 抽取聚合函数（imageName/attachmentFromPath/attachmentMarker/pushIfImage/pushImageCandidate/collectImagePaths/walkImagePayload/dedupeImagePaths/eventCwd/resolveImagePath/extractImagePaths/extractAssistantVisibleImages/reconcileFinalImages + IMAGE_EXT_RE 常量），对解压后的 session.jsonl 逐事件重放，比对聚合条目与源文件 mtime。三轮复验：dd turn 20 = 12 附件全新鲜；dd turn 15 = 27 附件全新鲜；792 turn 1 = 6 条（3 新图显示 + 3 旧参考被过滤）。
+- 2026-09-14 第三轮排查（用户截图：卡片出现“图片输出 12 张”但 12 个缩略图全是碎图）：聚合与卡片都正常，坏在**图片加载层**。附件条目的显示源是 `resolveAttachmentSource`（DSH 原生 service.imageUrl）优先、归档回退其次——但原回退依赖 `activeCanvasProjectPath`（当前会话绑定画布项目才有值），切到未绑定项目的会话时回退为空，DSH 原生解析再一失败，src 即空/碎。修复：回退源优先用条目自带的 `sourcePath`（路由归档的真实文件，经 `/dsh-canvas/image` 同源路由读取，已验证文件在盘），其次才是项目拼接路径；另加 `swapped` 状态——附件 URL 加载失败（blob 失效）时自动切换到归档回退再试一次，切换会话/重挂载时重置。**附件显示从此不依赖 DSH 原生附件解析成功，也不依赖画布项目绑定。**
+- 2026-09-14 代码审查（用户确认问题消失后主动复查）：发现并修复 4 处同族遗留——大图预览（lightbox）的图片源、“在文件夹中显示”、“加入画布”和卡片“全部加入画布”按钮仍在用旧的项目绑定路径逻辑，未跟上 sourcePath 回退。统一抽出 `actionPathOf(img)`（sourcePath → 项目归档 → 附件引用 三级回退），缩略图/大图/全部按钮/文件夹定位/加入画布全部走同一来源。已知但不修的边界（低风险）：① 裸文件名条目跨项目查看时会按当前项目归档路径解析，404 后隐藏（稳定匹配使裸名条目罕见）；② 嵌套（code-dispatch）imagegen 的 deferContext 推送理论上可能与宿主 code-mode 的推送重复（实际未见）；③ 素材库首次加载大目录需逐文件读头部（有 mtime+size 缓存，二次起零开销）。
+- 2026-09-15 修复“未绑定项目的新对话生成图全部‘加载图片失败’”：根因是 09-14 的“未绑定不阻断”方案在未绑定时**不落盘**——卡片条目没有 sourcePath，缩略图只能依赖 DSH 原生附件解析（service.imageUrl），该解析在部分会话不可用时整卡失败；绑定项目的会话因有归档文件兜底而正常，掩盖了问题。修复：归档目录改为三级回退——绑定项目 → 项目内 `DSH聊天生成图片/`；未绑定但有聊天工作目录 → `<cwd>/DSH聊天生成图片/`；都没有 → `~/.dsh/canvas-workbench/未归档生成图/`。生成图从此**始终有落盘路径**，工具结果带 `<output_path>`，卡片 sourcePath 兜底链全程可用；`notice`/卡片标题按归档位置区分。注意：修复前生成的未绑定轮次仍会显示加载失败（无文件可兜底），属预期。
+- 2026-09-15 归档目录改为**会话 → 日期 → 5小时时段**分层（用户需求：平铺不好找），随后按用户要求再升级：会话层用**会话标题**（与侧边栏 UI 同名）而非 sessionId。结构：`DSH聊天生成图片/<会话标题>/<YYYY-MM-DD>/<HH-HH+5>/文件名`，时段 00-05/05-10/10-15/15-20/20-24（本地时间）。
+  - 标题来源：host 侧从活跃 `session.events` 倒序找最新 `session/title` 事件（`sessionTitleOf`）；标题净化（非法字符→`-`、截 60 字、空→未命名会话）。
+  - **改名同步**：UI 改会话名后，下一条用户消息（`agent/inbox/inserted` 钩子）或下一次生成时把旧文件夹 rename 成新标题名（仅同一归档根内移动；跨项目/目录绑定变化不搬）。归属靠文件夹内 `.dsh-canvas-session.json` 标记 + `~/.dsh/canvas-workbench/archive-folders.json` 索引双重记录；同标题不同会话时目标名追加 `-短id` 区分。
+  - 已知代价（如实告知用户）：文件夹改名后，**旧轮次卡片条目的绝对路径失效**——文件兜底断开，但 DSH 附件解析仍是主显示链路，缩略图通常不受影响；“在文件夹中显示”对旧条目会报路径不存在。新条目始终带新路径。
+  - 会话无标题时（首条消息前生成）先落 `未命名会话/`，标题生成后下次消息/生成自动改名归位。
+  - 影响面：`scanProjectImages` 根层跳过整个目录（嵌套无影响）；client.js 平铺映射保留为旧数据回退；既有平铺/短id文件不迁移。
+- 2026-09-15 文字识别/重建字体清单替换（用户需求：苹方/微软雅黑不可商用，没必要默认）：面板字体下拉改为三组——**阿里巴巴普惠体 3.0 全系列 8 档**（35 Thin/45 Light/55 Regular/65 Medium/85 Bold/95 ExtraBold/105 Heavy/115 Black，PS 名 `AlibabaPuHuiTi_3_55_Regular` 形态，下划线分隔——来自本机 system_profiler 实测，勿改成连字符）+ **思源黑体 SC 全系列 7 档**（`SourceHanSansSC-ExtraLight/Light/Normal/Regular/Medium/Bold/Heavy`）+ 西文/系统组（Arial/Arial Bold/Helvetica Neue/宋体，标注“注意授权”）。默认字体 `AlibabaPuHuiTi_3_55_Regular`；旧条目里的 PingFang 值自动回落到默认（`textRebuildFontValue`）。`infer_text_style.py` 的 CJK 推测默认同步从 PingFang 改为普惠体 55/85。`export_text_psd.py` 的 `find_font(postscript)` 现在按块解析选中字体到 `~/Library/Fonts` 的实际文件（普惠体 `.ttf` 用连字符文件名，思源 `.otf`），PSD 预览文字与所选字体一致，解析失败回退系统 Arial。本机已装全套字体（`~/Library/Fonts/AlibabaPuHuiTi-3-*.ttf`、`SourceHanSansSC-*.otf`）；换机器需同样安装。
+- 2026-09-15 追修“默认字体到 PSD 仍是苹方”（换字体重建正常、不改就是苹方）：`textRebuildFontValue` 只在**显示层**归一，条目数据里的 PingFangSC 旧值原样进 PSD。共四处数据层修复——① `index.js` 模型理解路径的字体合成（原 CJK 回退 PingFang/Songti，改普惠体 55/85）；② `index.js` Photoshop JSX 的 `ti.font` 兜底 `PingFangSC-Regular` → `AlibabaPuHuiTi_3_55_Regular`；③ `ocr_image.py` OCR 默认字体改普惠体；④ **客户端 `exportTextRebuild` 导出前对 blocks 做数据级归一**（`textRebuildFontValue` 写回 `fontPostScript/fontFamily`）——这是根治点：显示与导出永远一致。宋体作为显式选项保留（用户主动选择时不动）。
+- 2026-09-15 新增英文免费商用字体家族（用户需求；性能确认无影响——下拉是静态选项，光栅化只加载选中字体）：**Inter（9档）/ Montserrat（9档）/ Poppins（9档）/ Source Sans Pro（6档，注意 Semibold 无大写 B）**，均来自本机 `~/Library/Fonts`（文件名=PS名，`.ttf`/`.otf`）。DIN 系列是 macOS 系统字体（版权同苹方问题），刻意排除。`infer_text_style.py` 非CJK默认 Arial→Inter；`index.js` 合成路径非CJK sans-serif Arial→Inter（serif→Times、monospace→Menlo 维持，无免费替代已装）。`export_text_psd.py` 的 `find_font` 改为通用映射：除普惠体专用下划线转连字符外，一律尝试 `~/Library/Fonts/<PS名>.otf/.ttf`。
+- 2026-09-15 UI 风格对齐 DSH（用户需求：去除画布与聊天交界的阴影带 + 整体与 DSH 风格一致）：① 删除 `.dsh-canvas-overlay` 的 `box-shadow`（深浅两处）与素材库面板的侧边/大阴影；② 画布容器/顶栏/按钮/标题/提示/反馈 + 素材库面板（`--ml-*` 五个变量）+ 整理弹层/调色板，全部改用 **DSH 设计令牌**（`--dsw-alias-bg-base/bg-layer-1/2/3`、`border-l2/l3`、`label-primary/secondary/tertiary`、`interactive-bg-hover`、`brand-primary`、`state-success-primary`、`bg-mask-1/bg-mask-drop`），原色值做兜底——DSH 切深浅主题时画布/素材库自动跟随；③ 删掉三处素材库 `prefers-color-scheme:light` 里与令牌打架的固定色覆盖（保留复选框/放大镜等中性微调）。未迁移：项目选择器靛蓝 chip、更多菜单/引擎设置/项目弹窗仍为固定浅色（低频弹窗，后续按需迁移）。
+- 2026-09-16 画布背景跟随 DSH 主题（用户反馈：DSH 浅色下画布仍整块黑色，两轮修复）：
+  - 第一轮：父层 `pushDshTheme()` 读令牌推送 + iframe `set-theme-background` 消息 + `loaded` 后重推。**未解决**。
+  - 第二轮定位真凶：srcdoc 里 `html,body,#ex-root,.excalidraw,.excalidraw-container{background:#15171c}`（prefers-color-scheme:dark 时的链式写死背景）把整个 iframe 涂黑，`viewBackgroundColor` 只管 Excalidraw 画布层盖不过它。修复：① 两条链式规则改用 `var(--dsh-bg,#f7f8fa/#15171c)`；② `set-theme-background` 处理器在 `<html>` 上设置 `--dsh-bg` + `colorScheme`（内联变量优先于媒体查询，深浅都跟随推送）；③ 父层令牌读取加固——html/body/#root 逐层找 `--dsw-alias-bg-base`，找不到退回 body 实际背景色，暗色判定=主题标记优先、缺失按颜色亮度（<128）推断。
+  - 排查方法论：srcdoc 模板内嵌脚本的语法要用“抽取+反转义（\\\\→占位、\\引号→引号）后 node --check”验证，整文件检查覆盖不到字符串内部。
+- 2026-09-17 选区工具栏跟随 DSH 主题（用户指认：选中图片的悬浮功能栏重启后仍黑色）：该工具栏（`.dsh-selection-toolbar`/`.dsh-selection-menu`/`.dsh-selection-action`）在 iframe 内部，原为写死深色玻璃。修复：① 工具栏/箭头/计数/分隔线/更多菜单/动作按钮的背景、边框、文字、hover 共 8 处改用 `var(--dsh-surface/--dsh-line/--dsh-fg/--dsh-fg-muted/--dsh-hover, 原深色值)`；② 父层主题推送扩展为五元组（bg-base/label-primary/bg-layer-3/border-l2/interactive-bg-hover）；③ iframe 收到后写入 `<html>` 的 --dsh-* 变量——fg 缺失按 dark 推导（#f8fafc/#1f2937），surface/line/hover 空值不设置（避免空串令 CSS 失效），CSS 兜底值保持原深色玻璃。至此 iframe 内 UI（工具栏/更多菜单/颜色标记调色板）与画布背景均跟随 DSH 主题。
+- 2026-09-17 画布背景模式开关（用户需求：除跟随 DSH 外也要能跟随系统外观）：顶栏「更多 ···」菜单首项新增「画布背景跟随系统」勾选项，存 localStorage（`dsh-canvas-bg-follow-system`）。关闭则跟随 DSH 的五元组推送。
+  - 首版用页面 `matchMedia(prefers-color-scheme)` 判系统外观——**被实测证伪**：Electron 会按 DSH 应用主题覆盖 webview 的媒体查询（DSH 浅色 + 系统深色时读到 false，画布误保持白色）。追修：主机进程新增 `GET /dsh-canvas/system-appearance`（macOS `defaults read -g AppleInterfaceStyle` 含 Dark → 深色；Windows `reg query ...AppsUseLightTheme` 为 0x0 → 深色；`runProcess` 执行）；客户端系统模式下 3 秒轮询该接口，结果存 `realSystemDarkRef`，推送优先用它、未到时才退回页面媒体查询。系统切换的 matchMedia change 监听保留作即时触发。
+- 验证：srcdoc 模板内的 iframe 脚本抽出反转义后独立 `node --check` 通过（模板字符串内部的语法错误 node --check 整文件查不出，这条要保留在流程里）；静态检查全绿、四层副本已同步；**需完全重启 DSH 后真实验收**：标记→角标显示→按色整理；图片尺寸排序实际跑一次（观察排序结果与大图在前是否一致）。
