@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import sys
 from pathlib import Path
 
 
@@ -31,24 +33,47 @@ def normalize_text(value: object) -> str:
     return text
 
 
+def _font_search_dirs() -> list[Path]:
+    # macOS：用户字体目录；Windows：用户与系统字体目录。
+    # Windows 安装字体时偶尔会给文件名追加 _0/_1 后缀，用 glob 兜底匹配。
+    home = Path.home()
+    dirs = [home / "Library" / "Fonts"]
+    if sys.platform.startswith("win"):
+        dirs.append(home / "AppData" / "Local" / "Microsoft" / "Windows" / "Fonts")
+        windir = os.environ.get("WINDIR")
+        if windir:
+            dirs.append(Path(windir) / "Fonts")
+    return [d for d in dirs if d.is_dir()]
+
+
+def _resolve_font_file(stem: str, extensions: tuple[str, ...]) -> str | None:
+    for directory in _font_search_dirs():
+        for ext in extensions:
+            exact = directory / f"{stem}{ext}"
+            if exact.is_file():
+                return str(exact)
+    # Windows 重命名的字体文件（如 xxx_0.ttf）按前缀匹配。
+    for directory in _font_search_dirs():
+        for ext in extensions:
+            for hit in directory.glob(f"{stem}*{ext}"):
+                return str(hit)
+    return None
+
+
 def find_font(postscript: str | None = None) -> str | None:
     # 优先用面板选中的字体（阿里巴巴普惠体 / 思源黑体，均可免费商用），
     # 让 PSD 预览文字与 Photoshop 里替换后的真实字体一致。
     if postscript:
         ps = str(postscript).strip()
-        user_fonts = Path.home() / "Library" / "Fonts"
-        candidates = []
         if ps.startswith("AlibabaPuHuiTi_3_"):
             # AlibabaPuHuiTi_3_65_Medium → AlibabaPuHuiTi-3-65-Medium.ttf
-            candidates.append(user_fonts / f"{ps.replace('_', '-')}.ttf")
+            resolved = _resolve_font_file(ps.replace("_", "-"), (".ttf",))
         else:
             # 其余家族（思源黑体 / Inter / Montserrat / Poppins / Source Sans Pro…）
             # 的字体文件名与 PostScript 名一致，通用匹配 .otf/.ttf 两种扩展。
-            candidates.append(user_fonts / f"{ps}.otf")
-            candidates.append(user_fonts / f"{ps}.ttf")
-        for candidate in candidates:
-            if candidate.is_file():
-                return str(candidate)
+            resolved = _resolve_font_file(ps, (".otf", ".ttf"))
+        if resolved:
+            return resolved
     candidates = [
         "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
         "/System/Library/Fonts/Supplemental/Arial.ttf",
