@@ -1,0 +1,510 @@
+{
+  "health": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "ok": true,
+      "plugin": "canvas-workbench",
+      "version": "1.7.0",
+      "platform": {
+        "platform": "darwin",
+        "windows": false,
+        "macOS": true,
+        "nativeFolderPicker": true,
+        "revealFile": true,
+        "adobeNativeTextLayers": true,
+        "adobeOpenByFileAssociation": false,
+        "localPythonFeatures": "requires-python"
+      },
+      "capabilities": {
+        "webServer": true,
+        "subprocess": true,
+        "llm": true,
+        "attachments": true
+      },
+      "imageEngine": {
+        "engine": "dsh-codex",
+        "api": {
+          "configured": false,
+          "baseUrl": "https://ai-pixel.online",
+          "model": "gpt-image-2",
+          "ready": false
+        },
+        "dshCodex": {
+          "installed": true,
+          "authenticated": true,
+          "ready": true
+        },
+        "settingsPath": "<home>/.dsh/canvas-workbench/image-engine.json"
+      }
+    }
+  },
+  "system-appearance": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "ok": false,
+      "known": false
+    }
+  },
+  "image-settings": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "ok": true,
+      "engine": "dsh-codex",
+      "apiBaseUrl": "https://ai-pixel.online",
+      "apiModel": "gpt-image-2",
+      "health": {
+        "engine": "dsh-codex",
+        "api": {
+          "configured": false,
+          "baseUrl": "https://ai-pixel.online",
+          "model": "gpt-image-2",
+          "ready": false
+        },
+        "dshCodex": {
+          "installed": true,
+          "authenticated": true,
+          "ready": true
+        },
+        "settingsPath": "<home>/.dsh/canvas-workbench/image-engine.json"
+      }
+    }
+  },
+  "state-get": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "elements": [
+        {
+          "id": "fixture-el-1",
+          "type": "image",
+          "x": 100,
+          "y": 100,
+          "width": 64,
+          "height": 48,
+          "angle": 0,
+          "strokeColor": "transparent",
+          "backgroundColor": "transparent",
+          "fillStyle": "solid",
+          "strokeWidth": 1,
+          "strokeStyle": "solid",
+          "roughness": 0,
+          "opacity": 100,
+          "groupIds": [],
+          "frameId": null,
+          "roundness": null,
+          "seed": 1000,
+          "version": 1,
+          "versionNonce": 1,
+          "isDeleted": false,
+          "boundElements": null,
+          "updated": "<ts>",
+          "link": null,
+          "locked": false,
+          "status": "saved",
+          "fileId": "fixture-file-1",
+          "scale": [
+            1,
+            1
+          ],
+          "customData": {
+            "dshFileName": "a-small-red.png",
+            "dshSourcePath": "<fixture>/assets/a-small-red.png",
+            "dshSourceMtime": "<ts>",
+            "dshSourceKind": "image",
+            "dshManaged": true
+          }
+        },
+        {
+          "id": "fixture-el-2",
+          "type": "image",
+          "x": 500,
+          "y": 100,
+          "width": 320,
+          "height": 120,
+          "angle": 0,
+          "strokeColor": "transparent",
+          "backgroundColor": "transparent",
+          "fillStyle": "solid",
+          "strokeWidth": 1,
+          "strokeStyle": "solid",
+          "roughness": 0,
+          "opacity": 100,
+          "groupIds": [],
+          "frameId": null,
+          "roundness": null,
+          "seed": 1001,
+          "version": 1,
+          "versionNonce": 1,
+          "isDeleted": false,
+          "boundElements": null,
+          "updated": "<ts>",
+          "link": null,
+          "locked": false,
+          "status": "saved",
+          "fileId": "fixture-file-2",
+          "scale": [
+            1,
+            1
+          ],
+          "customData": {
+            "dshFileName": "b-wide-green.png",
+            "dshSourcePath": "<fixture>/assets/b-wide-green.png",
+            "dshSourceMtime": "<ts>",
+            "dshSourceKind": "image",
+            "dshManaged": true,
+            "dshTagColor": "blue"
+          }
+        }
+      ],
+      "appState": {
+        "theme": "light",
+        "viewBackgroundColor": "#ffffff",
+        "gridSize": null
+      },
+      "files": {
+        "fixture-file-1": {
+          "id": "fixture-file-1",
+          "mimeType": "image/png",
+          "created": "<ts>",
+          "lastRetrieved": "<ts>",
+          "dataURL": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAMklEQVR4nGP4DwV3NDSwYob/SACrAhCBTxEDjIFLEQMyB5siBnQj0RVhKEBXhFUBsiIAI6eytyJri54AAAAASUVORK5CYII="
+        },
+        "fixture-file-2": {
+          "id": "fixture-file-2",
+          "mimeType": "image/png",
+          "created": "<ts>",
+          "lastRetrieved": "<ts>",
+          "dataURL": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAMklEQVR4nGP4DwV3NDSwYob/SACrAhCBTxEDjIFLEQMyB5siBnQj0RVhKEBXhFUBsiIAI6eytyJri54AAAAASUVORK5CYII="
+        }
+      }
+    }
+  },
+  "projects": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "projects": [
+        {
+          "name": "sample-project",
+          "path": "<fixture>",
+          "elements": 2,
+          "images": 2,
+          "updatedAt": "<ts>"
+        }
+      ]
+    }
+  },
+  "materials": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "ok": true,
+      "dir": "<fixture>/assets",
+      "files": [
+        {
+          "name": "g-anim.gif",
+          "size": 91,
+          "mtime": "<ts>",
+          "width": 40,
+          "height": 30
+        },
+        {
+          "name": "f-web.webp",
+          "size": 94,
+          "mtime": "<ts>",
+          "width": 96,
+          "height": 96
+        },
+        {
+          "name": "e-photo.jpg",
+          "size": 909,
+          "mtime": "<ts>",
+          "width": 150,
+          "height": 100
+        },
+        {
+          "name": "d-vector.svg",
+          "size": 214,
+          "mtime": "<ts>",
+          "width": 240,
+          "height": 80
+        },
+        {
+          "name": "c-square-blue.bmp",
+          "size": 120054,
+          "mtime": "<ts>",
+          "width": 200,
+          "height": 200
+        },
+        {
+          "name": "b-wide-green.png",
+          "size": 866,
+          "mtime": "<ts>",
+          "width": 320,
+          "height": 120
+        },
+        {
+          "name": "a-small-red.png",
+          "size": 292,
+          "mtime": "<ts>",
+          "width": 64,
+          "height": 48
+        }
+      ]
+    }
+  },
+  "materials-tags-before": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "ok": true,
+      "tags": {}
+    }
+  },
+  "materials-tag-set": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "ok": true,
+      "tags": {
+        "a-small-red.png": "red"
+      }
+    }
+  },
+  "materials-tags-after-set": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "ok": true,
+      "tags": {
+        "a-small-red.png": "red"
+      }
+    }
+  },
+  "materials-tag-clear": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "ok": true,
+      "tags": {}
+    }
+  },
+  "materials-tags-after-clear": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "ok": true,
+      "tags": {}
+    }
+  },
+  "materials-tag-bad-color": {
+    "status": 400,
+    "contentType": "application/json",
+    "body": {
+      "ok": false,
+      "error": "不支持的颜色标记"
+    }
+  },
+  "image-png": {
+    "status": 200,
+    "contentType": "image/png",
+    "byteLength": 292,
+    "sha256": "0e8adbe1dbd3a743e15248e6f145d479ae4d90f1533bc44e84dff038f48a5194"
+  },
+  "image-bad-path": {
+    "status": 400,
+    "contentType": "text/plain",
+    "body": "bad image path"
+  },
+  "image-status-ok": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "ok": true,
+      "exists": true,
+      "kind": "image",
+      "size": 866,
+      "mtime": "<ts>"
+    }
+  },
+  "image-status-missing": {
+    "status": 404,
+    "contentType": "application/json",
+    "body": {
+      "ok": false,
+      "exists": false
+    }
+  },
+  "image-status-bad": {
+    "status": 400,
+    "contentType": "application/json",
+    "body": {
+      "ok": false,
+      "exists": false,
+      "error": "bad image path"
+    }
+  },
+  "preview-svg": {
+    "status": 200,
+    "contentType": "image/svg+xml",
+    "byteLength": 214,
+    "sha256": "eb5e34344a4b1b633893e76b1b9d937f84c497f45a440c26d717e5600acc28bb"
+  },
+  "preview-bad": {
+    "status": 400,
+    "contentType": "text/plain",
+    "body": "bad preview path"
+  },
+  "list-directories": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "entries": [
+        {
+          "name": "sample-project",
+          "type": "directory",
+          "path": "<fixture>"
+        }
+      ]
+    }
+  },
+  "project-files": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "ok": true,
+      "project": "<fixture>",
+      "images": [
+        {
+          "path": "<fixture>/assets/a-small-red.png",
+          "name": "a-small-red.png",
+          "mtime": "<ts>",
+          "size": 292,
+          "kind": "image",
+          "managed": true,
+          "url": "/dsh-canvas/preview?path=%2Ftmp%2Fdsh-canvas-fixture-root%2Fsample-project%2Fassets%2Fa-small-red.png&v=1789579310416"
+        },
+        {
+          "path": "<fixture>/assets/b-wide-green.png",
+          "name": "b-wide-green.png",
+          "mtime": "<ts>",
+          "size": 866,
+          "kind": "image",
+          "managed": true,
+          "url": "/dsh-canvas/preview?path=%2Ftmp%2Fdsh-canvas-fixture-root%2Fsample-project%2Fassets%2Fb-wide-green.png&v=1789579310420"
+        },
+        {
+          "path": "<fixture>/assets/c-square-blue.bmp",
+          "name": "c-square-blue.bmp",
+          "mtime": "<ts>",
+          "size": 120054,
+          "kind": "image",
+          "managed": true,
+          "url": "/dsh-canvas/preview?path=%2Ftmp%2Fdsh-canvas-fixture-root%2Fsample-project%2Fassets%2Fc-square-blue.bmp&v=1789579310420"
+        },
+        {
+          "path": "<fixture>/assets/d-vector.svg",
+          "name": "d-vector.svg",
+          "mtime": "<ts>",
+          "size": 214,
+          "kind": "svg",
+          "managed": true,
+          "url": "/dsh-canvas/preview?path=%2Ftmp%2Fdsh-canvas-fixture-root%2Fsample-project%2Fassets%2Fd-vector.svg&v=1789579310421"
+        },
+        {
+          "path": "<fixture>/assets/e-photo.jpg",
+          "name": "e-photo.jpg",
+          "mtime": "<ts>",
+          "size": 909,
+          "kind": "image",
+          "managed": true,
+          "url": "/dsh-canvas/preview?path=%2Ftmp%2Fdsh-canvas-fixture-root%2Fsample-project%2Fassets%2Fe-photo.jpg&v=1789579310542"
+        },
+        {
+          "path": "<fixture>/assets/f-web.webp",
+          "name": "f-web.webp",
+          "mtime": "<ts>",
+          "size": 94,
+          "kind": "image",
+          "managed": true,
+          "url": "/dsh-canvas/preview?path=%2Ftmp%2Fdsh-canvas-fixture-root%2Fsample-project%2Fassets%2Ff-web.webp&v=1789579310572"
+        },
+        {
+          "path": "<fixture>/assets/g-anim.gif",
+          "name": "g-anim.gif",
+          "mtime": "<ts>",
+          "size": 91,
+          "kind": "image",
+          "managed": true,
+          "url": "/dsh-canvas/preview?path=%2Ftmp%2Fdsh-canvas-fixture-root%2Fsample-project%2Fassets%2Fg-anim.gif&v=1789579310573"
+        }
+      ]
+    }
+  },
+  "check-sources": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "ok": true,
+      "changed": []
+    }
+  },
+  "photoshop-outputs": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "ok": true,
+      "outputs": []
+    }
+  },
+  "remove-background-progress-unknown": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "ok": true,
+      "jobId": "nope",
+      "stage": "starting",
+      "message": "正在启动本地 rembg…",
+      "percent": 1
+    }
+  },
+  "vendor-react": {
+    "status": 200,
+    "contentType": "text/javascript",
+    "byteLength": 10751,
+    "sha256": "d949f1c3687aedadcedac85261865f29b17cd273997e7f6b2bfc53b2f9d4c4dd"
+  },
+  "vendor-missing": {
+    "status": 404,
+    "contentType": "text/plain",
+    "body": "vendor asset not found"
+  },
+  "unknown-route": {
+    "status": 404,
+    "contentType": "text/plain",
+    "body": "not found"
+  },
+  "options-preflight": {
+    "status": 204,
+    "contentType": "",
+    "body": ""
+  },
+  "projects-missing-cwd": {
+    "status": 400,
+    "contentType": "application/json",
+    "body": {
+      "error": "missing cwd"
+    }
+  },
+  "materials-tag-missing-dir": {
+    "status": 400,
+    "contentType": "application/json",
+    "body": {
+      "ok": false,
+      "error": "尚未选择素材库目录"
+    }
+  }
+}
