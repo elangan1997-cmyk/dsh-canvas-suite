@@ -4,7 +4,10 @@ import { basename, dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { access, mkdir, readdir, rename, rmdir, stat, unlink, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import { isMac } from '../../lib/platform.js';
+import { isMac, resolvePython } from '../../lib/platform.js';
+import { PLUGIN_ROOT } from './vendor-assets.js';
+import { createPythonToolRegistry } from './adapters/python.adapter.js';
+import { register as registerContracts } from './routes/contracts.routes.js';
 import { installChatImageRouter } from '../../lib/chat-image-router.js';
 import { expandHome, isPathWithin } from '../shared/utils/paths.js';
 import { parseQuery, respond } from './server/http.js';
@@ -292,7 +295,8 @@ function apply(ctx) {
   };
 
   const jobs = createJobManager();
-  const h = { jobs, chatContexts, ctx, documentPreviewPath, flattenRecycleBin, previewUrl, progressPathFor, projectDirectory, projectStatePath, psdPreviewPath, runProcess, runProcessWithTimeout, scanProjectImagesShared, stateWriteChains, writeManagedImage, writeManagedSource, writeManagedSvg, writeProgressFile };
+  const pythonTools = createPythonToolRegistry({ pluginRoot: PLUGIN_ROOT, resolvePython: (c) => resolvePython(c || ctx), run: runProcessWithTimeout });
+  const h = { jobs, pythonTools, chatContexts, ctx, documentPreviewPath, flattenRecycleBin, previewUrl, progressPathFor, projectDirectory, projectStatePath, psdPreviewPath, runProcess, runProcessWithTimeout, scanProjectImagesShared, stateWriteChains, writeManagedImage, writeManagedSource, writeManagedSvg, writeProgressFile };
   const router = createRouter();
   router.use(jobTrackingMiddleware(jobs));
   register0(router, h);
@@ -304,6 +308,7 @@ function apply(ctx) {
   register6(router, h);
   register7(router, h);
   registerJobs(router, h);
+  registerContracts(router, h);
 
   const dispose = ctx.webServer.register({
     kind: 'prefix',
