@@ -1487,10 +1487,10 @@ function apply(ctx) {
           // （macOS defaults / Windows 注册表）。
           try {
             let dark = null;
-            if (isMac()) {
+            if (isMac) {
               const result = await runProcess('/usr/bin/defaults', ['read', '-g', 'AppleInterfaceStyle']);
               dark = result.exitCode === 0 && /dark/i.test(result.stdout);
-            } else if (isWindows()) {
+            } else if (isWindows) {
               const result = await runProcess('reg', ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize', '/v', 'AppsUseLightTheme']);
               dark = result.exitCode === 0 && /0x0\b/i.test(result.stdout);
             }
