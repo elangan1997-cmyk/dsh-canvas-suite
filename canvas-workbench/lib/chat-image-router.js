@@ -1,5 +1,6 @@
-import { mkdir, stat, writeFile } from 'node:fs/promises';
-import { basename, extname, join } from 'node:path';
+import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { basename, dirname, extname, join } from 'node:path';
 import { defineTool } from '@deepseek-ai/dsh-tools';
 import { createUserMessage } from '@deepseek-ai/dsh-llm';
 import { generateChatImage } from './image-engine.js';
@@ -72,6 +73,95 @@ async function workspaceImages(ctx, exec, paths) {
   return output;
 }
 
+// —— 会话标题归档：文件夹名 = 会话标题，UI 改名后文件夹同步改名 ——
+
+// 标题在 session/title 事件里；从活跃 session 对象倒序取最新一条。
+function sessionTitleOf(session) {
+  try {
+    const events = session && session.events;
+    if (!Array.isArray(events)) return '';
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const event = events[index];
+      if (event && event.type === 'session/title' && event.data && typeof event.data.title === 'string' && event.data.title.trim()) return event.data.title.trim();
+    }
+  } catch (err) {}
+  return '';
+}
+
+function sanitizeFolderName(title) {
+  const clean = String(title || '').replace(/[\\/:*?"<>|\x00-\x1f]/g, '-').replace(/\s+/g, ' ').trim().replace(/[. ]+$/g, '').slice(0, 60);
+  return clean || '未命名会话';
+}
+
+const foldersIndexPath = () => join(process.env.DSH_HOME || join(homedir(), '.dsh'), 'canvas-workbench', 'archive-folders.json');
+async function readFolderIndex() {
+  try {
+    const parsed = JSON.parse(await readFile(foldersIndexPath(), 'utf8'));
+    return parsed && typeof parsed === 'object' && parsed.folders && typeof parsed.folders === 'object' ? parsed.folders : {};
+  } catch (err) { return {}; }
+}
+async function writeFolderIndex(folders) {
+  const path = foldersIndexPath();
+  const value = JSON.stringify({ version: 1, updatedAt: Date.now(), folders });
+  await mkdir(dirname(path), { recursive: true });
+  const temporary = path + '.hosttmp';
+  try {
+    await writeFile(temporary, value, 'utf8');
+    await rename(temporary, path);
+  } catch (err) {
+    await writeFile(path, value, 'utf8').catch(() => {});
+  }
+}
+
+const pathKey = (value) => String(value || '').replace(/\\/g, '/').replace(/\/+$/, '');
+const markerPathOf = (folder) => join(folder, '.dsh-canvas-session.json');
+const exists = async (path) => { try { await stat(path); return true; } catch (err) { return false; } };
+async function markerSessionIdOf(folder) {
+  try {
+    const parsed = JSON.parse(await readFile(markerPathOf(folder), 'utf8'));
+    return parsed && typeof parsed.sessionId === 'string' ? parsed.sessionId : '';
+  } catch (err) { return ''; }
+}
+
+// 返回该会话的归档文件夹（不存在则创建；标题变化则把旧文件夹改名）。
+// 归属靠文件夹内 .dsh-canvas-session.json 标记 + 插件数据目录的索引双重记录，
+// 索引丢失时仍能靠标记识别同标题文件夹的归属，避免两个同名会话互相覆盖。
+async function sessionArchiveFolder(sessionId, session, current) {
+  const title = sessionTitleOf(session) || '未命名会话';
+  const wantedName = sanitizeFolderName(title);
+  const root = current.project || current.cwd
+    ? join(await archiveBaseFor(current), 'DSH聊天生成图片')
+    : await archiveBaseFor(current);
+  const folders = await readFolderIndex();
+  const entry = folders[sessionId];
+  let folder = entry && entry.folder && entry.folder.indexOf('/') >= 0 ? entry.folder : '';
+  // 标题没变、文件夹仍在 → 直接复用。
+  if (folder && entry.title === title && pathKey(dirname(folder)) === pathKey(root) && await exists(folder)) return folder;
+  // 解析目标名：同标题文件夹若归属其他会话，追加短会话号区分。
+  let target = join(root, wantedName);
+  if (await exists(target) && folder && pathKey(target) !== pathKey(folder)) {
+    const owner = await markerSessionIdOf(target);
+    if (owner && owner !== sessionId) target = join(root, wantedName + '-' + sessionId.slice(0, 4));
+  }
+  // 旧文件夹改名跟随新标题（仅同一 root 内移动，跨项目/目录绑定变化不搬旧文件）。
+  if (folder && await exists(folder) && pathKey(folder) !== pathKey(target) && pathKey(dirname(folder)) === pathKey(root)) {
+    if (await exists(target)) target = join(root, wantedName + '-' + sessionId.slice(0, 4) + '-' + Date.now().toString(36).slice(-4));
+    await rename(folder, target).catch(() => { target = folder; });
+  } else if (!await exists(target)) {
+    await mkdir(target, { recursive: true });
+  }
+  await writeFile(markerPathOf(target), JSON.stringify({ sessionId, title, updatedAt: Date.now() }), 'utf8').catch(() => {});
+  folders[sessionId] = { title, folder: target };
+  await writeFolderIndex(folders);
+  return target;
+}
+
+async function archiveBaseFor(current) {
+  if (current.project) return resolveCanvasProjectDirectory(current.project);
+  if (current.cwd) return current.cwd;
+  return join(process.env.DSH_HOME || join(homedir(), '.dsh'), 'canvas-workbench', '未归档生成图');
+}
+
 function parseArgs(raw = {}) {
   const prompt = String(raw.prompt || '').trim();
   if (!prompt) throw new Error('imagegen prompt 不能为空');
@@ -87,8 +177,9 @@ function contentOf(value) {
   const fileLine = value.file?.path
     ? `\n<output_path operation="${value.file.operation || 'create'}">${value.file.path}</output_path>`
     : value.writeError ? `\n<write_error>${value.writeError}</write_error>` : '';
+  const noticeLine = value.notice ? `\n<notice>${value.notice}</notice>` : '';
   return [
-    { type: 'text', text: `<image>image/png, ${value.image.width}x${value.image.height} px, ${value.image.bytes} bytes</image>${fileLine}` },
+    { type: 'text', text: `<image>image/png, ${value.image.width}x${value.image.height} px, ${value.image.bytes} bytes</image>${fileLine}${noticeLine}` },
     { type: 'image', attachment: value.image },
   ];
 }
@@ -96,7 +187,7 @@ function contentOf(value) {
 function routedTool(ctx, original, getChatContext) {
   return defineTool({
     name: TOOL_NAME,
-    description: '使用当前画布“图像引擎设置”生成或编辑图片。设计模式开启时，结果原图自动保存到画布项目内、与 assets 同级的“DSH聊天生成图片”目录；关闭设计模式时使用 DSH 原生图片工具。',
+    description: '使用当前画布“图像引擎设置”生成或编辑图片。设计模式开启时，结果原图自动落盘归档到 DSH聊天生成图片/<会话名>/<日期>/<时段> 层级目录（文件夹名与会话标题同步；绑定项目时在项目内，未绑定时在聊天工作目录）；关闭设计模式时使用 DSH 原生图片工具。',
     parameters: {
       prompt: { type: 'string', required: true, description: '完整的图片生成或编辑要求。' },
       referenced_image_paths: { type: 'array', items: { type: 'string' }, description: '最多五张本地参考图片路径。' },
@@ -130,6 +221,7 @@ function routedTool(ctx, original, getChatContext) {
             },
           },
           writeError: { type: 'string' },
+          notice: { type: 'string' },
         },
       },
       render: (_args, value) => contentOf(value),
@@ -142,29 +234,65 @@ function routedTool(ctx, original, getChatContext) {
         if (!original || typeof original.execute !== 'function') throw new Error('DSH 原生 imagegen 工具尚未就绪');
         return original.execute(rawArgs, exec);
       }
-      if (!current.project) throw new Error('请先在右侧画布选择或新建项目，再生成图片');
+      // 未绑定项目时不再抛「请先在右侧画布选择或新建项目」：那个报错会把
+      // agent 逼向 pixel-image2 之类的旁路技能，图片完全脱离画布管线。
+      // 现在生成与聊天推送照常，仅跳过归档并在结果里提示绑定。
       const args = parseArgs(rawArgs);
       const images = args.paths.length ? await workspaceImages(ctx, exec, args.paths) : args.count ? await recentImages(ctx, exec, args.count) : [];
       const generated = await generateChatImage({ ctx, images, prompt: args.prompt, signal: exec.signal });
       const ref = await ctx.attachments.saveImage({ data: generated.bytes, mediaType: 'image/png', name: 'generated.png' });
-      const projectDirectory = await resolveCanvasProjectDirectory(current.project);
-      const directory = join(projectDirectory, 'DSH聊天生成图片');
-      await mkdir(directory, { recursive: true });
-      const requested = args.outputPath ? basename(args.outputPath) : generatedName();
-      const outputPath = await uniqueOutputPath(directory, requested);
-      await writeFile(outputPath, generated.bytes, { flag: 'wx' });
       const value = {
         prompt: args.prompt,
-        image: { attachmentId: ref.attachmentId, mediaType: 'image/png', bytes: ref.bytes, width: ref.width, height: ref.height, name: basename(outputPath) },
-        file: { path: outputPath, operation: 'create' },
+        image: { attachmentId: ref.attachmentId, mediaType: 'image/png', bytes: ref.bytes, width: ref.width, height: ref.height, name: 'generated.png' },
       };
-      if (exec.parent !== undefined && typeof exec.deferContext === 'function') {
+      // 归档基础目录三级回退：绑定画布项目 → 项目内 DSH聊天生成图片；未绑定但有
+      // 聊天工作目录 → 工作目录下的 DSH聊天生成图片；两者都没有 → 插件数据目录。
+      // 生成图必须始终有落盘路径：没有它，聊天图片卡片拿不到 sourcePath，
+      // 缩略图就只能依赖 DSH 原生附件解析，解析一失败整卡“加载图片失败”。
+      // 会话层文件夹名 = 会话标题（UI 改名后在下一次生成/消息时同步改名）。
+      let archiveNotice = '';
+      if (!current.project && current.cwd) {
+        archiveNotice = '当前聊天未绑定画布项目：图片已归档到聊天工作目录的 DSH聊天生成图片 文件夹。在右侧画布选择或新建项目后，后续生成会归档到项目内。';
+      } else if (!current.project && !current.cwd) {
+        archiveNotice = '当前聊天没有可用工作目录：图片已归档到插件数据目录的 未归档生成图 文件夹。';
+      }
+      // 归档再按 会话标题 → 日期 → 5小时时段 分层（0-5/5-10/10-15/15-20/20-24），
+      // 避免一个项目的生成图全部平铺在一个目录里难以查找。
+      const sessionFolder = await sessionArchiveFolder(sessionId, exec.agent && exec.agent.session, current);
+      const now = new Date();
+      const day = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+      const blockStart = Math.floor(now.getHours() / 5) * 5;
+      const block = String(blockStart).padStart(2, '0') + '-' + String(Math.min(blockStart + 5, 24)).padStart(2, '0');
+      const archiveDirectory = join(sessionFolder, day, block);
+      try {
+        await mkdir(archiveDirectory, { recursive: true });
+        const requested = args.outputPath ? basename(args.outputPath) : generatedName();
+        const outputPath = await uniqueOutputPath(archiveDirectory, requested);
+        await writeFile(outputPath, generated.bytes, { flag: 'wx' });
+        value.image.name = basename(outputPath);
+        value.file = { path: outputPath, operation: 'create' };
+        if (archiveNotice) value.notice = archiveNotice;
+      } catch (err) {
+        value.writeError = String((err && err.message) || err);
+        if (archiveNotice) value.notice = archiveNotice;
+      }
+      // exec.parent 只在嵌套子调用（code-dispatch）时存在；聊天顶层 imagegen
+      // 必须走 deferContext 把生成图作为上下文消息推入对话，否则工具结果被
+      // compaction 清理后聊天里就看不到图了。deferContext 在 exec 上恒存在。
+      if (typeof exec.deferContext === 'function') {
         exec.deferContext(createUserMessage({ content: contentOf(value), source: { kind: 'plugin', plugin: 'canvas-workbench' } }));
       }
       return value;
     },
     presentCall: () => ({ card: 'generic', title: '使用画布引擎生成图片', kind: 'execute' }),
-    presentResult: (_args, result) => ({ card: 'generic', title: '图片已生成并归档到画布项目', content: result.content }),
+    presentResult: (_args, result) => ({
+      card: 'generic',
+      title: result.file && !result.notice ? '图片已生成并归档到画布项目'
+        : result.file ? '图片已生成（归档到聊天工作目录）'
+        : result.writeError ? '图片已生成，但归档失败'
+        : '图片已生成',
+      content: result.content,
+    }),
   });
 }
 
@@ -198,6 +326,17 @@ export function installChatImageRouter(ctx, getChatContext) {
   ctx.on('agent/created', async ({ agent }) => { syncAgent(agent); });
   ctx.on('agent/disposed', async ({ agent }) => { installed.delete(agent); });
   ctx.on('tools/change', async () => { syncAll(); });
+  // UI 里改会话名后，下一条消息到达时同步归档文件夹改名（生成时也会同步）。
+  ctx.on('agent/inbox/inserted', async ({ agent }) => {
+    try {
+      const session = agent && agent.session;
+      const sid = session && session.id;
+      if (!sid) return;
+      const current = getChatContext(String(sid));
+      if (!current || (!current.project && !current.cwd)) return;
+      await sessionArchiveFolder(String(sid), session, current);
+    } catch (err) {}
+  });
   syncAll();
   ctx.effect(() => () => { for (const agent of [...installed.keys()]) remove(agent); }, 'canvas-workbench: chat image routing');
 }

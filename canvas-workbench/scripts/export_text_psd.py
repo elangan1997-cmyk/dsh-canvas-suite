@@ -31,7 +31,24 @@ def normalize_text(value: object) -> str:
     return text
 
 
-def find_font() -> str | None:
+def find_font(postscript: str | None = None) -> str | None:
+    # 优先用面板选中的字体（阿里巴巴普惠体 / 思源黑体，均可免费商用），
+    # 让 PSD 预览文字与 Photoshop 里替换后的真实字体一致。
+    if postscript:
+        ps = str(postscript).strip()
+        user_fonts = Path.home() / "Library" / "Fonts"
+        candidates = []
+        if ps.startswith("AlibabaPuHuiTi_3_"):
+            # AlibabaPuHuiTi_3_65_Medium → AlibabaPuHuiTi-3-65-Medium.ttf
+            candidates.append(user_fonts / f"{ps.replace('_', '-')}.ttf")
+        else:
+            # 其余家族（思源黑体 / Inter / Montserrat / Poppins / Source Sans Pro…）
+            # 的字体文件名与 PostScript 名一致，通用匹配 .otf/.ttf 两种扩展。
+            candidates.append(user_fonts / f"{ps}.otf")
+            candidates.append(user_fonts / f"{ps}.ttf")
+        for candidate in candidates:
+            if candidate.is_file():
+                return str(candidate)
     candidates = [
         "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
         "/System/Library/Fonts/Supplemental/Arial.ttf",
@@ -91,7 +108,7 @@ def main() -> int:
         # an inaccurate candidate cover the successfully cleaned background
         # when the PSD is first opened or previewed on the canvas.
         group.visible = False
-        font_path = find_font()
+        font_cache: dict[str, str | None] = {}
         for index, raw in enumerate(blocks[:200]):
             if not isinstance(raw, dict) or raw.get("enabled") is False:
                 continue
@@ -103,6 +120,10 @@ def main() -> int:
             width = max(2, int(float(raw.get("width", 240) or 240)))
             height = max(2, int(float(raw.get("height", 48) or 48)))
             size = max(8, min(220, int(float(raw.get("fontSize", height * 0.92) or height * 0.92))))
+            postscript = str(raw.get("fontPostScript") or "")
+            if postscript not in font_cache:
+                font_cache[postscript] = find_font(postscript or None)
+            font_path = font_cache[postscript]
             try:
                 font = ImageFont.truetype(font_path, size) if font_path else ImageFont.load_default()
             except Exception:

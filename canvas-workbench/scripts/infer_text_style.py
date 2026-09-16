@@ -66,21 +66,22 @@ def infer_block(image, raw: dict) -> dict:
     cjk = has_cjk(text)
     color, color_confidence = estimate_color(image, box)
     weight = "normal"
-    # PostScript names are what Photoshop's textItem.font expects.  These
-    # candidates are present on current macOS installations and have CJK glyph
-    # coverage; a fallback is still handled by the host JSX.
+    # PostScript names are what Photoshop's textItem.font expects.  CJK
+    # candidates use 阿里巴巴普惠体 3.0 / 思源黑体 (free for commercial use);
+    # PingFang and other system fonts are avoided because their licenses do
+    # not cover commercial artwork.
     if cjk:
-        family = "PingFang SC"
-        postscript = "PingFangSC-Regular"
+        family = "阿里巴巴普惠体 3.0"
+        postscript = "AlibabaPuHuiTi_3_55_Regular"
         if len(text) <= 10 and box_height >= 36:
             weight = "bold"
-            postscript = "PingFangSC-Semibold"
+            postscript = "AlibabaPuHuiTi_3_85_Bold"
     else:
-        family = "Arial"
-        postscript = "ArialMT"
+        family = "Inter"
+        postscript = "Inter-Regular"
         if box_height >= 32 and len(text) <= 18:
             weight = "bold"
-            postscript = "Arial-BoldMT"
+            postscript = "Inter-Bold"
     font_size = max(8, min(220, round(box_height * 0.9)))
     # A line with little vertical padding is more likely to have a heavy face;
     # keep the score modest because this is an estimate, not font recovery.

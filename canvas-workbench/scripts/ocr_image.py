@@ -129,11 +129,11 @@ def main() -> int:
                 "confidence": round(float(item["confidence"]), 1),
                 "enabled": True,
                 "fontSize": max(12, min(220, int(box_height * 0.92))),
-                # Photoshop needs a real PostScript font name.  Arial Unicode
-                # MS is absent on many current macOS installations and can
-                # make native Chinese layers appear garbled.
-                "fontFamily": "PingFang SC",
-                "fontPostScript": "PingFangSC-Regular",
+                # Photoshop needs a real PostScript font name.  Default to the
+                # commercially-free Alibaba PuHuiTi 3.0; PingFang's license
+                # does not cover commercial artwork.
+                "fontFamily": "阿里巴巴普惠体 3.0",
+                "fontPostScript": "AlibabaPuHuiTi_3_55_Regular",
                 "fontWeight": "normal",
                 "color": "#111827",
             })

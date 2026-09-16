@@ -1,6 +1,6 @@
 import { access, mkdir, open, readFile, readdir, rename, rmdir, stat, unlink, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import { tmpdir } from 'node:os';
+import { tmpdir, homedir } from 'node:os';
 import { basename, dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm';
@@ -112,6 +112,135 @@ function materialDirectory(requestedDir, legacyCwd) {
   // 首次升级沿用旧素材库；客户端收到真实目录后会把它持久化，后续不再随项目切换。
   return join(cwd, '画布素材库');
 }
+
+// —— 素材库整理：图片尺寸探测与 Mac 式颜色标记 ——
+
+// 只读文件头部字节解析宽高；SVG 解析 width/height/viewBox 文本属性。
+function parseImageHeaderSize(buf) {
+  if (!buf || buf.length < 12) return null;
+  // PNG：IHDR 宽高固定在 16/20 偏移。
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
+    if (buf.length < 24) return null;
+    return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+  }
+  // GIF：逻辑屏幕尺寸在 6/8 偏移（小端）。
+  if (buf.toString('ascii', 0, 3) === 'GIF') {
+    return { width: buf.readUInt16LE(6), height: buf.readUInt16LE(8) };
+  }
+  // BMP：像素宽高在 18/22 偏移（小端，顶向下位图高为负）。
+  if (buf[0] === 0x42 && buf[1] === 0x4d && buf.length >= 26) {
+    return { width: Math.abs(buf.readInt32LE(18)), height: Math.abs(buf.readInt32LE(22)) };
+  }
+  // WebP：RIFF/WEBP 容器，按 VP8X / VP8L / VP8 数据块取画布尺寸。
+  if (buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') {
+    const chunk = buf.toString('ascii', 12, 16);
+    if (chunk === 'VP8X' && buf.length >= 30) {
+      return {
+        width: 1 + ((buf[24] | buf[25] << 8 | buf[26] << 16) & 0xffffff),
+        height: 1 + ((buf[27] | buf[28] << 8 | buf[29] << 16) & 0xffffff)
+      };
+    }
+    if (chunk === 'VP8L' && buf.length >= 25 && buf[20] === 0x2f) {
+      const bits = buf[21] | buf[22] << 8 | buf[23] << 16 | buf[24] << 24;
+      return { width: 1 + (bits & 0x3fff), height: 1 + ((bits >> 14) & 0x3fff) };
+    }
+    if (chunk === 'VP8 ' && buf.length >= 30) {
+      return {
+        width: buf[26] | (buf[27] & 0x3f) << 8,
+        height: buf[28] | (buf[29] & 0x3f) << 8
+      };
+    }
+    return null;
+  }
+  // JPEG：逐段扫描 SOFn（0xC0-0xCF，除 C4/C8/CC），高在前宽在后。
+  if (buf[0] === 0xff && buf[1] === 0xd8) {
+    let offset = 2;
+    while (offset + 9 < buf.length) {
+      if (buf[offset] !== 0xff) { offset += 1; continue; }
+      const marker = buf[offset + 1];
+      if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) { offset += 2; continue; }
+      if (marker === 0xda) break;
+      if ((marker >= 0xc0 && marker <= 0xcf) && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+        return { height: buf.readUInt16BE(offset + 5), width: buf.readUInt16BE(offset + 7) };
+      }
+      const segmentLength = buf.readUInt16BE(offset + 2);
+      if (segmentLength < 2) break;
+      offset += 2 + segmentLength;
+    }
+    return null;
+  }
+  // SVG：文本属性匹配，接受常见单位与百分号（百分号视为未知）。
+  const svgText = buf.toString('utf8', 0, Math.min(buf.length, 4096));
+  if (/^\s*(?:<\?xml|<!DOCTYPE|<svg)/i.test(svgText) || svgText.includes('<svg')) {
+    const pick = (attr) => {
+      const match = new RegExp(attr + '\\s*=\\s*"([^"]+)"').exec(svgText) || new RegExp(attr + "\\s*=\\s*'([^']+)'").exec(svgText);
+      if (!match) return 0;
+      const value = parseFloat(match[1]);
+      return Number.isFinite(value) ? Math.round(value) : 0;
+    };
+    let width = pick('width');
+    let height = pick('height');
+    if ((!width || !height)) {
+      const viewBox = /viewBox\s*=\s*["']\s*[\d.]+\s+[\d.]+\s+([\d.]+)\s+([\d.]+)/i.exec(svgText);
+      if (viewBox) { width = width || Math.round(parseFloat(viewBox[1])); height = height || Math.round(parseFloat(viewBox[2])); }
+    }
+    if (width && height) return { width, height };
+  }
+  return null;
+}
+
+// 素材目录可能位于外置盘；按 path+mtime+size 记忆缓存，只有文件变化后才会重读。
+const materialSizeCache = new Map();
+async function probeMaterialSize(path, info) {
+  const key = path + ':' + info.mtimeMs + ':' + info.size;
+  if (materialSizeCache.has(key)) return materialSizeCache.get(key);
+  let result = { width: 0, height: 0 };
+  try {
+    const handle = await open(path, 'r');
+    try {
+      const limit = Math.min(info.size || 0, 65536);
+      const buf = Buffer.alloc(limit);
+      const { bytesRead } = limit > 0 ? await handle.read(buf, 0, limit, 0) : { bytesRead: 0 };
+      result = parseImageHeaderSize(buf.subarray(0, bytesRead)) || result;
+    } finally { await handle.close(); }
+  } catch (err) {}
+  materialSizeCache.set(key, result);
+  return result;
+}
+
+// 颜色标记集中存放在插件数据目录（跨项目共享，按绝对路径索引）。
+const MATERIAL_TAG_COLORS = new Set(['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'gray']);
+function materialTagsPath() {
+  return join(process.env.DSH_HOME || join(homedir(), '.dsh'), 'canvas-workbench', 'material-tags.json');
+}
+async function readMaterialTags() {
+  try {
+    const parsed = JSON.parse(await readFile(materialTagsPath(), 'utf8'));
+    if (parsed && typeof parsed === 'object' && parsed.tags && typeof parsed.tags === 'object') return parsed.tags;
+  } catch (err) {}
+  return {};
+}
+async function writeMaterialTags(tags) {
+  const path = materialTagsPath();
+  const value = JSON.stringify({ version: 1, updatedAt: Date.now(), tags });
+  await mkdir(dirname(path), { recursive: true });
+  const temporary = path + '.hosttmp';
+  try {
+    await writeFile(temporary, value, 'utf8');
+    await rename(temporary, path);
+  } catch (err) {
+    await writeFile(path, value, 'utf8').catch(() => {});
+    await unlink(temporary).catch(() => {});
+  }
+}
+function tagsForDirectory(tags, directory) {
+  const prefix = String(directory || '').replace(/[\\/]+$/, '') + '/';
+  const result = {};
+  for (const [path, color] of Object.entries(tags)) {
+    if (typeof path === 'string' && path.startsWith(prefix)) result[basename(path)] = color;
+  }
+  return result;
+}
 function pathComparable(value) {
   const path = String(value || '').replace(/\\/g, '/').replace(/\/+/g, '/');
   return path.length > 1 ? path.replace(/\/+$/, '') : path;
@@ -187,11 +316,13 @@ function visionBlocks(value, width, height) {
     const cjk = /[\u3400-\u9fff]/.test(text);
     const serif = family === 'serif';
     const bold = weight !== 'normal';
+    // CJK 回退字体用可免费商用的阿里巴巴普惠体；苹方/宋体等系统字体版权不
+    // 覆盖商用稿件，不能作为默认值写进 PSD 文字层。英文无衬线同理用 Inter。
     return {
       text, x, y, width: Math.min(w, Math.max(1, width - x)), height: Math.min(h, Math.max(1, height - y)),
       fontSize: Math.max(8, Math.round(clamp(item.fontSize, 1, 1000) * height / 1000)),
-      fontFamily: cjk ? (serif ? 'Songti SC' : 'PingFang SC') : (serif ? 'Times New Roman' : family === 'monospace' ? 'Menlo' : 'Arial'),
-      fontPostScript: cjk ? (serif ? (bold ? 'SongtiSC-Bold' : 'SongtiSC-Regular') : (bold ? 'PingFangSC-Semibold' : 'PingFangSC-Regular')) : (serif ? (bold ? 'TimesNewRomanPS-BoldMT' : 'TimesNewRomanPSMT') : family === 'monospace' ? (bold ? 'Menlo-Bold' : 'Menlo-Regular') : (bold ? 'Arial-BoldMT' : 'ArialMT')),
+      fontFamily: cjk ? '阿里巴巴普惠体 3.0' : (serif ? 'Times New Roman' : family === 'monospace' ? 'Menlo' : 'Inter'),
+      fontPostScript: cjk ? (bold ? 'AlibabaPuHuiTi_3_85_Bold' : 'AlibabaPuHuiTi_3_55_Regular') : (serif ? (bold ? 'TimesNewRomanPS-BoldMT' : 'TimesNewRomanPSMT') : family === 'monospace' ? (bold ? 'Menlo-Bold' : 'Menlo-Regular') : (bold ? 'Inter-Bold' : 'Inter-Regular')),
       fontWeight: weight,
       color: /^#[0-9a-f]{6}$/i.test(String(item.color || '')) ? String(item.color).toUpperCase() : '#111111',
       textAlign: aligns.has(item.textAlign) ? item.textAlign : 'left',
@@ -721,7 +852,7 @@ function apply(ctx) {
             respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({
               ok: true,
               plugin: name,
-              version: '1.6.6',
+              version: '1.7.0',
               platform: platformCapabilities(),
               capabilities: {
                 webServer: Boolean(ctx.webServer),
@@ -1207,7 +1338,7 @@ function apply(ctx) {
             const jsx = '#target photoshop\n(function(){\n'
               + 'var cfg=' + jsxPayload + ';\n'
               + 'function rgb(value){var m=String(value||"#111827").replace("#",""); if(m.length!==6)m="111827"; var c=new SolidColor(); c.rgb.red=parseInt(m.substr(0,2),16); c.rgb.green=parseInt(m.substr(2,2),16); c.rgb.blue=parseInt(m.substr(4,2),16); return c;}\n'
-              + 'try{var doc=app.open(new File(cfg.input)); var list=cfg.blocks||[]; for(var i=0;i<list.length;i++){var b=list[i]||{}; if(b.enabled===false||!String(b.text||"").replace(/^[\\s\\r\\n]+|[\\s\\r\\n]+$/g,""))continue; var layer=doc.artLayers.add(); layer.kind=LayerKind.TEXT; layer.name="OCR text "+(i+1)+" (review before enabling)"; var ti=layer.textItem; ti.contents=String(b.text||""); ti.position=[Number(b.x||0),Number(b.y||0)+Math.max(8,Number(b.fontSize||24))]; ti.size=Math.max(8,Number(b.fontSize||24)); try{ti.font=String(b.fontPostScript||b.fontFamily||"PingFangSC-Regular");}catch(fontErr){try{ti.font="ArialMT";}catch(fontFallbackErr){}} ti.color=rgb(b.color); try{ti.justification=Justification.LEFT;}catch(justErr){} layer.visible=false;} for(var g=0;g<doc.layerSets.length;g++){try{if(String(doc.layerSets[g].name)==="OCR text preview - replace in Photoshop")doc.layerSets[g].visible=false;}catch(groupErr){}} var opts=new PhotoshopSaveOptions(); opts.layers=true; doc.saveAs(new File(cfg.output),opts,true,Extension.LOWERCASE); doc.close(SaveOptions.DONOTSAVECHANGES); }catch(err){try{if(doc)doc.close(SaveOptions.DONOTSAVECHANGES);}catch(closeErr){} throw err;}\n})();\n';
+              + 'try{var doc=app.open(new File(cfg.input)); var list=cfg.blocks||[]; for(var i=0;i<list.length;i++){var b=list[i]||{}; if(b.enabled===false||!String(b.text||"").replace(/^[\\s\\r\\n]+|[\\s\\r\\n]+$/g,""))continue; var layer=doc.artLayers.add(); layer.kind=LayerKind.TEXT; layer.name="OCR text "+(i+1)+" (review before enabling)"; var ti=layer.textItem; ti.contents=String(b.text||""); ti.position=[Number(b.x||0),Number(b.y||0)+Math.max(8,Number(b.fontSize||24))]; ti.size=Math.max(8,Number(b.fontSize||24)); try{ti.font=String(b.fontPostScript||b.fontFamily||"AlibabaPuHuiTi_3_55_Regular");}catch(fontErr){try{ti.font="ArialMT";}catch(fontFallbackErr){}} ti.color=rgb(b.color); try{ti.justification=Justification.LEFT;}catch(justErr){} layer.visible=false;} for(var g=0;g<doc.layerSets.length;g++){try{if(String(doc.layerSets[g].name)==="OCR text preview - replace in Photoshop")doc.layerSets[g].visible=false;}catch(groupErr){}} var opts=new PhotoshopSaveOptions(); opts.layers=true; doc.saveAs(new File(cfg.output),opts,true,Extension.LOWERCASE); doc.close(SaveOptions.DONOTSAVECHANGES); }catch(err){try{if(doc)doc.close(SaveOptions.DONOTSAVECHANGES);}catch(closeErr){} throw err;}\n})();\n';
             await writeFile(jsxPath, jsx, 'utf8');
             // Explicit UTF-8 decoding prevents Chinese `contents` from being
             // interpreted with the host's legacy Mac encoding.
@@ -1350,6 +1481,25 @@ function apply(ctx) {
           return;
         }
 
+        if (pathname === '/dsh-canvas/system-appearance' && req.method === 'GET') {
+          // Electron 会按应用主题覆盖 webview 的 prefers-color-scheme，页面上
+          // 读“系统外观”读到的其实是 DSH 的主题；真实值只能从主机进程问
+          // （macOS defaults / Windows 注册表）。
+          try {
+            let dark = null;
+            if (isMac()) {
+              const result = await runProcess('/usr/bin/defaults', ['read', '-g', 'AppleInterfaceStyle']);
+              dark = result.exitCode === 0 && /dark/i.test(result.stdout);
+            } else if (isWindows()) {
+              const result = await runProcess('reg', ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize', '/v', 'AppsUseLightTheme']);
+              dark = result.exitCode === 0 && /0x0\b/i.test(result.stdout);
+            }
+            respond(res, 200, { ...CORS, 'content-type': 'application/json', 'cache-control': 'no-store' }, JSON.stringify({ ok: true, known: dark !== null, dark: dark === true }));
+          } catch (err) {
+            respond(res, 200, { ...CORS, 'content-type': 'application/json', 'cache-control': 'no-store' }, JSON.stringify({ ok: false, known: false }));
+          }
+          return;
+        }
         if (pathname === '/dsh-canvas/materials' && req.method === 'GET') {
           // 素材库是独立目录；cwd 只用于从旧版“工作区/画布素材库”平滑迁移。
           const params = parseQuery(query);
@@ -1364,13 +1514,44 @@ function apply(ctx) {
               try {
                 const st = await stat(full);
                 if (!st.isFile() || !isImagePath(name)) continue;
-                files.push({ name, size: st.size, mtime: st.mtimeMs });
+                const size = await probeMaterialSize(full, st);
+                files.push({ name, size: st.size, mtime: st.mtimeMs, width: size.width, height: size.height });
               } catch (err) {}
             }
             files.sort((a, b) => b.mtime - a.mtime);
             respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true, dir: mdir, files }));
           } catch (err) {
             respond(res, 500, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: String((err && err.message) || err) }));
+          }
+          return;
+        }
+        if (pathname === '/dsh-canvas/materials/tags' && req.method === 'GET') {
+          try {
+            const mdir = materialDirectory(parseQuery(query).dir, parseQuery(query).cwd);
+            respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true, tags: tagsForDirectory(await readMaterialTags(), mdir) }));
+          } catch (err) {
+            respond(res, 400, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: String((err && err.message) || err) }));
+          }
+          return;
+        }
+        if (pathname === '/dsh-canvas/materials/tag' && req.method === 'POST') {
+          try {
+            const body = JSON.parse(await readBody(req) || '{}');
+            const mdir = materialDirectory(body.dir, body.cwd);
+            const names = Array.isArray(body.names) ? body.names.map((value) => basename(String(value || '').replace(/[\\/:*?"<>|]/g, ''))).filter(Boolean) : [];
+            const color = String(body.color || '').trim();
+            if (!names.length) throw new Error('缺少要标记的素材');
+            if (color && !MATERIAL_TAG_COLORS.has(color)) throw new Error('不支持的颜色标记');
+            const tags = await readMaterialTags();
+            for (const name of names) {
+              const target = join(mdir, name);
+              if (color) tags[target] = color;
+              else delete tags[target];
+            }
+            await writeMaterialTags(tags);
+            respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true, tags: tagsForDirectory(tags, mdir) }));
+          } catch (err) {
+            respond(res, 400, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: String((err && err.message) || err) }));
           }
           return;
         }
@@ -1428,6 +1609,11 @@ function apply(ctx) {
             const target = join(mdir, name);
             if (!isImagePath(target)) throw new Error('仅允许删除图片文件');
             await unlink(target);
+            // 同步清掉颜色标记，避免同目录重建同名文件时带上旧标记。
+            try {
+              const tags = await readMaterialTags();
+              if (tags[target]) { delete tags[target]; await writeMaterialTags(tags); }
+            } catch (err) {}
             respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: true }));
           } catch (err) {
             respond(res, 500, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: String((err && err.message) || err) }));

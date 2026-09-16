@@ -28,6 +28,95 @@ window.__ModuleLoader__.load({
     const PROJECT_CHOICES_BY_CWD_KEY = 'dsh-canvas-project-last-by-cwd-v1';
     const PANEL_WIDTH_KEY = 'dsh-canvas-panel-width';
     const MATERIAL_LIBRARY_KEY = 'dsh-canvas-material-library-v1';
+    const MATERIAL_SORT_KEY = 'dsh-canvas-material-sort-v1';
+    // Mac 式七色标记；hex 与 macOS Finder 标签色一致。
+    const MATERIAL_TAG_COLORS = [
+      { id: 'red', label: '红', hex: '#ff5f57' },
+      { id: 'orange', label: '橙', hex: '#ff9f0a' },
+      { id: 'yellow', label: '黄', hex: '#ffd60a' },
+      { id: 'green', label: '绿', hex: '#28c840' },
+      { id: 'blue', label: '蓝', hex: '#0a84ff' },
+      { id: 'purple', label: '紫', hex: '#bf5af2' },
+      { id: 'gray', label: '灰', hex: '#8e8e93' }
+    ];
+    // 文字识别/重建的字体清单：苹方等系统字体版权不可商用，默认与首选都用
+    // 可免费商用的阿里巴巴普惠体 3.0 与思源黑体（PostScript 名与 Photoshop
+    // textItem.font 对齐，且需本机安装对应字体）。
+    const TEXT_REBUILD_FONTS = [
+      { group: '阿里巴巴普惠体 3.0（免费商用）', items: [
+        { ps: 'AlibabaPuHuiTi_3_35_Thin', label: '普惠体 35 Thin 细体' },
+        { ps: 'AlibabaPuHuiTi_3_45_Light', label: '普惠体 45 Light 纤细' },
+        { ps: 'AlibabaPuHuiTi_3_55_Regular', label: '普惠体 55 Regular 常规' },
+        { ps: 'AlibabaPuHuiTi_3_65_Medium', label: '普惠体 65 Medium 中黑' },
+        { ps: 'AlibabaPuHuiTi_3_85_Bold', label: '普惠体 85 Bold 粗体' },
+        { ps: 'AlibabaPuHuiTi_3_95_ExtraBold', label: '普惠体 95 ExtraBold 特粗' },
+        { ps: 'AlibabaPuHuiTi_3_105_Heavy', label: '普惠体 105 Heavy 重磅' },
+        { ps: 'AlibabaPuHuiTi_3_115_Black', label: '普惠体 115 Black 玄黑' }
+      ] },
+      { group: '思源黑体（免费商用）', items: [
+        { ps: 'SourceHanSansSC-ExtraLight', label: '思源黑体 ExtraLight 极细' },
+        { ps: 'SourceHanSansSC-Light', label: '思源黑体 Light 细体' },
+        { ps: 'SourceHanSansSC-Normal', label: '思源黑体 Normal' },
+        { ps: 'SourceHanSansSC-Regular', label: '思源黑体 Regular 常规' },
+        { ps: 'SourceHanSansSC-Medium', label: '思源黑体 Medium 中黑' },
+        { ps: 'SourceHanSansSC-Bold', label: '思源黑体 Bold 粗体' },
+        { ps: 'SourceHanSansSC-Heavy', label: '思源黑体 Heavy 重磅' }
+      ] },
+      { group: 'Inter（免费商用·现代无衬线）', items: [
+        { ps: 'Inter-Thin', label: 'Inter Thin' },
+        { ps: 'Inter-ExtraLight', label: 'Inter ExtraLight' },
+        { ps: 'Inter-Light', label: 'Inter Light' },
+        { ps: 'Inter-Regular', label: 'Inter Regular' },
+        { ps: 'Inter-Medium', label: 'Inter Medium' },
+        { ps: 'Inter-SemiBold', label: 'Inter SemiBold' },
+        { ps: 'Inter-Bold', label: 'Inter Bold' },
+        { ps: 'Inter-ExtraBold', label: 'Inter ExtraBold' },
+        { ps: 'Inter-Black', label: 'Inter Black' }
+      ] },
+      { group: 'Montserrat（免费商用·几何无衬线）', items: [
+        { ps: 'Montserrat-Thin', label: 'Montserrat Thin' },
+        { ps: 'Montserrat-ExtraLight', label: 'Montserrat ExtraLight' },
+        { ps: 'Montserrat-Light', label: 'Montserrat Light' },
+        { ps: 'Montserrat-Regular', label: 'Montserrat Regular' },
+        { ps: 'Montserrat-Medium', label: 'Montserrat Medium' },
+        { ps: 'Montserrat-SemiBold', label: 'Montserrat SemiBold' },
+        { ps: 'Montserrat-Bold', label: 'Montserrat Bold' },
+        { ps: 'Montserrat-ExtraBold', label: 'Montserrat ExtraBold' },
+        { ps: 'Montserrat-Black', label: 'Montserrat Black' }
+      ] },
+      { group: 'Poppins（免费商用·圆润几何）', items: [
+        { ps: 'Poppins-Thin', label: 'Poppins Thin' },
+        { ps: 'Poppins-ExtraLight', label: 'Poppins ExtraLight' },
+        { ps: 'Poppins-Light', label: 'Poppins Light' },
+        { ps: 'Poppins-Regular', label: 'Poppins Regular' },
+        { ps: 'Poppins-Medium', label: 'Poppins Medium' },
+        { ps: 'Poppins-SemiBold', label: 'Poppins SemiBold' },
+        { ps: 'Poppins-Bold', label: 'Poppins Bold' },
+        { ps: 'Poppins-ExtraBold', label: 'Poppins ExtraBold' },
+        { ps: 'Poppins-Black', label: 'Poppins Black' }
+      ] },
+      { group: 'Source Sans Pro（免费商用·人文无衬线）', items: [
+        { ps: 'SourceSansPro-ExtraLight', label: 'Source Sans Pro ExtraLight' },
+        { ps: 'SourceSansPro-Light', label: 'Source Sans Pro Light' },
+        { ps: 'SourceSansPro-Regular', label: 'Source Sans Pro Regular' },
+        { ps: 'SourceSansPro-Semibold', label: 'Source Sans Pro Semibold' },
+        { ps: 'SourceSansPro-Bold', label: 'Source Sans Pro Bold' },
+        { ps: 'SourceSansPro-Black', label: 'Source Sans Pro Black' }
+      ] },
+      { group: '西文/系统（注意授权）', items: [
+        { ps: 'ArialMT', label: 'Arial' },
+        { ps: 'Arial-BoldMT', label: 'Arial Bold' },
+        { ps: 'HelveticaNeue', label: 'Helvetica Neue' },
+        { ps: 'SongtiSC-Regular', label: '宋体（macOS 系统字体，慎商用）' }
+      ] }
+    ];
+    const TEXT_REBUILD_DEFAULT_FONT = 'AlibabaPuHuiTi_3_55_Regular';
+    function textRebuildFontValue(item) {
+      const current = item && (item.fontPostScript || item.fontFamily) || '';
+      return TEXT_REBUILD_FONTS.some((group) => group.items.some((font) => font.ps === current))
+        ? current
+        : TEXT_REBUILD_DEFAULT_FONT;
+    }
     function canvasDefaultBackground() {
       try { return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? '#15171c' : '#f7f8fa'; } catch (e) { return '#f7f8fa'; }
     }
@@ -511,6 +600,10 @@ window.__ModuleLoader__.load({
         const trimmed = source.trim();
         if (trimmed.charAt(0) === '{' || trimmed.charAt(0) === '[') walkImagePayload(JSON.parse(trimmed), out, 0, cwdOverride);
       } catch (e) {}
+      // 画布 imagegen 路由的归档路径写在 <output_path> 标签里；不提取它，
+      // 附件就找不到同名源文件，新旧判定（mtime 过滤）会失效。
+      const outputPathRe = /<output_path[^>]*>([^<]+)<\/output_path>/gi;
+      while ((m = outputPathRe.exec(source))) pushIfImage(m[1].trim(), out, cwdOverride);
       const jsonRe = /"(?:image|image_url|imageUrl|file|file_path|filePath|path|url|result|b64_json|base64)"\s*:\s*(?:"([^"]+)"|\{[^}]*\})/gi;
       while ((m = jsonRe.exec(source))) pushImageCandidate(m[1], out, cwdOverride);
       const codePathRe = /`([^`\r\n]+\.(?:png|jpe?g|webp|gif|avif|bmp|svg|pdf|ai)(?:[?#][^`\r\n]*)?)`/gi;
@@ -620,7 +713,7 @@ window.__ModuleLoader__.load({
     function extractImagePaths(event) {
       const out = [];
       const data = event && event.data;
-      if (!data) return out;
+      if (!data) return [];
       // 兼容旧版 message.content.text，以及切换模型后常见的结构化 image_url / image_generation_call.result。
       const cwd = eventCwd(event);
       walkImagePayload(data, out, 0, cwd);
@@ -636,14 +729,26 @@ window.__ModuleLoader__.load({
       const attachmentNames = new Set(unique
         .filter((path) => !!attachmentFromPath(path))
         .map((path) => imageName(path).toLowerCase()));
-      return unique.filter((path) => {
-        const ref = attachmentFromPath(path);
-        return !!ref || !attachmentNames.has(imageName(path).toLowerCase());
-      });
+      // 返回条目而非裸路径：附件条目携带被去掉的同名文件路径（sourcePath），
+      // 图片输出卡片靠它对源文件做 mtime 判定——本轮 read_image 的旧图附件
+      // 才能被识别为“旧图引用”并从本轮卡片中过滤掉。
+      return unique
+        .filter((path) => {
+          const ref = attachmentFromPath(path);
+          return !!ref || !attachmentNames.has(imageName(path).toLowerCase());
+        })
+        .map((path) => {
+          const ref = attachmentFromPath(path);
+          if (!ref) return { path, sourcePath: '' };
+          const wantedName = imageName(path).toLowerCase();
+          const sourcePath = unique.find((p) => p !== path && !attachmentFromPath(p) && imageName(p).toLowerCase() === wantedName) || '';
+          return { path, sourcePath };
+        });
     }
 
-    // 最终助手回复里的图片是用户真正要看的交付物。
-    // 中间 tool/result 可能包含扫描/预览过的参考图，不能让这些路径把最终图片卡片挤掉。
+    // 最终助手回复里的图片名用来做“名字校准”（裸名映射回工具结果里的稳定
+    // 附件引用），不再用来整体取舍。中间 tool/result 里的扫描/预览参考图
+    // 由图片输出卡片的文件修改时间过滤负责隐藏。
     // 这里只读取可见 text block，不读取 reasoning、tool-call 参数。
     function extractAssistantVisibleImages(event) {
       const out = [];
@@ -674,17 +779,27 @@ window.__ModuleLoader__.load({
       return dedupeImagePaths(out);
     }
 
-    function reconcileFinalImages(existingImages, visiblePaths, seq) {
+    function reconcileFinalImages(existingImages, visiblePaths, seq, startTime) {
       const existing = Array.isArray(existingImages) ? existingImages : [];
+      // 归档撞名时画布路由会自动加 “-2/-3” 去重后缀，而模型最终回复常写原始
+      // 文件名。按名字匹配时把后缀剥掉再比，否则裸名匹配不到真实附件，会退化
+      // 成不存在的归档路径被逐个隐藏，最终回复整轮没有图片输出卡片。
+      const baseKeyOf = (name) => String(name).toLowerCase().replace(/-\d+(\.[a-z0-9]+)$/i, '$1');
       return visiblePaths.map((path) => {
         const wantedName = imageName(path).toLowerCase();
-        const sameName = existing.filter((item) => imageName(item.path).toLowerCase() === wantedName);
+        const wantedBase = baseKeyOf(wantedName);
+        const exact = existing.filter((item) => imageName(item.path).toLowerCase() === wantedName);
+        const byBase = existing.filter((item) => {
+          const name = imageName(item.path).toLowerCase();
+          return name !== wantedName && baseKeyOf(name) === wantedBase;
+        });
         // 最终回复经常只写“xxx.png”，而工具结果已经提供了可持久
         // 解析的 attachmentId 或绝对路径。最终文字只用来筛选同名产物，
         // 不能把真实引用降级成相对于聊天 cwd 的不存在路径。
+        const sameName = exact.concat(byBase);
         const stable = sameName.find((item) => attachmentFromPath(item.path))
           || sameName.find((item) => isDirectImageSource(item.path) || isLocalAbsolutePath(item.path));
-        return stable || { path, seq };
+        return stable || { path, seq, startTime: startTime || 0, sourcePath: '' };
       });
     }
 
@@ -707,17 +822,24 @@ window.__ModuleLoader__.load({
         return null;
       },
       start(_context, match) {
-        return { turn: match.event.data.turn, images: [], finalImagesSeen: false };
+        // turn/start 的 time 是本轮开始的墙钟时间；图片输出卡片用它区分
+        // “本轮新生成的文件”与“本轮只是读取/提及的旧文件”（按文件 mtime 判定）。
+        return { turn: match.event.data.turn, images: [], finalImagesSeen: false, startTime: match.event.time || 0 };
       },
       update(context, match) {
         const visible = extractAssistantVisibleImages(match.event);
-        // 一旦最终可见文本给出了图片，后续/此前的扫描路径不再参与图片输出卡片。
+        // 最终可见文本提到的图片只做“合并+名字校准”，不再整体替换。
+        // 旧版“替换”逻辑会因回复里顺带提到一张旧参考图（如基准图文件名），
+        // 把本轮真实生成的全部附件挤掉，叠加 mtime 过滤后卡片直接清空。
+        // 现在旧图引用由 ImageTail 的文件时间过滤负责隐藏，这里不做取舍。
         if (visible.length) {
-          return {
-            ...context.state,
-            images: reconcileFinalImages(context.state.images, visible, match.event.seq),
-            finalImagesSeen: true
-          };
+          const reconciled = reconcileFinalImages(context.state.images, visible, match.event.seq, context.state.startTime);
+          const images = [...context.state.images];
+          const seen = new Set(images.map((i) => i.path));
+          for (const item of reconciled) {
+            if (!seen.has(item.path)) { images.push(item); seen.add(item.path); }
+          }
+          return { ...context.state, images, finalImagesSeen: true };
         }
         if (context.state.finalImagesSeen) return context.state;
         const found = extractImagePaths(match.event);
@@ -725,7 +847,8 @@ window.__ModuleLoader__.load({
         const images = [...context.state.images];
         const seen = new Set(images.map((i) => i.path));
         const additions = [];
-        for (const p of found) {
+        for (const entry of found) {
+          const p = entry.path;
           if (seen.has(p)) continue;
           const incomingRef = attachmentFromPath(p);
           const incomingName = imageName(p).toLowerCase();
@@ -745,7 +868,7 @@ window.__ModuleLoader__.load({
             if (attachmentIndex >= 0) continue;
           }
           seen.add(p);
-          const item = { path: p, seq: match.event.seq };
+          const item = { path: p, seq: match.event.seq, startTime: context.state.startTime || 0, sourcePath: entry.sourcePath || '' };
           images.push(item);
           additions.push(item);
         }
@@ -791,8 +914,11 @@ window.__ModuleLoader__.load({
     // ---- turn-tail inline images ----
     function ImageTail(props) {
       const images = props.matched || [];
+      // 本轮开始时间由聚合节点写进每个条目；旧会话条目没有该字段时为 0，跳过新旧过滤。
+      const turnStart = (images.length && images[0] && images[0].startTime) || 0;
       const [preview, setPreview] = React.useState(null);
       const [failed, setFailed] = React.useState({});
+      const [swapped, setSwapped] = React.useState({});
       const [hidden, setHidden] = React.useState({});
       const [resolvedSources, setResolvedSources] = React.useState({});
       const [contextRevision, setContextRevision] = React.useState(activeChatContextRevision);
@@ -818,6 +944,7 @@ window.__ModuleLoader__.load({
         // 组件本地的 Blob URL，避免不同会话复用同名 attachmentId。
         setResolvedSources({});
         setFailed({});
+        setSwapped({});
         setHidden({});
         setPreview(null);
       }, [key, activeChatSessionId, contextRevision]);
@@ -825,7 +952,12 @@ window.__ModuleLoader__.load({
         // 只校验本地路径；会话附件和远程/data URL 由各自的加载逻辑处理。
         // 文件刚由模型写入时可能有短暂竞态，因此最多重试 4 次，再隐藏确实
         // 不存在的引用。这样不会把“模型提到但没有生成”的路径渲染成破图卡片。
+        // 存在性通过后还做新旧判定：源文件 mtime 早于本轮开始时间（留 2 秒
+        // 文件系统时间戳容差）说明只是本轮引用的旧图（read_image 对比、文字
+        // 提及旧版本），不属于本轮图片输出，同样隐藏。
         let cancelled = false;
+        const hide = (path) => setHidden((prev) => (prev[path] ? prev : { ...prev, [path]: true }));
+        const isStale = (data) => !!turnStart && !!data && data.ok === true && typeof data.mtime === 'number' && data.mtime < turnStart - 2000;
         const localImages = images.filter((img) => img && !attachmentFromPath(img.path) && !isDirectImageSource(img.path));
         const check = (img, attempt = 0) => {
           if (cancelled || !img) return;
@@ -834,26 +966,50 @@ window.__ModuleLoader__.load({
           if (!resolved || !isLocalAbsolutePath(resolved)) return;
           const url = '/dsh-canvas/image-status?path=' + encodeURIComponent(resolved);
           fetch(url, { cache: 'no-store' }).then((response) => {
-            if (cancelled || response.ok) return;
-            if (attempt < 3) {
-              setTimeout(() => check(img, attempt + 1), 250 * (attempt + 1));
+            if (cancelled) return;
+            if (!response.ok) {
+              if (attempt < 3) {
+                setTimeout(() => check(img, attempt + 1), 250 * (attempt + 1));
+                return;
+              }
+              hide(img.path);
               return;
             }
-            setHidden((prev) => ({ ...prev, [img.path]: true }));
+            response.json().then((data) => {
+              if (cancelled || !data || !data.ok) return;
+              if (isStale(data)) hide(img.path);
+            }).catch(() => {});
           }).catch(() => {
             if (cancelled) return;
             if (attempt < 3) {
               setTimeout(() => check(img, attempt + 1), 250 * (attempt + 1));
             } else {
-              setHidden((prev) => ({ ...prev, [img.path]: true }));
+              hide(img.path);
             }
           });
+        };
+        // 附件条目（imagegen / read_image 结果）用同名 sourcePath 做同样的新旧判定；
+        // 没有文件可查的纯附件（DSH 原生 imagegen）无法判定，保持显示。
+        const checkAttachmentAge = (img) => {
+          if (cancelled || !img || !img.sourcePath || attachmentFromPath(img.sourcePath) || !turnStart) return;
+          const resolved = resolveImagePath(canonicalOutputPath(img.sourcePath));
+          if (!resolved || !isLocalAbsolutePath(resolved)) return;
+          fetch('/dsh-canvas/image-status?path=' + encodeURIComponent(resolved), { cache: 'no-store' })
+            .then((response) => (response.ok ? response.json() : null))
+            .then((data) => {
+              if (cancelled || !data) return;
+              if (isStale(data)) hide(img.path);
+            })
+            .catch(() => {});
         };
         localImages.forEach((img) => {
           if (!hidden[img.path]) check(img);
         });
+        images.forEach((img) => {
+          if (img && img.sourcePath && !hidden[img.path]) checkAttachmentAge(img);
+        });
         return () => { cancelled = true; };
-      }, [key, activeChatSessionId, contextRevision]);
+      }, [key, activeChatSessionId, contextRevision, turnStart]);
       const visibleImages = images.filter((img) => !hidden[img.path]);
       React.useEffect(() => {
         let cancelled = false;
@@ -876,17 +1032,26 @@ window.__ModuleLoader__.load({
         return () => { cancelled = true; };
       }, [key, activeChatSessionId, contextRevision]);
       if (!visibleImages.length) return null;
+      // 附件条目的可操作文件路径：优先条目自带 sourcePath（归档真实文件），
+      // 其次当前画布项目拼接路径，最后退回附件引用本身（交给附件解析）。
+      const actionPathOf = (img) => {
+        if (!img || !attachmentFromPath(img.path)) return canonicalOutputPath(img.path);
+        return (img.sourcePath && !attachmentFromPath(img.sourcePath) && img.sourcePath) || archivedOutputPath(img.path) || img.path;
+      };
       const send = (path) => dispatchResolvedImage(canonicalOutputPath(path));
       const rows = visibleImages.map((img) => {
         const canonicalPath = canonicalOutputPath(img.path);
         // 旧会话的 attachmentId 可能随 DSH 更新或会话回放失效；画布路由
         // 已同时把原图归档到项目目录，附件解析失败时直接用同名归档文件。
-        // 设计模式的生图在返回附件前已原子落盘；当前项目可用时
-        // 优先读归档原图，避免 attachment Blob URL 在 DSH 重启后一直 pending。
-        const usingAttachmentFallback = !!(attachmentFromPath(img.path) && archivedOutputPath(img.path));
-        const attachmentFallback = usingAttachmentFallback ? displaySourceUrl(archivedOutputPath(img.path)) : '';
-        const actionPath = usingAttachmentFallback ? archivedOutputPath(img.path) : canonicalPath;
-        const src = attachmentFromPath(img.path) ? (resolvedSources[img.path] || attachmentFallback) : displaySourceUrl(canonicalPath);
+        // 设计模式的生图在返回附件前已原子落盘。回退源优先用条目自带的
+        // sourcePath（路由归档的真实文件路径），其次才是按当前画布项目拼接
+        // 的归档路径——切到别的会话/画布未绑定时，前者仍然可用，避免缩略图
+        // 因 DSH 附件解析失败而整体碎图。
+        const fallbackSourcePath = actionPathOf(img);
+        const usingAttachmentFallback = !!(attachmentFromPath(img.path) && fallbackSourcePath);
+        const attachmentFallback = usingAttachmentFallback ? displaySourceUrl(fallbackSourcePath) : '';
+        const actionPath = fallbackSourcePath;
+        const src = attachmentFromPath(img.path) ? ((swapped[img.path] ? '' : resolvedSources[img.path]) || attachmentFallback) : displaySourceUrl(canonicalPath);
         const loading = !src && !failed[img.path];
         return React.createElement('div', { key: img.path, className: 'dsh-canvas-image' },
           React.createElement('button', {
@@ -906,7 +1071,14 @@ window.__ModuleLoader__.load({
                 decoding: 'async',
                 referrerPolicy: 'no-referrer',
                 onLoad: () => { if (!usingAttachmentFallback) setFailed((prev) => prev[img.path] ? { ...prev, [img.path]: false } : prev); },
-                onError: () => setFailed((prev) => ({ ...prev, [img.path]: true }))
+                onError: () => {
+                  // 附件解析出的 URL 加载失败（blob 失效/会话切换）时，切换到归档文件回退源再试一次。
+                  if (attachmentFromPath(img.path) && !usingAttachmentFallback && attachmentFallback) {
+                    setSwapped((prev) => (prev[img.path] ? prev : { ...prev, [img.path]: true }));
+                    return;
+                  }
+                  setFailed((prev) => ({ ...prev, [img.path]: true }));
+                }
               })
           ),
           React.createElement('div', { className: 'dsh-canvas-image-meta' },
@@ -924,24 +1096,27 @@ window.__ModuleLoader__.load({
           React.createElement('div', { className: 'dsh-canvas-tool-bar' },
             React.createElement('span', { className: 'dsh-canvas-tool-title' }, '图片输出'),
             React.createElement('span', { className: 'dsh-canvas-tool-count' }, visibleImages.length + ' 张'),
-            React.createElement('button', { className: 'dsh-canvas-tool-btn', onClick: () => visibleImages.forEach((img) => send(img.path)) }, '全部加入画布')
+            React.createElement('button', { className: 'dsh-canvas-tool-btn', onClick: () => visibleImages.forEach((img) => send(actionPathOf(img))) }, '全部加入画布')
           ),
           React.createElement('div', { className: 'dsh-canvas-images dsh-canvas-images-cols-' + columns }, rows)
         ),
         preview ? React.createElement('div', { className: 'dsh-canvas-lightbox', role: 'dialog', 'aria-modal': 'true', onClick: () => setPreview(null) },
           React.createElement('div', { className: 'dsh-canvas-lightbox-inner', onClick: (event) => event.stopPropagation() },
             (() => {
+              // 大图与缩略图同源：附件优先归档文件（sourcePath 回退），避免
+              // 项目未绑定时大图永远“加载中”。
+              const previewActionPath = actionPathOf(preview);
               const previewSrc = attachmentFromPath(preview.path)
-                ? (displaySourceUrl(archivedOutputPath(preview.path)) || resolvedSources[preview.path] || '')
+                ? (displaySourceUrl(previewActionPath) || resolvedSources[preview.path] || '')
                 : displaySourceUrl(canonicalOutputPath(preview.path));
               return previewSrc
                 ? React.createElement('img', { src: previewSrc, alt: imageName(preview.path), className: 'dsh-canvas-lightbox-image', decoding: 'async', referrerPolicy: 'no-referrer' })
                 : React.createElement('span', { className: 'dsh-canvas-image-loading' }, failed[preview.path] ? '图片加载失败' : '图片加载中…');
             })(),
             React.createElement('div', { className: 'dsh-canvas-lightbox-bar' },
-              React.createElement('span', { title: canonicalOutputPath(preview.path) }, imageName(preview.path)),
-              React.createElement('button', { onClick: () => revealImageInFinder(canonicalOutputPath(preview.path)) }, '在文件夹中显示'),
-              React.createElement('button', { onClick: () => send(preview.path) }, '加入画布'),
+              React.createElement('span', { title: actionPathOf(preview) }, imageName(preview.path)),
+              React.createElement('button', { onClick: () => revealImageInFinder(actionPathOf(preview)) }, '在文件夹中显示'),
+              React.createElement('button', { onClick: () => send(actionPathOf(preview)) }, '加入画布'),
               React.createElement('button', { onClick: () => setPreview(null) }, '关闭')
             )
           )
@@ -1174,14 +1349,10 @@ window.__ModuleLoader__.load({
                 React.createElement('textarea', { value: item.text || '', disabled: !!data.busy, placeholder: '输入要保留或替换的文字', onChange: (event) => update(index, { text: event.target.value }) }),
                 React.createElement('div', { className: 'dsh-text-rebuild-row-controls' },
                   React.createElement('label', null, '字号', React.createElement('input', { type: 'number', min: 8, max: 220, value: item.fontSize || 24, disabled: !!data.busy, onChange: (event) => update(index, { fontSize: Number(event.target.value) || 24 }) })),
-                  React.createElement('label', null, '字体', React.createElement('select', { value: item.fontPostScript || item.fontFamily || 'PingFangSC-Regular', disabled: !!data.busy, onChange: (event) => update(index, { fontPostScript: event.target.value, fontFamily: event.target.value }) },
-                    React.createElement('option', { value: 'PingFangSC-Regular' }, '苹方常规'),
-                    React.createElement('option', { value: 'PingFangSC-Semibold' }, '苹方半粗'),
-                    React.createElement('option', { value: 'SongtiSC-Regular' }, '宋体'),
-                    React.createElement('option', { value: 'ArialMT' }, 'Arial'),
-                    React.createElement('option', { value: 'Arial-BoldMT' }, 'Arial 粗体'),
-                    React.createElement('option', { value: 'HelveticaNeue' }, 'Helvetica Neue')
-                  )),
+                  React.createElement('label', null, '字体', React.createElement('select', { value: textRebuildFontValue(item), disabled: !!data.busy, onChange: (event) => update(index, { fontPostScript: event.target.value, fontFamily: event.target.value }) },
+                    TEXT_REBUILD_FONTS.map((group) => React.createElement('optgroup', { key: group.group, label: group.group },
+                      group.items.map((font) => React.createElement('option', { key: font.ps, value: font.ps }, font.label)))
+                  ))),
                   React.createElement('label', null, '颜色', React.createElement('input', { type: 'color', value: /^#[0-9a-f]{6}$/i.test(String(item.color || '')) ? item.color : '#111827', disabled: !!data.busy, onChange: (event) => update(index, { color: event.target.value }) })),
                   React.createElement('button', { type: 'button', disabled: !!data.busy, onClick: () => update(index, { enabled: false }) }, '排除')
                 )
@@ -1389,17 +1560,25 @@ const EXCALIDRAW_SRCDOC = `<!doctype html><html><head><meta charset="utf-8"><sty
     .dsh-image-name{position:absolute;box-sizing:border-box;min-width:64px;max-width:260px;height:22px;padding:3px 8px;border:1px solid rgba(148,163,184,.48);border-radius:6px;background:rgba(255,255,255,.94);box-shadow:0 2px 8px rgba(15,23,42,.12);color:#334155;font:500 11px/14px ui-rounded,"SF Pro Rounded",sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:auto;cursor:text;user-select:none;transform:translateY(-26px)}
     .dsh-image-name:hover{border-color:#60a5fa;background:#fff;color:#1d4ed8}
     .dsh-image-name-input{position:absolute;box-sizing:border-box;height:24px;padding:3px 7px;border:1px solid #3b82f6;border-radius:6px;background:#fff;box-shadow:0 0 0 3px rgba(59,130,246,.18);color:#1e293b;font:500 11px/16px ui-rounded,"SF Pro Rounded",sans-serif;outline:none;pointer-events:auto;transform:translateY(-27px)}
-    .dsh-selection-toolbar{position:absolute;z-index:80;display:flex;align-items:center;gap:4px;box-sizing:border-box;padding:5px;border:1px solid rgba(255,255,255,.14);border-radius:11px;background:rgba(15,18,24,.96);box-shadow:0 12px 30px rgba(15,23,42,.28),0 2px 8px rgba(15,23,42,.22);color:#f8fafc;pointer-events:auto;transform:translate(-50%,-100%);white-space:nowrap;backdrop-filter:blur(14px);animation:dsh-toolbar-in .13s ease-out}
-    .dsh-selection-toolbar:after{content:"";position:absolute;left:50%;bottom:-5px;width:9px;height:9px;background:rgba(15,18,24,.96);border-right:1px solid rgba(255,255,255,.12);border-bottom:1px solid rgba(255,255,255,.12);transform:translateX(-50%) rotate(45deg)}
-    .dsh-selection-count{position:relative;z-index:1;padding:0 7px;color:#94a3b8;font:600 11px/28px ui-rounded,"SF Pro Rounded",sans-serif}
-    .dsh-selection-divider{position:relative;z-index:1;width:1px;height:20px;margin:0 2px;background:rgba(255,255,255,.14)}
+    .dsh-selection-toolbar{position:absolute;z-index:80;display:flex;align-items:center;gap:4px;box-sizing:border-box;padding:5px;border:1px solid var(--dsh-line,rgba(255,255,255,.14));border-radius:11px;background:var(--dsh-surface,rgba(15,18,24,.96));box-shadow:0 12px 30px rgba(15,23,42,.28),0 2px 8px rgba(15,23,42,.22);color:var(--dsh-fg,#f8fafc);pointer-events:auto;transform:translate(-50%,-100%);white-space:nowrap;backdrop-filter:blur(14px);animation:dsh-toolbar-in .13s ease-out}
+    .dsh-selection-toolbar:after{content:"";position:absolute;left:50%;bottom:-5px;width:9px;height:9px;background:var(--dsh-surface,rgba(15,18,24,.96));border-right:1px solid var(--dsh-line,rgba(255,255,255,.12));border-bottom:1px solid var(--dsh-line,rgba(255,255,255,.12));transform:translateX(-50%) rotate(45deg)}
+    .dsh-selection-count{position:relative;z-index:1;padding:0 7px;color:var(--dsh-fg-muted,#94a3b8);font:600 11px/28px ui-rounded,"SF Pro Rounded",sans-serif}
+    .dsh-selection-divider{position:relative;z-index:1;width:1px;height:20px;margin:0 2px;background:var(--dsh-line,rgba(255,255,255,.14))}
     /* 选区工具条：更多下拉菜单 */
 .dsh-selection-more{position:relative;display:flex}
-.dsh-selection-menu{position:absolute;top:calc(100% + 6px);right:0;min-width:136px;display:flex;flex-direction:column;gap:2px;padding:6px;border:1px solid rgba(255,255,255,.14);border-radius:10px;background:rgba(15,18,24,.97);box-shadow:0 14px 34px rgba(15,23,42,.4);z-index:90}
-.dsh-selection-menu .dsh-selection-action{white-space:nowrap;width:100%;text-align:left}
-.dsh-selection-menu .dsh-selection-action:hover{background:rgba(255,255,255,.08)}
-.dsh-selection-action{position:relative;z-index:1;height:30px;padding:0 10px;border:0;border-radius:7px;background:transparent;color:#e2e8f0;font:600 12px/30px ui-rounded,"SF Pro Rounded",sans-serif;cursor:pointer;transition:background .12s ease,color .12s ease,transform .12s ease}
-    .dsh-selection-action:hover{background:rgba(255,255,255,.1);color:#fff}
+.dsh-selection-menu{position:absolute;top:calc(100% + 6px);right:0;min-width:136px;display:flex;flex-direction:column;gap:2px;padding:6px;border:1px solid var(--dsh-line,rgba(255,255,255,.14));border-radius:10px;background:var(--dsh-surface,rgba(15,18,24,.97));box-shadow:0 14px 34px rgba(15,23,42,.4);z-index:90}
+    .dsh-selection-menu .dsh-selection-action{white-space:nowrap;width:100%;text-align:left}
+    .dsh-selection-menu .dsh-selection-action:hover{background:var(--dsh-hover,rgba(255,255,255,.08))}
+    /* 画布图片颜色标记：更多菜单内的七色调色板与画布角标圆点 */
+.dsh-tag-palette{display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.09);margin-bottom:3px;white-space:nowrap;flex-wrap:nowrap}
+.dsh-tag-palette>span{flex:none}
+.dsh-tag-palette .dsh-selection-action{width:auto;min-width:0;flex:none}
+.dsh-tag-dot-btn{width:19px;height:19px;flex:none;padding:0;border:2px solid rgba(255,255,255,.34);border-radius:50%;cursor:pointer;transition:transform .12s ease}
+.dsh-tag-dot-btn:hover{transform:scale(1.18)}
+.dsh-image-tag-dot{display:inline-block;width:8px;height:8px;margin-right:5px;border-radius:50%;border:1.5px solid rgba(255,255,255,.65);vertical-align:baseline;flex:none}
+.dsh-image-tag-corner{position:absolute;z-index:70;width:13px;height:13px;border:2px solid rgba(255,255,255,.7);border-radius:50%;box-shadow:0 1px 4px rgba(0,0,0,.4);pointer-events:none}
+.dsh-selection-action{position:relative;z-index:1;height:30px;padding:0 10px;border:0;border-radius:7px;background:transparent;color:var(--dsh-fg,#e2e8f0);font:600 12px/30px ui-rounded,"SF Pro Rounded",sans-serif;cursor:pointer;transition:background .12s ease,color .12s ease,transform .12s ease}
+    .dsh-selection-action:hover{background:var(--dsh-hover,rgba(255,255,255,.1));color:var(--dsh-fg,#fff)}
     .dsh-selection-action:active{transform:translateY(1px)}
     .dsh-selection-action.dsh-material-drag-action{cursor:grab}.dsh-selection-action.dsh-material-drag-action:active{cursor:grabbing}
     .dsh-selection-action.dsh-primary{background:#2563eb;color:#fff}.dsh-selection-action.dsh-primary:hover{background:#3b82f6}
@@ -1436,7 +1615,7 @@ const EXCALIDRAW_SRCDOC = `<!doctype html><html><head><meta charset="utf-8"><sty
     .dsh-excalidraw-menu-open .dsh-name-layer{display:none!important}
     .dsh-tip{display:none!important}
 
-html,body,#ex-root,#ex-root>div,.excalidraw,.excalidraw-container{margin:0;width:100%;height:100%;min-width:0;min-height:0;overflow:hidden;background:#f7f8fa}.dsh-tip{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.65);color:#fff;font-size:12px;padding:6px 12px;border-radius:8px;pointer-events:none;z-index:5;max-width:80%;text-align:center}.dsh-err{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff3f3;border:1px solid #ecc;color:#a22;font-size:13px;padding:16px 20px;border-radius:10px;max-width:80%;white-space:pre-wrap}@media(prefers-color-scheme:dark){html,body,#ex-root,#ex-root>div,.excalidraw,.excalidraw-container{background:#15171c}.dsh-err{background:#2a171b;border-color:#7f1d1d;color:#fecaca}}
+html,body,#ex-root,#ex-root>div,.excalidraw,.excalidraw-container{margin:0;width:100%;height:100%;min-width:0;min-height:0;overflow:hidden;background:var(--dsh-bg,#f7f8fa)}.dsh-tip{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.65);color:#fff;font-size:12px;padding:6px 12px;border-radius:8px;pointer-events:none;z-index:5;max-width:80%;text-align:center}.dsh-err{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff3f3;border:1px solid #ecc;color:#a22;font-size:13px;padding:16px 20px;border-radius:10px;max-width:80%;white-space:pre-wrap}@media(prefers-color-scheme:dark){html,body,#ex-root,#ex-root>div,.excalidraw,.excalidraw-container{background:var(--dsh-bg,#15171c)}.dsh-err{background:#2a171b;border-color:#7f1d1d;color:#fecaca}}
 /* 隐藏 Excalidraw 内置素材库入口（默认侧栏触发按钮），改用插件自有素材库 */
 .excalidraw .default-sidebar-trigger{display:none!important}
 .excalidraw .layer-ui__wrapper__footer-left .sidebar-trigger{display:none!important}
@@ -1456,7 +1635,7 @@ function dims2(d){return new Promise(function(res){var i=new Image();i.onload=fu
   function repairPsdAspectRatios(){if(!api)return Promise.resolve(0);var elements=api.getSceneElements()||[],files=fileObject(api.getFiles?api.getFiles():{}),targets=elements.filter(function(item){return item&&item.type==="image"&&!item.isDeleted&&item.customData&&item.customData.dshSourceKind==="psd"&&files[item.fileId]&&files[item.fileId].dataURL;});return Promise.all(targets.map(function(item){return dims2(files[item.fileId].dataURL).then(function(dm){return {id:item.id,size:aspectCorrectedSize(item,dm)};});})).then(function(results){var fixes=new Map(results.filter(function(result){return result.size;}).map(function(result){return [result.id,result.size];}));if(!fixes.size)return 0;var now=Date.now(),updated=(api.getSceneElements()||[]).map(function(item){var size=item&&fixes.get(item.id);return size?Object.assign({},item,size,{version:Number(item.version||1)+1,versionNonce:Math.floor(Math.random()*1e9),updated:now}):item;});api.updateScene({elements:updated,appState:Object.assign({},api.getAppState()||empty),commitToHistory:false});post({type:"aspect-ratio-repaired",count:fixes.size});return fixes.size;});}
   function toDataURLBlob(b){return new Promise(function(res,rej){var fr=new FileReader();fr.onload=function(){res(fr.result)};fr.onerror=rej;fr.readAsDataURL(b)});}
   function displayImageName(value){var text=String(value||"");return text.replace(/\.(?:png|jpe?g|webp|gif|avif|bmp|svg|pdf|ai|psd)$/i,"")||text;}
-  function imageNameLabels(elements,appState){var state=appState||empty,zoom=state.zoom&&state.zoom.value?Number(state.zoom.value):1,scrollX=Number(state.scrollX||0),scrollY=Number(state.scrollY||0),offsetLeft=Number(state.offsetLeft||0),offsetTop=Number(state.offsetTop||0),labelScale=Math.max(.25,Math.min(1.5,zoom)),selectedIds=state.selectedElementIds||{};return (elements||[]).filter(function(item){return item&&item.type==="image"&&!item.isDeleted;}).map(function(item){var name=item.customData&&item.customData.dshFileName||(\"画布图片-\"+String(item.id||\"\").slice(-6)+\".png\");return {id:item.id,fileId:item.fileId,name:name,displayName:displayImageName(name),selected:!!selectedIds[item.id],fontSize:Math.max(6,Math.round(9*labelScale*10)/10),height:Math.max(14,Math.round(16*labelScale)),paddingX:Math.max(3,Math.round(6*labelScale)),offsetY:Math.max(12,Math.round(20*labelScale)),minWidth:Math.max(36,Math.round(64*labelScale)),maxWidth:Math.max(96,Math.round(260*labelScale)),left:Math.round(((Number(item.x||0)+scrollX)*zoom+offsetLeft)*10)/10,top:Math.round(((Number(item.y||0)+scrollY)*zoom+offsetTop)*10)/10,width:Math.round(Math.max(48,Math.min(260*labelScale,Number(item.width||160)*zoom))*10)/10};});}
+  function imageNameLabels(elements,appState){var state=appState||empty,zoom=state.zoom&&state.zoom.value?Number(state.zoom.value):1,scrollX=Number(state.scrollX||0),scrollY=Number(state.scrollY||0),offsetLeft=Number(state.offsetLeft||0),offsetTop=Number(state.offsetTop||0),labelScale=Math.max(.25,Math.min(1.5,zoom)),selectedIds=state.selectedElementIds||{};return (elements||[]).filter(function(item){return item&&item.type==="image"&&!item.isDeleted;}).map(function(item){var name=item.customData&&item.customData.dshFileName||(\"画布图片-\"+String(item.id||\"\").slice(-6)+\".png\");return {id:item.id,fileId:item.fileId,name:name,displayName:displayImageName(name),tag:item.customData&&item.customData.dshTagColor||\"\",selected:!!selectedIds[item.id],fontSize:Math.max(6,Math.round(9*labelScale*10)/10),height:Math.max(14,Math.round(16*labelScale)),paddingX:Math.max(3,Math.round(6*labelScale)),offsetY:Math.max(12,Math.round(20*labelScale)),minWidth:Math.max(36,Math.round(64*labelScale)),maxWidth:Math.max(96,Math.round(260*labelScale)),left:Math.round(((Number(item.x||0)+scrollX)*zoom+offsetLeft)*10)/10,top:Math.round(((Number(item.y||0)+scrollY)*zoom+offsetTop)*10)/10,width:Math.round(Math.max(48,Math.min(260*labelScale,Number(item.width||160)*zoom))*10)/10};});}
   function selectionToolbarData(elements,appState){var state=appState||empty,selected=state.selectedElementIds||{},zoom=state.zoom&&state.zoom.value?Number(state.zoom.value):1,scrollX=Number(state.scrollX||0),scrollY=Number(state.scrollY||0),offsetLeft=Number(state.offsetLeft||0),offsetTop=Number(state.offsetTop||0);var images=(elements||[]).filter(function(item){return item&&item.type==="image"&&!item.isDeleted&&selected[item.id];});if(!images.length)return null;var boxes=images.map(function(item){var left=(Number(item.x||0)+scrollX)*zoom+offsetLeft,top=(Number(item.y||0)+scrollY)*zoom+offsetTop;return {left:left,top:top,right:left+Number(item.width||0)*zoom};});var minLeft=Math.min.apply(null,boxes.map(function(box){return box.left;})),minTop=Math.min.apply(null,boxes.map(function(box){return box.top;})),maxRight=Math.max.apply(null,boxes.map(function(box){return box.right;})),viewportWidth=Math.max(360,Number(window.innerWidth||960)),center=Math.max(170,Math.min(viewportWidth-170,(minLeft+maxRight)/2));return {ids:images.map(function(item){return item.id;}),count:images.length,left:Math.round(center*10)/10,top:Math.round(Math.max(54,minTop-40)*10)/10,singleName:images.length===1?(images[0].customData&&images[0].customData.dshFileName||("画布图片-"+String(images[0].id||"").slice(-6)+".png")):"",singleKind:images.length===1?(images[0].customData&&images[0].customData.dshSourceKind||""):""};}
   function duplicateSelectedImages(ids){if(!api||!Array.isArray(ids)||!ids.length)return;var selected={};ids.forEach(function(id){selected[id]=true;});var all=api.getSceneElements()||[],files=fileObject(api.getFiles?api.getFiles():{}),now=Date.now(),nextSelected={},copies=[];all.forEach(function(item,index){if(!item||item.type!=="image"||item.isDeleted||!selected[item.id])return;var token=now.toString(36)+"_"+index+"_"+Math.random().toString(36).slice(2,8),nextId="e_copy_"+token,source=files[item.fileId],nextFileId=source?("f_copy_"+token):item.fileId;if(source&&typeof api.addFiles==="function")api.addFiles([{id:nextFileId,dataURL:source.dataURL,mimeType:source.mimeType||"image/png",created:now,lastRetrieved:now}]);copies.push(Object.assign({},item,{id:nextId,fileId:nextFileId,x:Number(item.x||0)+36,y:Number(item.y||0)+36,index:undefined,seed:Math.floor(Math.random()*1e9),version:1,versionNonce:Math.floor(Math.random()*1e9),updated:now,isDeleted:false,customData:Object.assign({},item.customData||{})}));nextSelected[nextId]=true;});if(!copies.length)return;api.updateScene({elements:all.concat(copies),appState:Object.assign({},api.getAppState()||empty,{selectedElementIds:nextSelected}),commitToHistory:true});post({type:"duplicated",count:copies.length});}
   function deleteSelectedImages(ids){if(!api||!Array.isArray(ids)||!ids.length)return;var selected={};ids.forEach(function(id){selected[id]=true;});var now=Date.now(),updated=(api.getSceneElements()||[]).map(function(item){if(!item||!selected[item.id])return item;return Object.assign({},item,{isDeleted:true,version:Number(item.version||1)+1,versionNonce:Math.floor(Math.random()*1e9),updated:now});});api.updateScene({elements:updated,appState:Object.assign({},api.getAppState()||empty,{selectedElementIds:{}}),commitToHistory:true});post({type:"deleted-selection",count:ids.length,snapshot:serialize(updated,api.getAppState()||empty,api.getFiles()||{})});}
@@ -1517,7 +1696,58 @@ function dims2(d){return new Promise(function(res){var i=new Image();i.onload=fu
   function refreshSourceImage(detail){if(!api||!detail||!detail.elementId||!detail.url)return Promise.resolve();var elements=api.getSceneElements()||[],target=elements.find(function(item){return item&&item.id===detail.elementId&&item.type==="image"&&!item.isDeleted;});if(!target)return Promise.resolve();var read=function(attempt){var separator=String(detail.url).indexOf("?")>=0?"&":"?";return toDataURL(detail.url+separator+"refreshAttempt="+attempt+"&t="+Date.now()).catch(function(err){if(attempt>=4)throw err;return new Promise(function(resolve){setTimeout(resolve,450*attempt);}).then(function(){return read(attempt+1);});});};return read(1).then(function(dataURL){return dims2(dataURL).then(function(dm){var mime=(String(dataURL).match(/^data:([^;]+)/i)||[])[1]||"image/jpeg",now=Date.now(),nextFileId="f_refresh_"+now.toString(36)+"_"+Math.random().toString(36).slice(2,8),size=aspectCorrectedSize(target,dm);api.addFiles([{id:nextFileId,dataURL:dataURL,mimeType:mime,created:now,lastRetrieved:now}]);var updated=elements.map(function(item){if(!item||item.id!==target.id)return item;return Object.assign({},item,size||{},{fileId:nextFileId,customData:Object.assign({},item.customData||{},{dshFileName:detail.name||item.customData&&item.customData.dshFileName,dshSourcePath:detail.path||item.customData&&item.customData.dshSourcePath,dshSourceMtime:Number(detail.mtime||0),dshSourceSize:Number(detail.size||0),dshSourceKind:detail.kind||item.customData&&item.customData.dshSourceKind||"image"}),version:Number(item.version||1)+1,versionNonce:Math.floor(Math.random()*1e9),updated:now,status:"saved"});});api.updateScene({elements:updated,appState:Object.assign({},api.getAppState()||empty),commitToHistory:false});post({type:"source-refreshed",elementId:target.id,path:detail.path||"",mtime:Number(detail.mtime||0),size:Number(detail.size||0),name:detail.name||target.customData&&target.customData.dshFileName||"图片"});});});}
   function bindManagedImage(detail){if(!api||!detail||!detail.elementId)return;var elements=api.getSceneElements()||[],target=elements.find(function(item){return item&&item.id===detail.elementId&&item.type==="image"&&!item.isDeleted;});if(!target)return;var files=fileObject(api.getFiles?api.getFiles():{}),oldFile=files[target.fileId],nextFileId=detail.newFileId||target.fileId,now=Date.now();if(oldFile&&nextFileId!==target.fileId)api.addFiles([{id:nextFileId,dataURL:oldFile.dataURL,mimeType:oldFile.mimeType||"image/png",created:now,lastRetrieved:now}]);var updated=elements.map(function(item){if(!item||item.id!==target.id)return item;return Object.assign({},item,{fileId:nextFileId,customData:Object.assign({},item.customData||{},{dshFileName:detail.name,dshSourcePath:detail.path,dshSourceMtime:Number(detail.mtime||0),dshSourceSize:Number(detail.size||0),dshSourceKind:detail.kind||"image",dshManaged:detail.managed!==false}),version:Number(item.version||1)+1,versionNonce:Math.floor(Math.random()*1e9),updated:now,status:"saved"});});api.updateScene({elements:updated,appState:Object.assign({},api.getAppState()||empty),commitToHistory:false});}
   function removeSourceElements(ids){if(!api||!Array.isArray(ids)||!ids.length)return;var selected={};ids.forEach(function(id){selected[id]=true;});var now=Date.now(),updated=(api.getSceneElements()||[]).map(function(item){if(!item||!selected[item.id])return item;return Object.assign({},item,{isDeleted:true,version:Number(item.version||1)+1,versionNonce:Math.floor(Math.random()*1e9),updated:now});});api.updateScene({elements:updated,appState:Object.assign({},api.getAppState()||empty),commitToHistory:false});}
-  function arrangeCanvasImages(){if(!api)return;var all=api.getSceneElements()||[],images=all.filter(function(item){return item&&item.type==="image"&&!item.isDeleted;}).sort(function(a,b){var an=a.customData&&a.customData.dshFileName||a.id,bn=b.customData&&b.customData.dshFileName||b.id;return String(an).localeCompare(String(bn),"zh-CN",{numeric:true,sensitivity:"base"});});if(!images.length){post({type:"arranged",count:0});return;}var minX=Math.min.apply(null,images.map(function(item){return Number(item.x||0);})),minY=Math.min.apply(null,images.map(function(item){return Number(item.y||0);})),columns=Math.min(5,Math.max(2,Math.ceil(Math.sqrt(images.length*1.35)))),positions={};images.forEach(function(item,index){var ratio=Number(item.width||1)/Math.max(1,Number(item.height||1)),w,h;if(ratio>=1){w=240;h=Math.max(1,Math.round(240/ratio));}else{h=240;w=Math.max(1,Math.round(240*ratio));}var col=index%columns,row=Math.floor(index/columns);positions[item.id]={x:minX+col*300+(240-w)/2,y:minY+row*320,width:w,height:h};});var now=Date.now(),updated=all.map(function(item){var p=item&&positions[item.id];if(!p)return item;return Object.assign({},item,p,{version:Number(item.version||1)+1,versionNonce:Math.floor(Math.random()*1e9),updated:now});});api.updateScene({elements:updated,appState:Object.assign({},api.getAppState()||empty),commitToHistory:true});setTimeout(function(){if(api&&typeof api.scrollToContent==="function")api.scrollToContent(updated.filter(function(item){return item&&positions[item.id];}),{fitToContent:true,animate:true});},80);post({type:"arranged",count:images.length});}
+  // Mac 式七色标记（与素材库/Finder 颜色一致），存放在元素 customData.dshTagColor。
+  var DSH_TAG_HEX={red:"#ff5f57",orange:"#ff9f0a",yellow:"#ffd60a",green:"#28c840",blue:"#0a84ff",purple:"#bf5af2",gray:"#8e8e93"};
+  function setCanvasImageTag(ids,color){if(!api||!Array.isArray(ids)||!ids.length)return 0;var all=api.getSceneElements()||[],wanted={};ids.forEach(function(id){wanted[id]=true;});var count=0,now=Date.now();var updated=all.map(function(item){if(!item||item.type!=="image"||!wanted[item.id]||item.isDeleted)return item;var custom=Object.assign({},item.customData||{});if(color)custom.dshTagColor=color;else delete custom.dshTagColor;count++;return Object.assign({},item,{customData:custom,version:Number(item.version||1)+1,versionNonce:Math.floor(Math.random()*1e9),updated:now});});if(!count)return 0;api.updateScene({elements:updated,appState:Object.assign({},api.getAppState()||empty),commitToHistory:true});post({type:"tag-images",ids:ids,color:color||"",count:count});return count;}
+  function arrangeCanvasImages(detail){if(!api)return;var order=String(detail&&detail.order||"name"),tag=detail&&detail.tag===undefined?"":String(detail.tag||"");
+    var collect=(api.getSceneElements()||[]).filter(function(item){return item&&item.type==="image"&&!item.isDeleted;});
+    var images=collect.filter(function(item){var c=item.customData&&item.customData.dshTagColor||"";return tag===""?true:(tag==="none"?!c:c===tag);});
+    if(!images.length){post({type:"arranged",count:0,order:order,tag:tag});return;}
+    var files=fileObject(api.getFiles?api.getFiles():{});
+    var extOf=function(name){var m=/\.([a-z0-9]+)$/i.exec(String(name||""));return m?m[1].toLowerCase():"";};
+    var nameOf=function(item){return item.customData&&item.customData.dshFileName||("画布图片-"+String(item.id||"").slice(-6)+".png");};
+    var timeOf=function(item){return Number(item.customData&&item.customData.dshSourceMtime||0);};
+    var bytesOf=function(item){return Number(item.customData&&item.customData.dshSourceSize||0);};
+    var layout=function(pixelMap){
+      var sorted=images.slice().sort(order==="time"?function(a,b){return timeOf(b)-timeOf(a);}
+        :order==="bytes"?function(a,b){return bytesOf(b)-bytesOf(a)||timeOf(b)-timeOf(a);}
+        :order==="type"?function(a,b){var ea=extOf(nameOf(a)),eb=extOf(nameOf(b));return ea===eb?(timeOf(b)-timeOf(a)):(ea<eb?-1:1);}
+        :order==="pixels"?function(a,b){return (pixelMap[b.fileId]||0)-(pixelMap[a.fileId]||0)||timeOf(b)-timeOf(a);}
+        :function(a,b){return String(nameOf(a)).localeCompare(String(nameOf(b)),"zh-CN",{numeric:true,sensitivity:"base"});});
+      var minX=Math.min.apply(null,sorted.map(function(item){return Number(item.x||0);})),bandY=Math.min.apply(null,sorted.map(function(item){return Number(item.y||0);})),positions={};
+      // 文件类型排序按扩展名分块：每种格式一个独立网格带，块间留大间隔
+      //（约 1.5 行空白），避免不同格式混排在同一片网格里看不出来。
+      var groups=[sorted];
+      if(order==="type"){
+        groups=[];var byExt={},extOrder=[];
+        sorted.forEach(function(item){var ext=extOf(nameOf(item));if(!byExt[ext]){byExt[ext]=[];extOrder.push(ext);}byExt[ext].push(item);});
+        extOrder.forEach(function(ext){groups.push(byExt[ext]);});
+      }
+      groups.forEach(function(group){
+        var columns=Math.min(5,Math.max(2,Math.ceil(Math.sqrt(group.length*1.35)))),rows=Math.ceil(group.length/columns);
+        group.forEach(function(item,index){var ratio=Number(item.width||1)/Math.max(1,Number(item.height||1)),w,h;if(ratio>=1){w=240;h=Math.max(1,Math.round(240/ratio));}else{h=240;w=Math.max(1,Math.round(240*ratio));}var col=index%columns,row=Math.floor(index/columns);positions[item.id]={x:minX+col*300+(240-w)/2,y:bandY+row*320,width:w,height:h};});
+        bandY+=rows*320+460;
+      });
+      var now=Date.now(),updated=collect.map(function(item){var p=item&&positions[item.id];if(!p)return item;return Object.assign({},item,p,{version:Number(item.version||1)+1,versionNonce:Math.floor(Math.random()*1e9),updated:now});});
+      api.updateScene({elements:updated,appState:Object.assign({},api.getAppState()||empty),commitToHistory:true});
+      setTimeout(function(){if(api&&typeof api.scrollToContent==="function")api.scrollToContent(updated.filter(function(item){return item&&positions[item.id];}),{fitToContent:true,animate:true});},80);
+      post({type:"arranged",count:sorted.length,order:order,tag:tag,groups:groups.length});
+    };
+    if(order!=="pixels"){layout(null);return;}
+    // 图片尺寸排序需要真实像素：按 fileId 去重解码一次 dataURL（结果只进局部 map，不写回场景）。
+    var unique={},pending=[];
+    images.forEach(function(item){if(item.fileId&&!unique[item.fileId]){unique[item.fileId]=true;pending.push(item.fileId);}});
+    var pixelMap={},done=0;
+    if(!pending.length){layout(pixelMap);return;}
+    pending.forEach(function(fid){
+      var file=files[fid],apply=function(w,h){pixelMap[fid]=(w||0)*(h||0);if(++done===pending.length)layout(pixelMap);};
+      if(!file||!file.dataURL){apply(0,0);return;}
+      var probe=new Image();
+      probe.onload=function(){apply(probe.naturalWidth,probe.naturalHeight);};
+      probe.onerror=function(){apply(0,0);};
+      probe.src=file.dataURL;
+    });
+  }
 
 function Main(){
     var l=useState([]),labels=l[0],setLabels=l[1];
@@ -1599,9 +1829,11 @@ function Main(){
     var submitImageEdit=function(payload){if(!imageEditor||imageEditor.busy)return;try{var job=createEditPlaceholder(imageEditor),request=Object.assign({},imageEditor);setImageEditor(null);post({type:"request-image-edit",requestId:job.requestId,placeholderId:job.placeholderId,elementId:request.id,fileId:request.fileId,name:request.name,imageData:request.dataURL,imagePath:request.sourcePath,editRootPath:request.editRootPath,editHistory:request.editHistory,editDepth:request.editDepth,mode:request.mode,prompt:payload.prompt,maskData:payload.maskData,width:request.width,height:request.height});}catch(err){setImageEditor(Object.assign({},imageEditor,{busy:false,error:String(err&&err.message||err)}));}};
     return window.React.createElement('div',{style:{position:'absolute',inset:0}},
       window.React.createElement('div',{style:{position:'absolute',inset:0}},window.React.createElement(window.ExcalidrawLib.Excalidraw,{excalidrawAPI:function(a){api=a;if(!ready){ready=true;post({type:"ready"})}},initialData:{elements:[],appState:empty,files:{}},onChange:onCanvasChange,viewModeEnabled:false,zenModeEnabled:false,langCode:"zh-CN"})),
-      window.React.createElement('div',{className:'dsh-name-layer'},labels.filter(function(item){return (editing&&editing.id===item.id)||item.selected;}).map(function(item){var labelStyle={left:item.left+'px',top:item.top+'px',width:item.width+'px',minWidth:item.minWidth+'px',maxWidth:item.maxWidth+'px',height:item.height+'px',padding:'3px '+item.paddingX+'px',fontSize:item.fontSize+'px',lineHeight:Math.max(10,item.height-6)+'px',borderRadius:Math.max(4,Math.round(6*item.fontSize/11))+'px',transform:'translateY(-'+item.offsetY+'px)'};return editing&&editing.id===item.id
+      window.React.createElement('div',{className:'dsh-name-layer'},labels.filter(function(item){return (editing&&editing.id===item.id)||item.selected||item.tag;}).map(function(item){var labelStyle={left:item.left+'px',top:item.top+'px',width:item.width+'px',minWidth:item.minWidth+'px',maxWidth:item.maxWidth+'px',height:item.height+'px',padding:'3px '+item.paddingX+'px',fontSize:item.fontSize+'px',lineHeight:Math.max(10,item.height-6)+'px',borderRadius:Math.max(4,Math.round(6*item.fontSize/11))+'px',transform:'translateY(-'+item.offsetY+'px)'};return editing&&editing.id===item.id
         ?window.React.createElement('input',{key:item.id,className:'dsh-image-name-input',style:labelStyle,autoFocus:true,value:editing.value,spellCheck:false,onPointerDown:function(e){e.stopPropagation()},onChange:function(e){setEditing({id:item.id,value:e.target.value})},onBlur:commitName,onKeyDown:function(e){e.stopPropagation();if(e.key==='Enter')commitName();else if(e.key==='Escape')setEditing(null)}})
-        :window.React.createElement('div',{key:item.id,className:'dsh-image-name-plain',draggable:true,style:{left:item.left+'px',top:item.top+'px',transform:'translateY(-'+item.offsetY+'px)',fontSize:item.fontSize+'px',lineHeight:1.15,color:'#94a3b8',fontWeight:500,letterSpacing:'.2px',whiteSpace:'nowrap',pointerEvents:'auto',cursor:'grab',textShadow:'0 1px 2px rgba(255,255,255,.55)'},title:'拖到右侧素材库；双击修改文件名：'+item.name,onDragStart:function(e){e.stopPropagation();beginMaterialDrag((api&&api.getAppState&&Object.keys(api.getAppState().selectedElementIds||{}))||[item.id],e);},onDragEnd:function(){post({type:'material-drag-end'});},onDoubleClick:function(e){e.preventDefault();e.stopPropagation();setEditing({id:item.id,value:displayImageName(item.name)})}},item.displayName);}),toolbar?window.React.createElement('div',{className:'dsh-selection-toolbar',style:{left:toolbar.left+'px',top:toolbar.top+'px'},onPointerDown:function(e){e.preventDefault();e.stopPropagation();},onClick:function(e){e.stopPropagation();}},
+        :item.selected
+        ?window.React.createElement('div',{key:item.id,className:'dsh-image-name-plain',draggable:true,style:{left:item.left+'px',top:item.top+'px',transform:'translateY(-'+item.offsetY+'px)',fontSize:item.fontSize+'px',lineHeight:1.15,color:'#94a3b8',fontWeight:500,letterSpacing:'.2px',whiteSpace:'nowrap',pointerEvents:'auto',cursor:'grab',textShadow:'0 1px 2px rgba(255,255,255,.55)'},title:'拖到右侧素材库；双击修改文件名：'+item.name,onDragStart:function(e){e.stopPropagation();beginMaterialDrag((api&&api.getAppState&&Object.keys(api.getAppState().selectedElementIds||{}))||[item.id],e);},onDragEnd:function(){post({type:'material-drag-end'});},onDoubleClick:function(e){e.preventDefault();e.stopPropagation();setEditing({id:item.id,value:displayImageName(item.name)})}},item.tag?window.React.createElement('span',{className:'dsh-image-tag-dot',style:{background:DSH_TAG_HEX[item.tag]||'#888'}}):null,item.displayName)
+        :window.React.createElement('span',{key:item.id,className:'dsh-image-tag-corner',style:{left:item.left+'px',top:(item.top-16)+'px',background:DSH_TAG_HEX[item.tag]||'#888'}});}),toolbar?window.React.createElement('div',{className:'dsh-selection-toolbar',style:{left:toolbar.left+'px',top:toolbar.top+'px'},onPointerDown:function(e){e.preventDefault();e.stopPropagation();},onClick:function(e){e.stopPropagation();}},
         toolbar.count>1?window.React.createElement('span',{className:'dsh-selection-count'},'已选 '+toolbar.count+' 张'):null,
         toolbar.count>1?window.React.createElement('span',{className:'dsh-selection-divider'}):null,
         window.React.createElement('button',{className:'dsh-selection-action dsh-primary',title:'把所选图片附加到聊天输入框',onClick:function(){sendSelectionToChat(toolbar.ids);}},'发送至聊天'),
@@ -1614,6 +1846,11 @@ function Main(){
         window.React.createElement('div',{className:'dsh-selection-more'},
           window.React.createElement('button',{className:'dsh-selection-action dsh-more-toggle',title:'更多操作',onClick:function(e){e.stopPropagation();setMoreOpen(!moreOpen);}},'更多 ▾'),
           moreOpen?window.React.createElement('div',{className:'dsh-selection-menu',onClick:function(e){e.stopPropagation();setMoreOpen(false);}},
+            window.React.createElement('div',{className:'dsh-tag-palette',title:'Mac 式颜色标记：整理画布时可按颜色筛选',onClick:function(e){e.stopPropagation();}},
+              window.React.createElement('span',{style:{color:'#94a3b8',font:'600 11px/1 ui-rounded,"SF Pro Rounded",sans-serif',whiteSpace:'nowrap'}},'标记'),
+              Object.keys(DSH_TAG_HEX).map(function(color){return window.React.createElement('button',{key:color,className:'dsh-tag-dot-btn',style:{background:DSH_TAG_HEX[color]},title:'把选中的 '+toolbar.count+' 张图片标记为该颜色',onClick:function(e){e.stopPropagation();setCanvasImageTag(toolbar.ids,color);setMoreOpen(false);}});}),
+              window.React.createElement('button',{className:'dsh-selection-action',style:{height:'22px',fontSize:'11px',lineHeight:'22px'},title:'清除选中图片的颜色标记',onClick:function(e){e.stopPropagation();setCanvasImageTag(toolbar.ids,'');setMoreOpen(false);}},'清除')
+            ),
             window.React.createElement('button',{className:'dsh-selection-action dsh-material-drag-action',draggable:true,title:'点击保存；也可按住拖到右侧素材库',onDragStart:function(e){e.stopPropagation();beginMaterialDrag(toolbar.ids,e);},onDragEnd:function(){post({type:'material-drag-end'});},onClick:function(){saveSelectionToMaterials(toolbar.ids);}},'加入素材库'),
             toolbar.count===1&&["image","psd"].indexOf(toolbar.singleKind||"image")>=0?window.React.createElement('button',{className:'dsh-selection-action',title:'扁平稿专用：限色、去毛刺后生成结构化 SVG，原图不会被覆盖',onClick:function(){requestVectorize(toolbar.ids[0],"flat");}},'结构矢量'):null,
             window.React.createElement('button',{className:'dsh-selection-action',title:'在画布中创建副本',onClick:function(){duplicateSelectedImages(toolbar.ids);}},'复制'),
@@ -1746,7 +1983,34 @@ window.addEventListener("message",function(e){
     e.stopImmediatePropagation();removeSourceElements(d.ids||[]);return;
   }
   if(d.type==="arrange-images"){
-    e.stopImmediatePropagation();arrangeCanvasImages();return;
+    e.stopImmediatePropagation();arrangeCanvasImages(d);return;
+  }
+  if(d.type==="set-theme-background"){
+    e.stopImmediatePropagation();
+    // DSH 主题推送：画布背景与 Excalidraw 内部 UI 主题跟随 DSH（而非系统外观）。
+    var nextColor=String(d.color||"");
+    if(!/^(#[0-9a-f]{3,8}|rgb)/i.test(nextColor))return;
+    systemDark=!!d.dark;canvasDefaultBackground=nextColor;
+    // srcdoc 的 html/body/.excalidraw-container 链式背景用 --dsh-bg 变量渲染，
+    // 只改 viewBackgroundColor 不够——那些 CSS 背景会把整个 iframe 涂黑。
+    // fg/surface/line/hover 同时供给选区工具栏等 iframe 内 UI 跟随 DSH 主题；
+    // 空值不设置，让 CSS 兜底值生效。
+    try{
+      var rootStyle=document.documentElement.style;
+      rootStyle.setProperty("--dsh-bg",nextColor);
+      var fgColor=String(d.fg||"");
+      if(!fgColor)fgColor=d.dark?"#f8fafc":"#1f2937";
+      rootStyle.setProperty("--dsh-fg",fgColor);
+      rootStyle.setProperty("--dsh-fg-muted",fgColor);
+      if(d.surface)rootStyle.setProperty("--dsh-surface",String(d.surface));
+      if(d.line)rootStyle.setProperty("--dsh-line",String(d.line));
+      if(d.hover)rootStyle.setProperty("--dsh-hover",String(d.hover));
+      rootStyle.colorScheme=d.dark?"dark":"light";
+    }catch(cssErr){}
+    if(api&&typeof api.updateScene==="function"){
+      try{api.updateScene({appState:Object.assign({},api.getAppState()||empty,{viewBackgroundColor:nextColor,theme:d.dark?"dark":"light"}),commitToHistory:false});}catch(themeErr){}
+    }
+    return;
   }
   if(d.type==="image-edit-result"){
     e.stopImmediatePropagation();addEditedImage(d).catch(function(err){markEditPlaceholderFailed({requestId:d.requestId,placeholderId:d.placeholderId,message:String(err&&err.message||err)});});return;
@@ -1918,12 +2182,28 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
           return { current: typeof saved.current === 'string' ? saved.current : '', recent: Array.isArray(saved.recent) ? saved.recent.filter((path) => typeof path === 'string' && path).slice(0, 8) : [] };
         } catch (err) { return { current: '', recent: [] }; }
       });
+      // —— 画布整理：排序方式与颜色标记范围（发给 iframe 的 arrange-images 消息） ——
+      const [canvasArrangeOpen, setCanvasArrangeOpen] = React.useState(false);
+      // 画布背景模式：跟随 DSH 主题（默认）或跟随系统外观；ref 同步给定时器闭包。
+      const [canvasBgFollowSystem, setCanvasBgFollowSystem] = React.useState(() => {
+        try { return window.localStorage.getItem('dsh-canvas-bg-follow-system') === '1'; } catch (error) { return false; }
+      });
+      const bgFollowSystemRef = React.useRef(canvasBgFollowSystem);
+      const [canvasArrangeOrder, setCanvasArrangeOrder] = React.useState('name');
+      const [canvasArrangeTag, setCanvasArrangeTag] = React.useState('');
       const [materialQuery, setMaterialQuery] = React.useState('');
       const [materialSelection, setMaterialSelection] = React.useState([]);
       const [materialSelectMode, setMaterialSelectMode] = React.useState(false);
       const [materialPreview, setMaterialPreview] = React.useState(null);
       const [materialDropActive, setMaterialDropActive] = React.useState(false);
       const [materialControlsOpen, setMaterialControlsOpen] = React.useState(false);
+      // —— 素材整理：排序方式（本地记忆）+ 颜色标记与按色筛选 ——
+      const [materialSort, setMaterialSort] = React.useState(() => {
+        try { return JSON.parse(window.localStorage.getItem(MATERIAL_SORT_KEY) || 'null') || 'time'; } catch (err) { return 'time'; }
+      });
+      const [materialTagFilter, setMaterialTagFilter] = React.useState('');
+      const [materialTags, setMaterialTags] = React.useState({});
+      const [materialTagMenu, setMaterialTagMenu] = React.useState(null);
       const canvasMaterialDrag = React.useRef([]);
       const rememberMaterialDirectory = (dir) => {
         const path = String(dir || '').trim();
@@ -1947,6 +2227,12 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
         setMaterialSelection([]);
         setMaterialPreview(null);
         setMaterials({ dir: data.dir, files: data.files || [], busy: false, error: '' });
+        // 颜色标记按目录读取；读取失败不阻断列表，仅退化为无标记状态。
+        try {
+          const tr = await fetch('/dsh-canvas/materials/tags?dir=' + encodeURIComponent(data.dir));
+          const td = await tr.json();
+          setMaterialTags(tr.ok && td.ok && td.tags ? td.tags : {});
+        } catch (err) { setMaterialTags({}); }
         if (!(options && options.silent)) setFeedback('✓ 已切换素材库：' + basename(data.dir));
         return data;
       };
@@ -1958,6 +2244,8 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
         setMaterialSelectMode(false);
         setMaterialPreview(null);
         setMaterialControlsOpen(false);
+        setMaterialTagFilter('');
+        setMaterialTagMenu(null);
         setMaterials({ dir: '', files: [], busy: true, error: '' });
         try {
           await loadMaterialDirectory(materialLibrary.current, { silent: true });
@@ -2035,7 +2323,40 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
         setFeedback('✓ 已发送到画布：' + item.name);
       };
       const selectedMaterials = materials ? materials.files.filter((item) => materialSelection.includes(item.name)) : [];
-      const filteredMaterials = materials ? materials.files.filter((item) => !materialQuery.trim() || item.name.toLocaleLowerCase().includes(materialQuery.trim().toLocaleLowerCase())) : [];
+      // 应用标记颜色过滤与排序：默认按修改时间倒序（服务端顺序），
+      // 可切换按类型（同类型内仍按时间）、像素数、文件大小、文件名整理。
+      const materialPixels = (item) => (item.width && item.height ? item.width * item.height : 0);
+      const materialExt = (item) => ((/\.[a-z0-9]+$/i.exec(item.name) || [''])[0] || '').toLowerCase();
+      const filteredMaterials = materials ? materials.files
+        .filter((item) => {
+          const query = materialQuery.trim().toLocaleLowerCase();
+          if (query && !item.name.toLocaleLowerCase().includes(query)) return false;
+          if (materialTagFilter && (materialTags[item.name] || '') !== materialTagFilter) return false;
+          return true;
+        })
+        .sort((materialSort === 'name'
+          ? (a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN', { numeric: true })
+          : materialSort === 'type'
+            ? (a, b) => (materialExt(a) === materialExt(b) ? (b.mtime || 0) - (a.mtime || 0) : materialExt(a).localeCompare(materialExt(b)))
+            : materialSort === 'pixels'
+              ? (a, b) => (materialPixels(b) - materialPixels(a)) || ((b.mtime || 0) - (a.mtime || 0))
+              : materialSort === 'bytes'
+                ? (a, b) => ((b.size || 0) - (a.size || 0)) || ((b.mtime || 0) - (a.mtime || 0))
+                : (a, b) => (b.mtime || 0) - (a.mtime || 0))
+        ) : [];
+      const applyMaterialTag = async (names, color) => {
+        if (!materials || !materials.dir || !Array.isArray(names) || !names.length) return;
+        try {
+          const r = await fetch('/dsh-canvas/materials/tag', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dir: materials.dir, names, color })
+          });
+          const data = await r.json();
+          if (!r.ok || !data.ok) throw new Error(data.error || '标记失败');
+          setMaterialTags(data.tags || {});
+          setFeedback('✓ 已' + (color ? '标记为 ' + ((MATERIAL_TAG_COLORS.find((c) => c.id === color) || {}).label || color) + '色 ' : '清除标记 ') + names.length + ' 项');
+        } catch (err) { setFeedback('⚠ 更新颜色标记失败：' + String((err && err.message) || err)); }
+      };
       const toggleMaterialSelection = (item) => {
         if (!item || !materialSelectMode) return;
         // “多选”本身就是显式模式：每次点击都追加或取消当前项，
@@ -2283,6 +2604,112 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
         const w = frameRef.current && frameRef.current.contentWindow;
         if (w) w.postMessage(msg, '*');
       };
+      // —— DSH 主题同步到画布 ——
+      // iframe 是独立文档，DSH 的 CSS 变量进不去；画布背景原跟 prefers-color-scheme，
+      // DSH 切浅色而系统深色时整块画布仍是黑的。这里读取 DSH 令牌的实时值推给 iframe。
+      const lastPushedTheme = React.useRef('');
+      const realSystemDarkRef = React.useRef(null);
+      // 令牌可能挂在 html/body 或更深的 DSH 容器上，逐层找；全找不到时退回
+      // body 实际背景色。暗色判定优先主题标记，缺失时按颜色亮度推断。
+      const isDarkColorValue = (value) => {
+        const text = String(value || '').trim();
+        let r; let g; let b;
+        const rgb = /rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/i.exec(text);
+        const hex = /^#?([0-9a-f]{3,8})$/i.exec(text);
+        if (rgb) { r = +rgb[1]; g = +rgb[2]; b = +rgb[3]; }
+        else if (hex) {
+          const digits = hex[1].length >= 6 ? hex[1].slice(0, 6) : hex[1].split('').map((c) => c + c).join('');
+          r = parseInt(digits.slice(0, 2), 16); g = parseInt(digits.slice(2, 4), 16); b = parseInt(digits.slice(4, 6), 16);
+        } else return false;
+        return Number.isFinite(r) && Number.isFinite(g) && Number.isFinite(b) && (0.2126 * r + 0.7152 * g + 0.0722 * b) < 128;
+      };
+      const dshThemeSnapshot = () => {
+        try {
+          let color = '';
+          let fg = '';
+          let surface = '';
+          let line = '';
+          let hover = '';
+          const candidates = [document.documentElement, document.body, document.querySelector('#root')].filter(Boolean);
+          for (const element of candidates) {
+            const style = getComputedStyle(element);
+            const read = (name) => String(style.getPropertyValue(name) || '').trim();
+            if (!color) { const value = read('--dsw-alias-bg-base'); if (value && /^(#[0-9a-f]{3,8}|rgb|hsl)/i.test(value)) color = value; }
+            if (!fg) { const value = read('--dsw-alias-label-primary'); if (value) fg = value; }
+            if (!surface) { const value = read('--dsw-alias-bg-layer-3'); if (value && /^(#[0-9a-f]{3,8}|rgb|hsl)/i.test(value)) surface = value; }
+            if (!line) { const value = read('--dsw-alias-border-l2'); if (value) line = value; }
+            if (!hover) { const value = read('--dsw-alias-interactive-bg-hover'); if (value && /^(#[0-9a-f]{3,8}|rgb|hsl)/i.test(value)) hover = value; }
+          }
+          if (!color) {
+            const bodyBg = String(getComputedStyle(document.body).backgroundColor || '').trim();
+            if (/^rgba?\(/i.test(bodyBg) && !/rgba?\(0,\s*0,\s*0,\s*0\)/.test(bodyBg)) color = bodyBg;
+          }
+          if (!color) return '';
+          const dark = document.documentElement.hasAttribute('data-ds-dark-theme')
+            || document.body.hasAttribute('data-ds-dark-theme')
+            || isDarkColorValue(color);
+          return `${dark}\u0000${color}\u0000${fg}\u0000${surface}\u0000${line}\u0000${hover}`;
+        } catch (error) { return ''; }
+      };
+      const pushDshTheme = () => {
+        if (!frameReady.current) return;
+        // 跟随系统模式：真实系统外观来自主机进程（Electron 会覆盖页面里的
+        // prefers-color-scheme）；主机结果未到时先用页面媒体查询兜底。
+        if (bgFollowSystemRef.current) {
+          const mediaDark = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          const dark = realSystemDarkRef.current !== null ? realSystemDarkRef.current : mediaDark;
+          const snapshot = `sys\u0000${dark}`;
+          if (snapshot === lastPushedTheme.current) return;
+          lastPushedTheme.current = snapshot;
+          post({
+            type: 'set-theme-background',
+            color: dark ? '#15171c' : '#f7f8fa',
+            dark,
+            fg: dark ? '#f8fafc' : '#1f2937',
+            surface: dark ? '#1b2028' : '#ffffff',
+            line: dark ? 'rgba(255,255,255,.14)' : 'rgba(15,23,42,.14)',
+            hover: dark ? 'rgba(255,255,255,.1)' : 'rgba(15,23,42,.06)'
+          });
+          return;
+        }
+        const snapshot = dshThemeSnapshot();
+        if (!snapshot || snapshot === lastPushedTheme.current) return;
+        lastPushedTheme.current = snapshot;
+        const [dark, color, fg, surface, line, hover] = snapshot.split('\u0000');
+        post({ type: 'set-theme-background', color, dark: dark === 'true', fg: fg || '', surface: surface || '', line: line || '', hover: hover || '' });
+      };
+      React.useEffect(() => {
+        const observer = new MutationObserver(pushDshTheme);
+        observer.observe(document.body, { attributes: true, attributeFilter: ['data-ds-dark-theme'] });
+        const timer = window.setInterval(pushDshTheme, 4000);
+        return () => { observer.disconnect(); window.clearInterval(timer); };
+      }, []);
+      // 系统外观切换与模式切换时立即重推；系统模式下另以 3 秒轮询主机进程
+      // 获取真实系统外观（页面媒体查询会被 Electron 按应用主题覆盖）。
+      React.useEffect(() => {
+        pushDshTheme();
+        if (!bgFollowSystemRef.current) return;
+        const media = window.matchMedia('(prefers-color-scheme: dark)');
+        const onChange = () => pushDshTheme();
+        if (typeof media.addEventListener === 'function') media.addEventListener('change', onChange);
+        else if (typeof media.addListener === 'function') media.addListener(onChange);
+        const timer = window.setInterval(() => {
+          fetch('/dsh-canvas/system-appearance', { cache: 'no-store' })
+            .then((response) => response.json())
+            .then((data) => {
+              if (data && data.ok && data.known && typeof data.dark === 'boolean' && realSystemDarkRef.current !== data.dark) {
+                realSystemDarkRef.current = data.dark;
+                pushDshTheme();
+              }
+            })
+            .catch(() => {});
+        }, 3000);
+        return () => {
+          if (typeof media.removeEventListener === 'function') media.removeEventListener('change', onChange);
+          else if (typeof media.removeListener === 'function') media.removeListener(onChange);
+          window.clearInterval(timer);
+        };
+      }, [canvasBgFollowSystem]);
       // tldraw 的 onChange 经过短暂防抖，切换瞬间 latestSnapshot 可能还没收到
       // 最后一次删除/移动。切换前主动向 iframe 索取内存中的当前快照。
       // 大画布的 files 可能达到几十 MB；序列化并跨 iframe postMessage 需要
@@ -2671,11 +3098,18 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
         const active = textRebuild;
         if (!active || active.busy) return;
         const regions = Array.isArray(selectedRegions) ? selectedRegions : (Array.isArray(active.selections) ? active.selections : []);
+        // 字体值在数据层归一：识别来源（OCR/模型/旧会话）可能仍带着 PingFang
+        // 等不可商用默认值，下拉框只在显示层掩盖它；不归一会让 PSD 拿到与
+        // 界面所见不一致的字体。
+        const normalizedBlocks = (blocks || []).map((item) => {
+          const font = textRebuildFontValue(item);
+          return { ...item, fontPostScript: font, fontFamily: font };
+        });
         setTextRebuild({ ...active, busy: true, error: '' });
         fetch('/dsh-canvas/export-text-psd', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...current, elementId: active.elementId, name: active.name, imageData: active.dataURL, width: Number(active.width || 0), height: Number(active.height || 0), selection: regions.length === 1 ? regions[0] : null, selections: regions, blocks: blocks || [], erasePrompt: active.erasePrompt || '', cleanBackground: true, openPhotoshop: openPhotoshop !== false })
+          body: JSON.stringify({ ...current, elementId: active.elementId, name: active.name, imageData: active.dataURL, width: Number(active.width || 0), height: Number(active.height || 0), selection: regions.length === 1 ? regions[0] : null, selections: regions, blocks: normalizedBlocks, erasePrompt: active.erasePrompt || '', cleanBackground: true, openPhotoshop: openPhotoshop !== false })
         })
           .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
           .then((result) => {
@@ -2735,6 +3169,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
         if (d.type === 'ready') {
           frameReady.current = true;
           setStatus('ready');
+          pushDshTheme();
           if (!stateLoaded.current) {
             stateLoaded.current = true;
             const current = projectRef.current;
@@ -2771,6 +3206,10 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
           }
         } else if (d.type === 'loaded') {
           switchingProject.current = false;
+          // 水合会用 canvas.json 保存的旧背景色覆盖此前的主题推送；
+          // 清空快照让定时器在下一拍重新推送 DSH 主题。
+          lastPushedTheme.current = '';
+          pushDshTheme();
           if (d.snapshot) {
             // loaded 只是“已恢复”的确认，不是一次用户编辑；保留从
             // canvas.json 读出的版本标记，避免把旧加载快照重新盖回项目。
@@ -2817,7 +3256,10 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
         } else if (d.type === 'aspect-ratio-repaired') {
           setFeedback('✓ 已自动修复 ' + Number(d.count || 0) + ' 张 PSD 的显示比例');
         } else if (d.type === 'arranged') {
-          setFeedback(d.count ? ('✓ 已按文件名整理 ' + d.count + ' 张图片') : '画布中没有可整理的图片');
+          const orderLabels = { name: '文件名', type: '文件类型', time: '修改时间', pixels: '图片尺寸', bytes: '文件大小' };
+          setFeedback(d.count ? ('✓ 已按' + (orderLabels[d.order] || '文件名') + '整理 ' + d.count + ' 张图片' + (d.groups > 1 ? '，分成 ' + d.groups + ' 个格式区块' : '') + (d.tag ? '（仅整理标记图片）' : '')) : '画布中没有符合条件的可整理图片');
+        } else if (d.type === 'tag-images') {
+          setFeedback('✓ 已' + (d.color ? '更新 ' : '清除 ') + Number(d.count || 0) + ' 张图片的颜色标记');
         } else if (d.type === 'duplicated') {
           setFeedback('✓ 已在画布中复制 ' + Number(d.count || 0) + ' 张图片');
         } else if (d.type === 'deleted-selection') {
@@ -3436,7 +3878,29 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
           feedback
             ? React.createElement('span', { className: 'dsh-canvas-feedback' }, feedback)
             : React.createElement('span', { className: 'dsh-canvas-hint' }, '图片可移动/缩放/旋转/裁剪 · 画笔标注'),
-          React.createElement('button', { className: 'dsh-canvas-tb', title: '按文件名排序并整理成网格，可撤销', onClick: () => post({ type: 'arrange-images' }) }, '整理图片'),
+          React.createElement('div', { style: { position: 'relative', display: 'inline-flex' } },
+            React.createElement('button', { className: 'dsh-canvas-tb', title: '按类型/时间/尺寸/大小/名称或颜色标记整理画布图片，可撤销', onClick: () => setCanvasArrangeOpen((value) => !value) }, '整理图片'),
+            canvasArrangeOpen ? React.createElement('div', { className: 'dsh-arrange-pop' },
+              React.createElement('label', { className: 'dsh-arrange-field' }, '排序',
+                React.createElement('select', { value: canvasArrangeOrder, onChange: (event) => setCanvasArrangeOrder(event.target.value) },
+                  React.createElement('option', { value: 'name' }, '文件名称'),
+                  React.createElement('option', { value: 'type' }, '文件类型'),
+                  React.createElement('option', { value: 'time' }, '修改时间'),
+                  React.createElement('option', { value: 'pixels' }, '图片尺寸'),
+                  React.createElement('option', { value: 'bytes' }, '文件大小')
+                )
+              ),
+              React.createElement('label', { className: 'dsh-arrange-field' }, '范围',
+                React.createElement('select', { value: canvasArrangeTag, onChange: (event) => setCanvasArrangeTag(event.target.value) },
+                  React.createElement('option', { value: '' }, '全部图片'),
+                  React.createElement('option', { value: 'none' }, '仅未标记'),
+                  MATERIAL_TAG_COLORS.map((color) => React.createElement('option', { key: color.id, value: color.id }, '仅' + color.label + '色标记'))
+                )
+              ),
+              React.createElement('button', { className: 'dsh-arrange-run', onClick: () => { setCanvasArrangeOpen(false); post({ type: 'arrange-images', order: canvasArrangeOrder, tag: canvasArrangeTag }); } }, '整理'),
+              React.createElement('button', { onClick: () => setCanvasArrangeOpen(false) }, '取消')
+            ) : null
+          ),
           React.createElement('button', { className: 'dsh-canvas-tb', onClick: () => post({ type: 'export' }) }, '导出 PNG'),
           React.createElement('button', { className: 'dsh-canvas-tb', title: '本地素材库：常用图片发送到画布或聊天', onClick: () => openMaterials() }, '素材库'),
           React.createElement('button', {
@@ -3450,6 +3914,16 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
             onClick: () => { saveNow(); clearTimeout(saveTimer.current); setMode(false); }
           }, '收起画布'),
           moreMenuOpen ? React.createElement('div', { className: 'dsh-canvas-more-menu' },
+            React.createElement('button', {
+              title: '开启后画布背景跟随 macOS 系统外观，关闭则跟随 DSH 的主题设置',
+              onClick: () => {
+                const next = !canvasBgFollowSystem;
+                bgFollowSystemRef.current = next;
+                setCanvasBgFollowSystem(next);
+                try { window.localStorage.setItem('dsh-canvas-bg-follow-system', next ? '1' : '0'); } catch (error) {}
+                setFeedback(next ? '✓ 画布背景已改为跟随系统外观' : '✓ 画布背景已改为跟随 DSH 主题');
+              }
+            }, (canvasBgFollowSystem ? '☑' : '☐') + ' 画布背景跟随系统'),
             React.createElement('button', { onClick: () => { setMoreMenuOpen(false); openProjectFolder(); }, disabled: !projectInfo.project }, '📁 打开项目文件夹'),
             React.createElement('button', { onClick: openImageSettings }, '⚙ 图像引擎设置'),
             React.createElement('button', { onClick: () => { setMoreMenuOpen(false); saveNow(); setFeedback('✓ 已保存当前画布'); }, disabled: !projectInfo.project }, '保存当前画布'),
@@ -3635,6 +4109,33 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
                 React.createElement('button', { onClick: openMaterialsFolder, disabled: !materials.dir, title: '打开素材目录' }, '⌁')
               )
             ),
+            React.createElement('div', { className: 'dsh-materials-organize' },
+              React.createElement('label', { className: 'dsh-materials-sort' },
+                React.createElement('span', null, '整理'),
+                React.createElement('select', { value: materialSort, onChange: (event) => { const next = event.target.value; setMaterialSort(next); try { window.localStorage.setItem(MATERIAL_SORT_KEY, JSON.stringify(next)); } catch (err) {} } },
+                  React.createElement('option', { value: 'time' }, '修改时间'),
+                  React.createElement('option', { value: 'type' }, '文件类型'),
+                  React.createElement('option', { value: 'pixels' }, '图片尺寸'),
+                  React.createElement('option', { value: 'bytes' }, '文件大小'),
+                  React.createElement('option', { value: 'name' }, '文件名称')
+                )
+              ),
+              React.createElement('div', { className: 'dsh-materials-tagfilter' },
+                React.createElement('span', { className: 'dsh-materials-tagfilter-label' }, '标记'),
+                React.createElement('button', { className: 'dsh-materials-tagall' + (materialTagFilter ? '' : ' is-active'), title: '显示全部素材', onClick: () => setMaterialTagFilter('') }, '全部'),
+                MATERIAL_TAG_COLORS.map((color) => React.createElement('button', {
+                  key: color.id,
+                  className: 'dsh-materials-tagdot' + (materialTagFilter === color.id ? ' is-active' : ''),
+                  style: { background: color.hex },
+                  title: (materialTagFilter === color.id ? '取消' : '只看') + color.label + '色标记',
+                  'aria-label': (materialTagFilter === color.id ? '取消' : '只看') + color.label + '色标记',
+                  onClick: () => setMaterialTagFilter(materialTagFilter === color.id ? '' : color.id)
+                })),
+                Object.values(materialTags).length
+                  ? React.createElement('span', { className: 'dsh-materials-tagfilter-count' }, Object.values(materialTags).filter(Boolean).length + ' 项已标记')
+                  : null
+              )
+            ),
             materials.error ? React.createElement('div', { className: 'dsh-materials-error' }, materials.error) : null,
             React.createElement('div', { className: 'dsh-materials-body' },
               materials.busy && !materials.files.length
@@ -3644,28 +4145,38 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
                 : !filteredMaterials.length
                 ? React.createElement('div', { className: 'dsh-materials-empty' }, React.createElement('strong', null, '没有匹配的素材'), React.createElement('span', null, '换个关键词，或清空搜索条件。'))
                 : React.createElement('div', { className: 'dsh-materials-grid' },
-                    filteredMaterials.map((item) => React.createElement('div', {
-                      key: item.name,
-                      className: 'dsh-materials-item' + (materialSelection.includes(item.name) ? ' is-selected' : ''),
-                      role: 'button', tabIndex: 0, draggable: true,
-                      onDragStart: (event) => startMaterialDrag(event, item),
-                      onClick: () => materialSelectMode ? toggleMaterialSelection(item) : setMaterialPreview(item),
-                      onDoubleClick: () => sendMaterialToCanvas(item),
-                      onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); materialSelectMode ? toggleMaterialSelection(item) : setMaterialPreview(item); } },
-                      title: materialSelectMode ? '点击勾选或取消，可连续选择多张' : '拖入画布；单击预览；双击加入画布'
-                    },
-                      materialSelectMode
-                        ? React.createElement('span', { className: 'dsh-materials-check', 'aria-hidden': true }, materialSelection.includes(item.name) ? '✓' : '')
-                        : React.createElement('button', { className: 'dsh-materials-zoom', title: '放大查看', 'aria-label': '放大查看 ' + item.name, onClick: (event) => { event.preventDefault(); event.stopPropagation(); setMaterialPreview(item); } }, '↗'),
-                      React.createElement('span', { className: 'dsh-materials-thumb' },
-                        React.createElement('img', { src: '/dsh-canvas/image?path=' + encodeURIComponent(materials.dir + '/' + item.name), loading: 'lazy', alt: item.name })
-                      ),
-                      React.createElement('span', { className: 'dsh-materials-meta' },
-                        React.createElement('span', { className: 'dsh-materials-item-name' }, item.name.replace(/\.[^.]+$/, '')),
-                        React.createElement('span', { className: 'dsh-materials-item-info' }, Math.max(1, Math.round((item.size || 0) / 1024)) + ' KB')
-                      )
-                    ))
-                )
+                    filteredMaterials.map((item) => {
+                      const tagColor = MATERIAL_TAG_COLORS.find((c) => c.id === materialTags[item.name]) || null;
+                      return React.createElement('div', {
+                        key: item.name,
+                        className: 'dsh-materials-item' + (materialSelection.includes(item.name) ? ' is-selected' : '') + (tagColor ? ' is-tagged is-tag-' + tagColor.id : ''),
+                        role: 'button', tabIndex: 0, draggable: true,
+                        onDragStart: (event) => startMaterialDrag(event, item),
+                        onClick: () => materialSelectMode ? toggleMaterialSelection(item) : setMaterialPreview(item),
+                        onDoubleClick: () => sendMaterialToCanvas(item),
+                        onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); materialSelectMode ? toggleMaterialSelection(item) : setMaterialPreview(item); } },
+                        title: (materialSelectMode ? '点击勾选或取消，可连续选择多张' : '拖入画布；单击预览；双击加入画布') + '\n' + (item.width && item.height ? item.width + '×' + item.height + ' · ' : '') + Math.max(1, Math.round((item.size || 0) / 1024)) + ' KB · ' + (item.mtime ? new Date(item.mtime).toLocaleString() : '')
+                      },
+                        React.createElement('button', {
+                          className: 'dsh-materials-tagset' + (tagColor ? ' is-set' : ''),
+                          style: tagColor ? { background: tagColor.hex } : undefined,
+                          title: tagColor ? '当前' + tagColor.label + '色标记，点击修改' : '设置颜色标记',
+                          'aria-label': '设置颜色标记 ' + item.name,
+                          onClick: (event) => { event.preventDefault(); event.stopPropagation(); setMaterialTagMenu(materialTagMenu && materialTagMenu.names.length === 1 && materialTagMenu.names[0] === item.name ? null : { names: [item.name] }); }
+                        }, tagColor ? '' : '⌗'),
+                        materialSelectMode
+                          ? React.createElement('span', { className: 'dsh-materials-check', 'aria-hidden': true }, materialSelection.includes(item.name) ? '✓' : '')
+                          : React.createElement('button', { className: 'dsh-materials-zoom', title: '放大查看', 'aria-label': '放大查看 ' + item.name, onClick: (event) => { event.preventDefault(); event.stopPropagation(); setMaterialPreview(item); } }, '↗'),
+                        React.createElement('span', { className: 'dsh-materials-thumb' },
+                          React.createElement('img', { src: '/dsh-canvas/image?path=' + encodeURIComponent(materials.dir + '/' + item.name), loading: 'lazy', alt: item.name })
+                        ),
+                        React.createElement('span', { className: 'dsh-materials-meta' },
+                          React.createElement('span', { className: 'dsh-materials-item-name' }, item.name.replace(/\.[^.]+$/, '')),
+                          React.createElement('span', { className: 'dsh-materials-item-info' }, (item.width && item.height ? item.width + '×' + item.height + ' · ' : '') + Math.max(1, Math.round((item.size || 0) / 1024)) + ' KB')
+                        )
+                      );
+                    })
+                  )
             ),
             materialSelectMode ? React.createElement('div', { className: 'dsh-materials-selectionbar is-visible' },
               React.createElement('div', { className: 'dsh-materials-selection-summary' },
@@ -3673,9 +4184,27 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
                 React.createElement('button', { onClick: () => setMaterialSelection([]), disabled: !selectedMaterials.length }, '取消选择')
               ),
               React.createElement('div', { className: 'dsh-materials-selection-actions' },
+                React.createElement('button', { onClick: () => setMaterialTagMenu({ names: materialSelection.slice() }), disabled: !selectedMaterials.length, title: '为选中的素材设置 Mac 式颜色标记' }, '标记'),
                 React.createElement('button', { className: 'is-primary', onClick: addSelectedMaterialsToCanvas, disabled: !selectedMaterials.length }, '加入画布'),
                 React.createElement('button', { onClick: attachSelectedMaterialsToChat, disabled: !selectedMaterials.length }, '附加到聊天'),
                 React.createElement('button', { className: 'is-danger', onClick: deleteSelectedMaterials, disabled: !selectedMaterials.length || !!materials.busy }, '删除')
+              )
+            ) : null,
+            materialTagMenu ? React.createElement('div', { className: 'dsh-materials-tagmenu', role: 'dialog', 'aria-label': '颜色标记' },
+              React.createElement('div', { className: 'dsh-materials-tagmenu-title' }, '标记 ' + materialTagMenu.names.length + ' 项'),
+              React.createElement('div', { className: 'dsh-materials-tagmenu-row' },
+                MATERIAL_TAG_COLORS.map((color) => React.createElement('button', {
+                  key: color.id,
+                  className: 'dsh-materials-tagdot',
+                  style: { background: color.hex },
+                  title: '标记为' + color.label + '色',
+                  'aria-label': '标记为' + color.label + '色',
+                  onClick: () => { const names = materialTagMenu.names.slice(); setMaterialTagMenu(null); applyMaterialTag(names, color.id); }
+                }))
+              ),
+              React.createElement('div', { className: 'dsh-materials-tagmenu-actions' },
+                React.createElement('button', { onClick: () => { const names = materialTagMenu.names.slice(); setMaterialTagMenu(null); applyMaterialTag(names, ''); } }, '清除标记'),
+                React.createElement('button', { onClick: () => setMaterialTagMenu(null) }, '取消')
               )
             ) : null
           )
@@ -3685,6 +4214,11 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
             React.createElement('img', { src: '/dsh-canvas/image?path=' + encodeURIComponent(materials.dir + '/' + materialPreview.name), alt: materialPreview.name }),
             React.createElement('div', { className: 'dsh-materials-preview-bar' },
               React.createElement('strong', null, materialPreview.name.replace(/\.[^.]+$/, '')),
+              React.createElement('span', { className: 'dsh-materials-preview-info' },
+                (materialPreview.width && materialPreview.height ? materialPreview.width + '×' + materialPreview.height + ' · ' : '')
+                + Math.max(1, Math.round((materialPreview.size || 0) / 1024)) + ' KB'
+                + (materialPreview.mtime ? ' · ' + new Date(materialPreview.mtime).toLocaleString() : '')
+              ),
               React.createElement('button', { onClick: () => { sendMaterialToCanvas(materialPreview); setMaterialPreview(null); } }, '加入画布'),
               React.createElement('button', { onClick: () => setMaterialPreview(null) }, '关闭')
             )
@@ -3703,10 +4237,11 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
 
     // ---- styles ----
     const CSS = [
-      '.dsh-materials-overlay{position:absolute;inset:58px 0 0;z-index:40;display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box;background:rgba(8,12,20,.58);backdrop-filter:blur(8px)}.dsh-materials-panel{--ml-bg:#151922;--ml-card:#1d2330;--ml-line:rgba(255,255,255,.11);--ml-muted:#97a2b4;--ml-accent:#76a8ff;display:flex;flex-direction:column;width:min(1120px,100%);height:min(780px,100%);overflow:hidden;border:1px solid var(--ml-line);border-radius:20px;background:var(--ml-bg);color:#f5f7fb;box-shadow:0 30px 90px rgba(0,0,0,.5);font-family:"PingFang SC","Microsoft YaHei",sans-serif}.dsh-materials-head{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:18px 22px 14px}.dsh-materials-title{display:flex;align-items:center;gap:9px;font-size:20px;font-weight:700;letter-spacing:-.02em}.dsh-materials-count{padding:3px 8px;border-radius:999px;background:rgba(118,168,255,.14);color:#a9c7ff;font-size:11px;font-weight:600;letter-spacing:0}.dsh-materials-sub{max-width:720px;margin-top:6px;color:var(--ml-muted);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dsh-materials-close{width:38px;height:38px;flex:none;border:1px solid var(--ml-line);border-radius:11px;background:rgba(255,255,255,.04);color:#dbe2ee;font-size:24px;line-height:1;cursor:pointer}.dsh-materials-close:hover{background:rgba(255,255,255,.1)}.dsh-materials-toolbar{display:flex;align-items:center;gap:12px;padding:12px 22px;border-block:1px solid var(--ml-line);background:rgba(255,255,255,.025)}.dsh-materials-search{display:flex;align-items:center;gap:8px;min-width:220px;max-width:380px;flex:1;padding:0 12px;border:1px solid var(--ml-line);border-radius:11px;background:rgba(5,8,14,.35);color:var(--ml-muted)}.dsh-materials-search:focus-within{border-color:var(--ml-accent);box-shadow:0 0 0 3px rgba(91,145,255,.14)}.dsh-materials-search input{width:100%;height:38px;border:0;outline:0;background:transparent;color:inherit;font:13px inherit}.dsh-materials-toolbar-actions{display:flex;gap:7px}.dsh-materials-toolbar button,.dsh-materials-selectionbar button{padding:9px 12px;border:1px solid var(--ml-line);border-radius:10px;background:rgba(255,255,255,.055);color:#dce3ee;font:12px inherit;white-space:nowrap;cursor:pointer}.dsh-materials-toolbar button:hover,.dsh-materials-selectionbar button:hover{background:rgba(255,255,255,.11)}.dsh-materials-toolbar button:disabled,.dsh-materials-selectionbar button:disabled{opacity:.38;cursor:not-allowed}.dsh-materials-error{margin:10px 22px 0;padding:9px 11px;border:1px solid rgba(248,113,113,.3);border-radius:9px;background:rgba(127,29,29,.28);color:#fecaca;font-size:12px}.dsh-materials-body{flex:1;min-height:0;overflow:auto;padding:18px 22px}.dsh-materials-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px}.dsh-materials-item{position:relative;display:flex;min-width:0;flex-direction:column;padding:0;overflow:hidden;border:1px solid var(--ml-line);border-radius:13px;background:var(--ml-card);color:inherit;text-align:left;cursor:pointer;transition:transform .14s ease,border-color .14s ease,box-shadow .14s ease}.dsh-materials-item:hover{transform:translateY(-2px);border-color:rgba(118,168,255,.5);box-shadow:0 12px 30px rgba(0,0,0,.22)}.dsh-materials-item.is-selected{border-color:var(--ml-accent);box-shadow:0 0 0 2px rgba(91,145,255,.25)}.dsh-materials-check{position:absolute;z-index:2;top:9px;right:9px;display:grid;width:23px;height:23px;place-items:center;border:1px solid rgba(255,255,255,.4);border-radius:8px;background:rgba(9,14,24,.58);color:white;font-size:13px;backdrop-filter:blur(6px)}.dsh-materials-item.is-selected .dsh-materials-check{border-color:#87b2ff;background:#397cf0}.dsh-materials-thumb{display:block;aspect-ratio:16/10;overflow:hidden;background:#0b0f16}.dsh-materials-thumb img{display:block;width:100%;height:100%;object-fit:cover;transition:transform .24s ease}.dsh-materials-item:hover img{transform:scale(1.025)}.dsh-materials-meta{display:flex;align-items:center;gap:8px;padding:10px 11px}.dsh-materials-item-name{min-width:0;flex:1;color:#e7ebf2;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dsh-materials-item-info{flex:none;color:var(--ml-muted);font-size:10px}.dsh-materials-empty{display:flex;min-height:240px;align-items:center;justify-content:center;flex-direction:column;gap:8px;border:1px dashed var(--ml-line);border-radius:14px;color:var(--ml-muted);font-size:12px;text-align:center}.dsh-materials-empty strong{color:#dce3ee;font-size:15px}.dsh-materials-selectionbar{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:64px;padding:10px 22px;border-top:1px solid var(--ml-line);background:rgba(8,12,20,.42)}.dsh-materials-selection-summary,.dsh-materials-selection-actions{display:flex;align-items:center;gap:8px}.dsh-materials-selection-summary strong{min-width:66px;font-size:12px}.dsh-materials-selection-summary button{padding:6px 8px;border-color:transparent;background:transparent;color:var(--ml-muted)}.dsh-materials-selection-actions .is-primary{border-color:#4f8fff;background:#3b7bec;color:#fff}.dsh-materials-selection-actions .is-primary:hover{background:#4b89f5}.dsh-materials-selection-actions .is-danger{color:#fca5a5}.dsh-materials-selection-actions .is-danger:hover{border-color:rgba(248,113,113,.4);background:rgba(127,29,29,.32)}@media(max-width:760px){.dsh-materials-overlay{padding:8px}.dsh-materials-panel{height:100%;border-radius:14px}.dsh-materials-toolbar{align-items:stretch;flex-direction:column}.dsh-materials-search{max-width:none}.dsh-materials-toolbar-actions{display:grid;grid-template-columns:1fr 1fr}.dsh-materials-toolbar-actions button:first-child{grid-column:1/-1}.dsh-materials-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.dsh-materials-selectionbar{align-items:stretch;flex-direction:column}.dsh-materials-selection-actions{display:grid;grid-template-columns:1fr 1fr}.dsh-materials-selection-actions .is-primary{grid-column:1/-1}}@media(prefers-color-scheme:light){.dsh-materials-panel{--ml-bg:#f9fafc;--ml-card:#fff;--ml-line:#dfe4ec;--ml-muted:#6f7b8e;--ml-accent:#397cf0;color:#172033}.dsh-materials-toolbar{background:#f3f6fa}.dsh-materials-search{background:#fff}.dsh-materials-close,.dsh-materials-toolbar button,.dsh-materials-selectionbar button{color:#354156}.dsh-materials-item-name,.dsh-materials-empty strong{color:#172033}.dsh-materials-check{border-color:rgba(23,32,51,.25);background:rgba(255,255,255,.82);color:#fff}.dsh-materials-selectionbar{background:#f3f6fa}}',
-      '.dsh-materials-overlay{align-items:stretch;justify-content:flex-end;padding:0;background:transparent;backdrop-filter:none;pointer-events:none}.dsh-materials-panel{width:min(390px,calc(100% - 28px));height:100%;max-height:none;border-width:0 0 0 1px;border-radius:18px 0 0 18px;pointer-events:auto;box-shadow:-18px 0 48px rgba(0,0,0,.28);animation:dsh-materials-slide-in .2s cubic-bezier(.22,.8,.3,1)}@keyframes dsh-materials-slide-in{from{transform:translateX(28px);opacity:.3}to{transform:translateX(0);opacity:1}}.dsh-materials-head{padding:16px 16px 10px}.dsh-materials-title{font-size:18px}.dsh-materials-sub{max-width:290px}.dsh-materials-dropzone{display:flex;flex-direction:column;gap:2px;margin:0 16px 10px;padding:11px 12px;border:1px dashed var(--ml-line);border-radius:11px;background:rgba(118,168,255,.045);color:var(--ml-muted);font-size:10px;transition:.15s ease}.dsh-materials-dropzone strong{color:#dce3ee;font-size:12px}.dsh-materials-panel.is-drop-active .dsh-materials-dropzone{border-color:var(--ml-accent);background:rgba(59,124,236,.18);box-shadow:0 0 0 3px rgba(59,124,236,.12)}.dsh-materials-toolbar{gap:8px;padding:9px 16px}.dsh-materials-search{min-width:0;max-width:none}.dsh-materials-toolbar-actions{gap:5px}.dsh-materials-toolbar-actions button{min-width:36px;padding:9px}.dsh-materials-toolbar-actions button:first-child{min-width:48px}.dsh-materials-toolbar-actions button.is-active{border-color:var(--ml-accent);background:rgba(59,124,236,.2);color:#bcd4ff}.dsh-materials-body{padding:12px 14px}.dsh-materials-grid{display:block;columns:2 150px;column-gap:10px}.dsh-materials-item{display:inline-flex;width:100%;margin:0 0 10px;break-inside:avoid;border-radius:11px;vertical-align:top}.dsh-materials-thumb{aspect-ratio:auto;min-height:90px}.dsh-materials-thumb img{height:auto;min-height:90px;max-height:230px;object-fit:cover}.dsh-materials-meta{padding:8px 9px}.dsh-materials-item-info{display:none}.dsh-materials-zoom{position:absolute;z-index:3;top:8px;right:8px;display:grid;width:27px;height:27px;padding:0;place-items:center;border:1px solid rgba(255,255,255,.32);border-radius:8px;background:rgba(9,14,24,.68);color:#fff;font:15px/1 inherit;cursor:pointer;backdrop-filter:blur(6px);opacity:.82}.dsh-materials-zoom:hover{opacity:1;background:#397cf0}.dsh-materials-selectionbar{min-height:58px;padding:8px 14px;gap:8px}.dsh-materials-selection-summary strong{min-width:auto}.dsh-materials-selection-actions{gap:5px}.dsh-materials-selection-actions button{padding:8px 9px}.dsh-materials-preview{position:absolute;inset:58px 0 0;z-index:48;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(5,8,14,.82);backdrop-filter:blur(10px)}.dsh-materials-preview-card{display:flex;max-width:min(1000px,92%);max-height:92%;flex-direction:column;overflow:hidden;border:1px solid rgba(255,255,255,.13);border-radius:16px;background:#121722;box-shadow:0 30px 90px rgba(0,0,0,.55)}.dsh-materials-preview-card>img{display:block;max-width:100%;max-height:calc(90vh - 130px);object-fit:contain;background:#090d14}.dsh-materials-preview-bar{display:flex;align-items:center;gap:8px;padding:10px 12px}.dsh-materials-preview-bar strong{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-materials-preview-bar button{padding:7px 10px;border:1px solid rgba(255,255,255,.15);border-radius:8px;background:#232a38;color:#f2f5fa;cursor:pointer}@media(max-width:620px){.dsh-materials-panel{width:min(350px,calc(100% - 12px))}.dsh-materials-grid{columns:2 120px}.dsh-materials-selectionbar{align-items:stretch}.dsh-materials-selection-actions{display:grid;grid-template-columns:1fr 1fr 1fr}.dsh-materials-selection-actions .is-primary{grid-column:auto}}@media(prefers-color-scheme:light){.dsh-materials-dropzone strong{color:#263247}.dsh-materials-zoom{border-color:rgba(255,255,255,.75);background:rgba(24,34,52,.68)}.dsh-materials-preview-card{border-color:#d7dde8;background:#fff}.dsh-materials-preview-bar button{border-color:#d7dde8;background:#f2f5f9;color:#273247}}',
+      '.dsh-materials-overlay{position:absolute;inset:58px 0 0;z-index:40;display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box;background:var(--dsw-alias-bg-mask-1,rgba(8,12,20,.58));backdrop-filter:blur(8px)}.dsh-materials-panel{--ml-bg:var(--dsw-alias-bg-layer-1,#151922);--ml-card:var(--dsw-alias-bg-layer-2,#1d2330);--ml-line:var(--dsw-alias-border-l2,rgba(255,255,255,.11));--ml-muted:var(--dsw-alias-label-tertiary,#97a2b4);--ml-accent:var(--dsw-alias-brand-primary,#76a8ff);display:flex;flex-direction:column;width:min(1120px,100%);height:min(780px,100%);overflow:hidden;border:1px solid var(--ml-line);border-radius:20px;background:var(--ml-bg);color:var(--dsw-alias-label-primary,#f5f7fb);box-shadow:none;font-family:"PingFang SC","Microsoft YaHei",sans-serif}.dsh-materials-head{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:18px 22px 14px}.dsh-materials-title{display:flex;align-items:center;gap:9px;font-size:20px;font-weight:700;letter-spacing:-.02em}.dsh-materials-count{padding:3px 8px;border-radius:999px;background:rgba(118,168,255,.14);color:#a9c7ff;font-size:11px;font-weight:600;letter-spacing:0}.dsh-materials-sub{max-width:720px;margin-top:6px;color:var(--ml-muted);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dsh-materials-close{width:38px;height:38px;flex:none;border:1px solid var(--ml-line);border-radius:11px;background:rgba(128,128,128,.08);color:var(--dsw-alias-label-secondary,#dbe2ee);font-size:24px;line-height:1;cursor:pointer}.dsh-materials-close:hover{background:rgba(255,255,255,.1)}.dsh-materials-toolbar{display:flex;align-items:center;gap:12px;padding:12px 22px;border-block:1px solid var(--ml-line);background:var(--dsw-alias-bg-layer-1,rgba(255,255,255,.025))}.dsh-materials-search{display:flex;align-items:center;gap:8px;min-width:220px;max-width:380px;flex:1;padding:0 12px;border:1px solid var(--ml-line);border-radius:11px;background:var(--dsw-alias-bg-base,rgba(5,8,14,.35));color:var(--ml-muted)}.dsh-materials-search:focus-within{border-color:var(--ml-accent);box-shadow:0 0 0 3px rgba(91,145,255,.14)}.dsh-materials-search input{width:100%;height:38px;border:0;outline:0;background:transparent;color:inherit;font:13px inherit}.dsh-materials-toolbar-actions{display:flex;gap:7px}.dsh-materials-toolbar button,.dsh-materials-selectionbar button{padding:9px 12px;border:1px solid var(--ml-line);border-radius:10px;background:var(--ml-card);color:var(--dsw-alias-label-primary,#dce3ee);font:12px inherit;white-space:nowrap;cursor:pointer}.dsh-materials-toolbar button:hover,.dsh-materials-selectionbar button:hover{background:rgba(255,255,255,.11)}.dsh-materials-toolbar button:disabled,.dsh-materials-selectionbar button:disabled{opacity:.38;cursor:not-allowed}.dsh-materials-error{margin:10px 22px 0;padding:9px 11px;border:1px solid rgba(248,113,113,.3);border-radius:9px;background:rgba(127,29,29,.28);color:#fecaca;font-size:12px}.dsh-materials-body{flex:1;min-height:0;overflow:auto;padding:18px 22px}.dsh-materials-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px}.dsh-materials-item{position:relative;display:flex;min-width:0;flex-direction:column;padding:0;overflow:hidden;border:1px solid var(--ml-line);border-radius:13px;background:var(--ml-card);color:inherit;text-align:left;cursor:pointer;transition:transform .14s ease,border-color .14s ease,box-shadow .14s ease}.dsh-materials-item:hover{transform:translateY(-2px);border-color:rgba(118,168,255,.5);box-shadow:0 12px 30px rgba(0,0,0,.22)}.dsh-materials-item.is-selected{border-color:var(--ml-accent);box-shadow:0 0 0 2px rgba(91,145,255,.25)}.dsh-materials-check{position:absolute;z-index:2;top:9px;right:9px;display:grid;width:23px;height:23px;place-items:center;border:1px solid rgba(255,255,255,.4);border-radius:8px;background:rgba(9,14,24,.58);color:white;font-size:13px;backdrop-filter:blur(6px)}.dsh-materials-item.is-selected .dsh-materials-check{border-color:#87b2ff;background:#397cf0}.dsh-materials-thumb{display:block;aspect-ratio:16/10;overflow:hidden;background:var(--dsw-alias-bg-base,#0b0f16)}.dsh-materials-thumb img{display:block;width:100%;height:100%;object-fit:cover;transition:transform .24s ease}.dsh-materials-item:hover img{transform:scale(1.025)}.dsh-materials-meta{display:flex;align-items:center;gap:8px;padding:10px 11px}.dsh-materials-item-name{min-width:0;flex:1;color:var(--dsw-alias-label-primary,#e7ebf2);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dsh-materials-item-info{flex:none;color:var(--ml-muted);font-size:10px}.dsh-materials-empty{display:flex;min-height:240px;align-items:center;justify-content:center;flex-direction:column;gap:8px;border:1px dashed var(--ml-line);border-radius:14px;color:var(--ml-muted);font-size:12px;text-align:center}.dsh-materials-empty strong{color:var(--dsw-alias-label-primary,#dce3ee);font-size:15px}.dsh-materials-selectionbar{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:64px;padding:10px 22px;border-top:1px solid var(--ml-line);background:var(--dsw-alias-bg-layer-1,rgba(8,12,20,.42))}.dsh-materials-selection-summary,.dsh-materials-selection-actions{display:flex;align-items:center;gap:8px}.dsh-materials-selection-summary strong{min-width:66px;font-size:12px}.dsh-materials-selection-summary button{padding:6px 8px;border-color:transparent;background:transparent;color:var(--ml-muted)}.dsh-materials-selection-actions .is-primary{border-color:#4f8fff;background:#3b7bec;color:#fff}.dsh-materials-selection-actions .is-primary:hover{background:#4b89f5}.dsh-materials-selection-actions .is-danger{color:#fca5a5}.dsh-materials-selection-actions .is-danger:hover{border-color:rgba(248,113,113,.4);background:rgba(127,29,29,.32)}@media(max-width:760px){.dsh-materials-overlay{padding:8px}.dsh-materials-panel{height:100%;border-radius:14px}.dsh-materials-toolbar{align-items:stretch;flex-direction:column}.dsh-materials-search{max-width:none}.dsh-materials-toolbar-actions{display:grid;grid-template-columns:1fr 1fr}.dsh-materials-toolbar-actions button:first-child{grid-column:1/-1}.dsh-materials-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.dsh-materials-selectionbar{align-items:stretch;flex-direction:column}.dsh-materials-selection-actions{display:grid;grid-template-columns:1fr 1fr}.dsh-materials-selection-actions .is-primary{grid-column:1/-1}}@media(prefers-color-scheme:light){.dsh-materials-check{border-color:rgba(23,32,51,.25);background:rgba(255,255,255,.82);color:#fff}}',
+      '.dsh-materials-overlay{align-items:stretch;justify-content:flex-end;padding:0;background:transparent;backdrop-filter:none;pointer-events:none}.dsh-materials-panel{width:min(390px,calc(100% - 28px));height:100%;max-height:none;border-width:0 0 0 1px;border-radius:18px 0 0 18px;pointer-events:auto;box-shadow:none;animation:dsh-materials-slide-in .2s cubic-bezier(.22,.8,.3,1)}@keyframes dsh-materials-slide-in{from{transform:translateX(28px);opacity:.3}to{transform:translateX(0);opacity:1}}.dsh-materials-head{padding:16px 16px 10px}.dsh-materials-title{font-size:18px}.dsh-materials-sub{max-width:290px}.dsh-materials-dropzone{display:flex;flex-direction:column;gap:2px;margin:0 16px 10px;padding:11px 12px;border:1px dashed var(--ml-line);border-radius:11px;background:rgba(118,168,255,.045);color:var(--ml-muted);font-size:10px;transition:.15s ease}.dsh-materials-dropzone strong{color:var(--dsw-alias-label-primary,#dce3ee);font-size:12px}.dsh-materials-panel.is-drop-active .dsh-materials-dropzone{border-color:var(--ml-accent);background:rgba(59,124,236,.18);box-shadow:0 0 0 3px rgba(59,124,236,.12)}.dsh-materials-toolbar{gap:8px;padding:9px 16px}.dsh-materials-search{min-width:0;max-width:none}.dsh-materials-toolbar-actions{gap:5px}.dsh-materials-toolbar-actions button{min-width:36px;padding:9px}.dsh-materials-toolbar-actions button:first-child{min-width:48px}.dsh-materials-toolbar-actions button.is-active{border-color:var(--ml-accent);background:rgba(59,124,236,.2);color:#bcd4ff}.dsh-materials-body{padding:12px 14px}.dsh-materials-grid{display:block;columns:2 150px;column-gap:10px}.dsh-materials-item{display:inline-flex;width:100%;margin:0 0 10px;break-inside:avoid;border-radius:11px;vertical-align:top}.dsh-materials-thumb{aspect-ratio:auto;min-height:90px}.dsh-materials-thumb img{height:auto;min-height:90px;max-height:230px;object-fit:cover}.dsh-materials-meta{padding:8px 9px}.dsh-materials-item-info{display:none}.dsh-materials-zoom{position:absolute;z-index:3;top:8px;right:8px;display:grid;width:27px;height:27px;padding:0;place-items:center;border:1px solid rgba(255,255,255,.32);border-radius:8px;background:rgba(9,14,24,.68);color:#fff;font:15px/1 inherit;cursor:pointer;backdrop-filter:blur(6px);opacity:.82}.dsh-materials-zoom:hover{opacity:1;background:#397cf0}.dsh-materials-selectionbar{min-height:58px;padding:8px 14px;gap:8px}.dsh-materials-selection-summary strong{min-width:auto}.dsh-materials-selection-actions{gap:5px}.dsh-materials-selection-actions button{padding:8px 9px}.dsh-materials-preview{position:absolute;inset:58px 0 0;z-index:48;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(5,8,14,.82);backdrop-filter:blur(10px)}.dsh-materials-preview-card{display:flex;max-width:min(1000px,92%);max-height:92%;flex-direction:column;overflow:hidden;border:1px solid var(--ml-line);border-radius:16px;background:var(--ml-card,#121722);box-shadow:var(--dsw-alias-bg-mask-drop,0 18px 48px rgba(0,0,0,.35))}.dsh-materials-preview-card>img{display:block;max-width:100%;max-height:calc(90vh - 130px);object-fit:contain;background:var(--dsw-alias-bg-base,#090d14)}.dsh-materials-preview-bar{display:flex;align-items:center;gap:8px;padding:10px 12px}.dsh-materials-preview-bar strong{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-materials-preview-bar button{padding:7px 10px;border:1px solid var(--ml-line);border-radius:8px;background:var(--ml-card);color:var(--dsw-alias-label-primary,#f2f5fa);cursor:pointer}@media(max-width:620px){.dsh-materials-panel{width:min(350px,calc(100% - 12px))}.dsh-materials-grid{columns:2 120px}.dsh-materials-selectionbar{align-items:stretch}.dsh-materials-selection-actions{display:grid;grid-template-columns:1fr 1fr 1fr}.dsh-materials-selection-actions .is-primary{grid-column:auto}}@media(prefers-color-scheme:light){.dsh-materials-zoom{border-color:rgba(255,255,255,.75);background:rgba(24,34,52,.68)}}',
       '.dsh-materials-location{display:flex;align-items:center;gap:8px;margin:0 16px 8px;padding:9px 10px;border:1px solid var(--ml-line);border-radius:11px;background:rgba(255,255,255,.035)}.dsh-materials-location-current{display:flex;min-width:0;flex:1;align-items:center;gap:8px}.dsh-materials-location-icon{display:grid;width:27px;height:27px;flex:none;place-items:center;border-radius:8px;background:rgba(118,168,255,.14);color:var(--ml-accent)}.dsh-materials-location-current>span:last-child{display:flex;min-width:0;flex-direction:column}.dsh-materials-location-current strong,.dsh-materials-location-current small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-materials-location-current strong{font-size:12px}.dsh-materials-location-current small{max-width:205px;color:var(--ml-muted);font-size:9px}.dsh-materials-location>button{flex:none;padding:7px 8px;border:1px solid var(--ml-line);border-radius:8px;background:rgba(255,255,255,.055);color:inherit;font:10px inherit;cursor:pointer}.dsh-materials-recent{display:flex;align-items:center;gap:8px;margin:0 16px 9px;color:var(--ml-muted);font-size:10px}.dsh-materials-recent>span{flex:none}.dsh-materials-recent select{min-width:0;flex:1;height:30px;padding:0 26px 0 8px;border:1px solid var(--ml-line);border-radius:8px;background:var(--ml-card);color:inherit;font:10px inherit;outline:none}.dsh-materials-recent select:focus{border-color:var(--ml-accent)}@media(prefers-color-scheme:light){.dsh-materials-location{background:#f4f7fb}.dsh-materials-location>button{background:#fff;color:#354156}}',
       '.dsh-materials-head{padding-bottom:8px}.dsh-materials-location{padding:7px 8px;margin-bottom:8px}.dsh-materials-location-current small{display:none}.dsh-materials-location.is-expanded .dsh-materials-location-current small{display:block}.dsh-materials-location>button{padding:6px 8px}.dsh-materials-location>button.dsh-materials-location-toggle{width:28px;padding:6px 0;font-size:13px}.dsh-materials-extra{overflow:hidden;animation:dsh-materials-extra-in .15s ease}@keyframes dsh-materials-extra-in{from{max-height:0;opacity:0}to{max-height:120px;opacity:1}}.dsh-materials-extra .dsh-materials-dropzone{margin-bottom:8px}.dsh-materials-panel.is-drop-active .dsh-materials-location{border-color:var(--ml-accent)}',
+      '.dsh-materials-organize{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 16px 4px}.dsh-materials-panel{position:relative}.dsh-arrange-pop{position:absolute;top:calc(100% + 8px);right:0;z-index:80;display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid rgba(128,128,128,.35);border-radius:12px;background:var(--dsw-alias-bg-layer-3,rgba(18,22,30,.97));box-shadow:var(--dsw-alias-bg-mask-drop,0 16px 44px rgba(0,0,0,.35));backdrop-filter:blur(12px);white-space:nowrap}.dsh-arrange-field{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--dsw-alias-label-secondary,#9aa5b5)}.dsh-arrange-field select{height:28px;padding:0 4px 0 6px;border:1px solid rgba(128,128,128,.35);border-radius:8px;background:var(--ml-card);color:var(--dsw-alias-label-primary,#e6ebf3);font:12px inherit;outline:none}.dsh-arrange-field select:focus{border-color:#76a8ff}.dsh-arrange-pop button{padding:6px 12px;border:1px solid var(--ml-line);border-radius:8px;background:var(--ml-card);color:var(--dsw-alias-label-primary,#e6ebf3);font:12px inherit;cursor:pointer}.dsh-arrange-pop .dsh-arrange-run{border-color:#3b7bec;background:#3b7bec;color:#fff}.dsh-arrange-pop .dsh-arrange-run:hover{background:#4b89f5}.dsh-arrange-pop button:hover{background:rgba(255,255,255,.12)}.dsh-materials-sort{display:flex;align-items:center;gap:6px;min-width:0;color:var(--ml-muted);font-size:10px}.dsh-materials-sort>span{flex:none}.dsh-materials-sort select{min-width:0;height:28px;padding:0 4px 0 6px;border:1px solid var(--ml-line);border-radius:8px;background:var(--ml-card);color:inherit;font:10px inherit;outline:none}.dsh-materials-sort select:focus{border-color:var(--ml-accent)}.dsh-materials-tagfilter{display:flex;align-items:center;gap:5px;min-width:0}.dsh-materials-tagfilter-label{flex:none;color:var(--ml-muted);font-size:10px}.dsh-materials-tagall{flex:none;padding:3px 8px;border:1px solid var(--ml-line);border-radius:999px;background:transparent;color:var(--ml-muted);font:10px inherit;cursor:pointer}.dsh-materials-tagall.is-active,.dsh-materials-tagall:hover{border-color:var(--ml-accent);color:#bcd4ff}.dsh-materials-tagdot{width:16px;height:16px;flex:none;padding:0;border:2px solid rgba(255,255,255,.28);border-radius:50%;cursor:pointer;transition:transform .12s ease,box-shadow .12s ease}.dsh-materials-tagdot:hover{transform:scale(1.15)}.dsh-materials-tagdot.is-active{border-color:#fff;box-shadow:0 0 0 3px rgba(255,255,255,.35);transform:scale(1.12)}.dsh-materials-tagfilter-count{flex:none;margin-left:2px;color:var(--ml-muted);font-size:9px;white-space:nowrap}.dsh-materials-tagset{position:absolute;z-index:3;top:8px;left:8px;display:grid;width:22px;height:22px;padding:0;place-items:center;border:1px solid rgba(255,255,255,.32);border-radius:50%;background:rgba(9,14,24,.5);color:#fff;font:11px/1 inherit;cursor:pointer;backdrop-filter:blur(6px);opacity:.75}.dsh-materials-tagset:hover{opacity:1;transform:scale(1.1)}.dsh-materials-tagset.is-set{width:15px;height:15px;border:2px solid rgba(255,255,255,.65);opacity:1;box-shadow:0 0 0 2px rgba(0,0,0,.25)}.dsh-materials-item.is-tagged{border-color:rgba(255,255,255,.22)}.dsh-materials-item-info{display:block;flex:none;color:var(--ml-muted);font-size:9px;white-space:nowrap}.dsh-materials-tagmenu{position:absolute;z-index:60;bottom:74px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;gap:9px;box-sizing:border-box;width:max-content;padding:12px 14px;border:1px solid var(--ml-line);border-radius:14px;background:var(--dsw-alias-bg-layer-3,#161c29);box-shadow:var(--dsw-alias-bg-mask-drop,0 18px 50px rgba(0,0,0,.45))}.dsh-materials-tagmenu-title{color:var(--ml-muted);font-size:10px;text-align:center}.dsh-materials-tagmenu-row{display:flex;gap:8px}.dsh-materials-tagmenu-row .dsh-materials-tagdot{width:22px;height:22px}.dsh-materials-tagmenu-actions{display:flex;gap:6px}.dsh-materials-tagmenu-actions button{flex:1;padding:6px 8px;border:1px solid var(--ml-line);border-radius:8px;background:var(--ml-card);color:var(--dsw-alias-label-primary,#dce3ee);font:10px inherit;cursor:pointer}.dsh-materials-tagmenu-actions button:hover{background:rgba(255,255,255,.12)}.dsh-materials-preview-info{flex:none;color:var(--ml-muted);font-size:10px;white-space:nowrap}@media(prefers-color-scheme:light){.dsh-materials-tagdot{border-color:rgba(23,32,51,.25)}.dsh-materials-tagdot.is-active{border-color:#172033;box-shadow:0 0 0 3px rgba(55,124,240,.3)}.dsh-materials-tagall,.dsh-materials-tagall.is-active,.dsh-materials-tagall:hover{color:var(--dsw-alias-brand-primary,#397cf0)}.dsh-materials-tagset{border-color:rgba(23,32,51,.35);color:#fff}}',
       '.dsh-canvas-dock{display:flex;align-items:center;box-sizing:border-box;width:calc(100% - 32px);max-width:768px;margin:0 auto;padding:2px 0}',
       '.dsh-canvas-attach-state{margin-left:8px;font-size:12px;color:var(--dsw-alias-label-secondary, #666)}',
       '.dsh-canvas-mode{display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:13px;line-height:1;padding:5px 12px;border-radius:999px;border:1px solid rgba(128,128,128,.4);background:transparent;color:var(--dsw-alias-label-primary, #333);cursor:pointer}',
@@ -3758,12 +4293,12 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
       '@media(max-width:760px){.dsh-text-rebuild-overlay{inset:58px 0 0;padding:8px}.dsh-text-rebuild-body{grid-template-columns:1fr;overflow:auto}.dsh-text-rebuild-preview{min-height:140px;max-height:260px}.dsh-text-rebuild-info{min-height:220px}.dsh-text-rebuild-foot{align-items:stretch;flex-direction:column}.dsh-text-rebuild-actions{justify-content:flex-end}}',
       '@media (prefers-color-scheme:light){.dsh-text-rebuild-overlay{background:rgba(226,232,240,.52)}.dsh-text-rebuild-panel{border-color:#d1d5db;background:#fff;color:#111827;box-shadow:0 22px 60px rgba(15,23,42,.2)}.dsh-text-rebuild-head,.dsh-text-rebuild-foot{border-color:#e5e7eb}.dsh-text-rebuild-subtitle,.dsh-text-rebuild-note,.dsh-text-rebuild-empty,.dsh-text-rebuild-row-top,.dsh-text-rebuild-row-controls label{color:#6b7280}.dsh-text-rebuild-close{border-color:#d1d5db;background:#f3f4f6;color:#374151}.dsh-text-rebuild-preview{border-color:#e5e7eb;background:#f8fafc}.dsh-text-select-hint{background:rgba(15,23,42,.78);color:#f8fafc}.dsh-text-select-coords,.dsh-text-select-empty{color:#6b7280}.dsh-text-select-actions button{border:1px solid rgba(96,165,250,.45);background:rgba(37,99,235,.15);color:#bfdbfe}.dsh-text-select-actions button:disabled{opacity:.55;cursor:not-allowed}.dsh-text-select-actions button:hover:not(:disabled){background:rgba(37,99,235,.32);color:#eff6ff}.dsh-text-select-actions button:hover:not(:disabled){background:#e5e7eb}.dsh-text-rebuild-row{border-color:#e5e7eb;background:#f8fafc}.dsh-text-rebuild-row textarea,.dsh-text-rebuild-row-controls input[type=number],.dsh-text-rebuild-row-controls input[type=color],.dsh-text-rebuild-row-controls select{border-color:#d1d5db;background:#fff;color:#111827}.dsh-text-rebuild-row-controls button,.dsh-text-rebuild-add{border-color:#d1d5db;background:#f3f4f6;color:#374151}.dsh-text-rebuild-row-controls button:hover,.dsh-text-rebuild-add:hover{background:#e5e7eb;color:#111827}.dsh-text-rebuild-cancel{border-color:#d1d5db;background:#fff;color:#374151}}',
       '@media (prefers-color-scheme:light){.dsh-text-select-zoom{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}.dsh-text-zoom-overlay{background:rgba(226,232,240,.78)}.dsh-text-zoom-dialog{border-color:#d1d5db;background:#fff;box-shadow:0 24px 80px rgba(15,23,42,.25)}.dsh-text-zoom-head{border-color:#e5e7eb;color:#111827}.dsh-text-zoom-head button,.dsh-text-zoom-actions button{border-color:#d1d5db;background:#f3f4f6;color:#374151}.dsh-text-zoom-stage{background:#f8fafc}.dsh-text-zoom-actions{border-color:#e5e7eb}.dsh-text-zoom-empty{border-color:#e5e7eb;color:#6b7280}}',
-      '.dsh-canvas-overlay{position:fixed;top:0;right:0;bottom:0;z-index:1000;display:flex;flex-direction:column;container-type:inline-size;background:#15171c;border-left:1px solid rgba(255,255,255,.1);box-shadow:-14px 0 34px rgba(0,0,0,.28);color:#e5e7eb;pointer-events:auto}',
+      '.dsh-canvas-overlay{position:fixed;top:0;right:0;bottom:0;z-index:1000;display:flex;flex-direction:column;container-type:inline-size;background:var(--dsw-alias-bg-base,#15171c);border-left:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.1));color:var(--dsw-alias-label-primary,#e5e7eb);pointer-events:auto}',
       '.dsh-canvas-overlay-hidden{display:none!important}',
       '.dsh-canvas-resizer{position:absolute;left:-3px;top:0;bottom:0;width:8px;cursor:col-resize;z-index:5;touch-action:none}',
       '.dsh-canvas-resizer:hover,.dsh-canvas-resizer:active{background:rgba(0,120,255,.25)}',
-      '.dsh-canvas-toolbar{position:relative;display:flex;align-items:center;align-content:center;gap:7px 8px;padding:8px 12px;border-bottom:1px solid rgba(255,255,255,.09);background:#1b1e24;color:#e5e7eb;flex:none;overflow:visible}',
-      '.dsh-canvas-title{font-weight:650;font-size:14px;white-space:nowrap;color:#f8fafc}',
+      '.dsh-canvas-toolbar{position:relative;display:flex;align-items:center;align-content:center;gap:7px 8px;padding:8px 12px;border-bottom:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.09));background:var(--dsw-alias-bg-layer-1,#1b1e24);color:var(--dsw-alias-label-primary,#e5e7eb);flex:none;overflow:visible}',
+      '.dsh-canvas-title{font-weight:650;font-size:14px;white-space:nowrap;color:var(--dsw-alias-label-primary,#f8fafc)}',
       '.dsh-canvas-project{display:inline-flex;align-items:center;gap:5px;font:600 11px ui-rounded,"SF Pro Rounded",sans-serif;padding:4px 8px;border:1px solid rgba(96,165,250,.18);border-radius:7px;background:rgba(37,99,235,.16);color:#93c5fd;max-width:180px;white-space:nowrap;cursor:pointer}',
       '.dsh-canvas-project:hover{background:rgba(37,99,235,.27);color:#bfdbfe}',
       '.dsh-canvas-project-label{min-width:0;overflow:hidden;text-overflow:ellipsis}',
@@ -3777,10 +4312,10 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
       '.dsh-canvas-operation-progress-fill{display:block;height:100%;border-radius:inherit;background:#60a5fa;transition:width .25s ease}',
       '.dsh-canvas-operation-progress-fill.is-indeterminate{width:38%;animation:dsh-canvas-progress 1.2s ease-in-out infinite}',
       '@keyframes dsh-canvas-progress{0%{transform:translateX(-140%)}100%{transform:translateX(300%)}}',
-      '.dsh-canvas-hint{font-size:12px;color:#8b95a7;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-      '.dsh-canvas-feedback{font-size:12px;color:#86efac;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-      '.dsh-canvas-tb{font:inherit;font-size:13px;padding:5px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.13);background:#252932;color:#e5e7eb;cursor:pointer;white-space:nowrap}',
-      '.dsh-canvas-tb:hover{background:#303640;border-color:rgba(255,255,255,.2);color:#fff}',
+      '.dsh-canvas-hint{font-size:12px;color:var(--dsw-alias-label-tertiary,#8b95a7);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.dsh-canvas-feedback{font-size:12px;color:var(--dsw-alias-state-success-primary,#86efac);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.dsh-canvas-tb{font:inherit;font-size:13px;padding:5px 12px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.13));background:var(--dsw-alias-bg-layer-2,#252932);color:var(--dsw-alias-label-primary,#e5e7eb);cursor:pointer;white-space:nowrap}',
+      '.dsh-canvas-tb:hover{background:var(--dsw-alias-interactive-bg-hover,#303640);border-color:var(--dsw-alias-border-l3,rgba(255,255,255,.2));color:var(--dsw-alias-label-primary,#fff)}',
       '.dsh-canvas-tb-close{font-weight:600}',
       '.dsh-canvas-more-menu{position:absolute;z-index:24;right:68px;top:calc(100% - 2px);width:190px;padding:6px;border:1px solid rgba(255,255,255,.12);border-radius:10px;background:#1d2027;box-shadow:0 16px 38px rgba(0,0,0,.4);display:flex;flex-direction:column;gap:3px}',
       '.dsh-canvas-more-menu button{font:inherit;font-size:12px;text-align:left;padding:8px 10px;border:0;border-radius:7px;background:transparent;color:#e5e7eb;cursor:pointer}',
@@ -3842,7 +4377,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
       '.dsh-canvas-browser-path{padding:7px 9px;border-radius:7px;background:#11141a;color:#aab2c0;font:11px ui-monospace,SFMono-Regular,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
       '.dsh-canvas-frame-wrap{flex:1;min-height:0;position:relative}',
       '.dsh-canvas-frame{position:absolute;top:0;left:0;right:0;bottom:0;width:100%;height:100%;border:none;display:block}'
-      ,'@media (prefers-color-scheme:light){.dsh-canvas-overlay{color-scheme:light;background:#f4f5f7;border-left-color:rgba(15,23,42,.13);box-shadow:-12px 0 30px rgba(15,23,42,.12);color:#1f2937}.dsh-canvas-toolbar{background:#fff;color:#1f2937;border-bottom-color:rgba(15,23,42,.12)}.dsh-canvas-title{color:#111827}.dsh-canvas-project{background:#eef2ff;border-color:#dbeafe;color:#4338ca}.dsh-canvas-project:hover{background:#e0e7ff;color:#3730a3}.dsh-canvas-hint{color:#6b7280}.dsh-canvas-feedback{color:#15803d}.dsh-canvas-tb{background:#fff;border-color:rgba(15,23,42,.16);color:#1f2937}.dsh-canvas-tb:hover{background:#f3f4f6;border-color:rgba(15,23,42,.24);color:#111827}.dsh-canvas-more-menu{background:#fff;border-color:rgba(15,23,42,.14);box-shadow:0 16px 38px rgba(15,23,42,.18)}.dsh-canvas-more-menu button{color:#1f2937}.dsh-canvas-more-menu button:hover:not(:disabled){background:#f3f4f6;color:#111827}.dsh-canvas-more-menu .dsh-canvas-more-danger{color:#b91c1c}.dsh-canvas-engine-dialog{background:rgba(226,232,240,.52)}.dsh-canvas-engine-card{background:#fff;border-color:rgba(15,23,42,.14);color:#1f2937;box-shadow:0 18px 48px rgba(15,23,42,.2)}.dsh-canvas-engine-option{background:#f8fafc;border-color:#e5e7eb}.dsh-canvas-engine-option:has(input:checked){background:#eff6ff;border-color:#60a5fa}.dsh-canvas-engine-option small,.dsh-canvas-engine-note{color:#6b7280}.dsh-canvas-engine-field{color:#64748b}.dsh-canvas-engine-field input{background:#fff;border-color:#d1d5db;color:#111827}.dsh-canvas-engine-error{background:#fef2f2;color:#b91c1c}.dsh-canvas-project-dialog{background:#fff;border-color:rgba(15,23,42,.14);box-shadow:0 18px 48px rgba(15,23,42,.2)}.dsh-canvas-project-dialog-title{color:#111827}.dsh-canvas-project-subtitle{color:#6b7280}.dsh-canvas-project-dialog-close{background:#fff;border-color:rgba(15,23,42,.14);color:#64748b}.dsh-canvas-project-dialog-close:hover{background:#f3f4f6;color:#111827}.dsh-canvas-project-current{background:#eff6ff;border-color:#bfdbfe}.dsh-canvas-project-current-empty{background:transparent;color:#6b7280}.dsh-canvas-project-current-icon{background:#dbeafe;color:#2563eb}.dsh-canvas-project-current-main small{color:#15803d}.dsh-canvas-project-current-main code{color:#64748b}.dsh-canvas-project-section-title{color:#6b7280}.dsh-canvas-project-input{background:#fff;border-color:rgba(15,23,42,.2);color:#111827}.dsh-canvas-project-card,.dsh-canvas-folder-card{background:#fff;border-color:#e5e7eb;color:#1f2937}.dsh-canvas-project-card:hover,.dsh-canvas-folder-card:hover{background:#f8fbff;border-color:#93c5fd}.dsh-canvas-project-card-current{background:#eff6ff;border-color:#60a5fa;box-shadow:0 0 0 1px #bfdbfe}.dsh-canvas-project-card-open:hover{background:#f3f4f6}.dsh-canvas-project-card-main small,.dsh-canvas-project-card-open time{color:#6b7280}.dsh-canvas-project-card-actions button{color:#64748b}.dsh-canvas-project-card-actions button:hover{background:#f3f4f6;color:#111827}.dsh-canvas-project-card-actions .dsh-canvas-project-card-delete:hover{background:#fef2f2;color:#b91c1c}.dsh-canvas-browser-path{background:#f3f4f6;color:#4b5563}.dsh-canvas-project-empty{border-color:#d1d5db;color:#6b7280}.dsh-canvas-project-error{background:#fef2f2;color:#b91c1c}}'
+      ,'@media (prefers-color-scheme:light){.dsh-canvas-overlay{color-scheme:light}.dsh-canvas-project{background:#eef2ff;border-color:#dbeafe;color:#4338ca}.dsh-canvas-project:hover{background:#e0e7ff;color:#3730a3}.dsh-canvas-more-menu{background:#fff;border-color:rgba(15,23,42,.14);box-shadow:0 16px 38px rgba(15,23,42,.18)}.dsh-canvas-more-menu button{color:#1f2937}.dsh-canvas-more-menu button:hover:not(:disabled){background:#f3f4f6;color:#111827}.dsh-canvas-more-menu .dsh-canvas-more-danger{color:#b91c1c}.dsh-canvas-engine-dialog{background:rgba(226,232,240,.52)}.dsh-canvas-engine-card{background:#fff;border-color:rgba(15,23,42,.14);color:#1f2937;box-shadow:0 18px 48px rgba(15,23,42,.2)}.dsh-canvas-engine-option{background:#f8fafc;border-color:#e5e7eb}.dsh-canvas-engine-option:has(input:checked){background:#eff6ff;border-color:#60a5fa}.dsh-canvas-engine-option small,.dsh-canvas-engine-note{color:#6b7280}.dsh-canvas-engine-field{color:#64748b}.dsh-canvas-engine-field input{background:#fff;border-color:#d1d5db;color:#111827}.dsh-canvas-engine-error{background:#fef2f2;color:#b91c1c}.dsh-canvas-project-dialog{background:#fff;border-color:rgba(15,23,42,.14);box-shadow:0 18px 48px rgba(15,23,42,.2)}.dsh-canvas-project-dialog-title{color:#111827}.dsh-canvas-project-subtitle{color:#6b7280}.dsh-canvas-project-dialog-close{background:#fff;border-color:rgba(15,23,42,.14);color:#64748b}.dsh-canvas-project-dialog-close:hover{background:#f3f4f6;color:#111827}.dsh-canvas-project-current{background:#eff6ff;border-color:#bfdbfe}.dsh-canvas-project-current-empty{background:transparent;color:#6b7280}.dsh-canvas-project-current-icon{background:#dbeafe;color:#2563eb}.dsh-canvas-project-current-main small{color:#15803d}.dsh-canvas-project-current-main code{color:#64748b}.dsh-canvas-project-section-title{color:#6b7280}.dsh-canvas-project-input{background:#fff;border-color:rgba(15,23,42,.2);color:#111827}.dsh-canvas-project-card,.dsh-canvas-folder-card{background:#fff;border-color:#e5e7eb;color:#1f2937}.dsh-canvas-project-card:hover,.dsh-canvas-folder-card:hover{background:#f8fbff;border-color:#93c5fd}.dsh-canvas-project-card-current{background:#eff6ff;border-color:#60a5fa;box-shadow:0 0 0 1px #bfdbfe}.dsh-canvas-project-card-open:hover{background:#f3f4f6}.dsh-canvas-project-card-main small,.dsh-canvas-project-card-open time{color:#6b7280}.dsh-canvas-project-card-actions button{color:#64748b}.dsh-canvas-project-card-actions button:hover{background:#f3f4f6;color:#111827}.dsh-canvas-project-card-actions .dsh-canvas-project-card-delete:hover{background:#fef2f2;color:#b91c1c}.dsh-canvas-browser-path{background:#f3f4f6;color:#4b5563}.dsh-canvas-project-empty{border-color:#d1d5db;color:#6b7280}.dsh-canvas-project-error{background:#fef2f2;color:#b91c1c}}'
       ,'@media (prefers-color-scheme:dark){.dsh-canvas-overlay{color-scheme:dark}}'
       ,'@media (prefers-color-scheme:light){.dsh-canvas-engine-badge{background:#fff7ed;color:#c2410c}.dsh-canvas-engine-badge.is-ready{background:#ecfdf5;color:#047857}.dsh-canvas-engine-setup{background:#f8fafc;border-color:#e2e8f0}.dsh-canvas-engine-steps>div{background:#fff;color:#334155;border:1px solid #e5e7eb}.dsh-canvas-engine-steps b{background:#e5e7eb;color:#475569}.dsh-canvas-engine-steps .is-done b{background:#dcfce7;color:#166534}.dsh-canvas-engine-steps small,.dsh-canvas-engine-field small{color:#64748b}.dsh-canvas-engine-notice{background:#ecfdf5;color:#047857}}'
       ,'@media (prefers-color-scheme:light){.dsh-text-rebuild-overlay{background:rgba(241,245,249,.58)}.dsh-text-rebuild-panel{background:#fff;color:#111827;border-color:rgba(15,23,42,.14);box-shadow:0 22px 60px rgba(15,23,42,.2)}.dsh-text-rebuild-head,.dsh-text-rebuild-foot{border-color:rgba(15,23,42,.1)}.dsh-text-rebuild-subtitle,.dsh-text-rebuild-note,.dsh-text-rebuild-empty,.dsh-text-rebuild-row-top,.dsh-text-rebuild-row-controls label{color:#64748b}.dsh-text-rebuild-close{background:#f8fafc;border-color:#e5e7eb;color:#334155}.dsh-text-rebuild-preview{background:#f1f5f9;border-color:#e2e8f0}.dsh-text-rebuild-row{background:#f8fafc;border-color:#e2e8f0}.dsh-text-rebuild-row textarea,.dsh-text-rebuild-row-controls input[type=number],.dsh-text-rebuild-row-controls input[type=color],.dsh-text-rebuild-row-controls select{background:#fff;border-color:#cbd5e1;color:#111827}.dsh-text-rebuild-row-controls button,.dsh-text-rebuild-add{background:#f1f5f9;border-color:#cbd5e1;color:#334155}.dsh-text-rebuild-cancel{background:#fff;border-color:#cbd5e1;color:#334155}}'
@@ -3987,7 +4522,9 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
             try {
               const data = owner && owner.turn && owner.turn.data && typeof owner.turn.data.get === 'function' ? owner.turn.data.get('canvas-images') : null;
               const images = data && Array.isArray(data.images) ? data.images.filter((i) => i.seq <= owner.seq) : [];
-              return images.length ? images.slice(-9) : null;
+              // 不再截取最后 9 张：每轮的全部图片输出都要显示，
+              // 网格列数逻辑本身能自适应任意数量。
+              return images.length ? images : null;
             } catch (error) { return null; }
           }
         },
