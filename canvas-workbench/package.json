@@ -2,8 +2,16 @@
   "name": "@local/canvas-workbench",
   "version": "1.7.0",
   "private": true,
-  "type": "module",
   "description": "可插拔设计模式：独立 Excalidraw 画布、渐进增强的会话图片工具与本地项目资产",
+  "scripts": {
+    "check": "node ../tests/check-portability.mjs && node scripts/check-syntax.mjs",
+    "test": "node --test \"tests/unit/**/*.test.mjs\"",
+    "test:unit": "node --test \"tests/unit/**/*.test.mjs\"",
+    "test:integration": "node tests/integration/api-parity.mjs",
+    "test:smoke": "node tests/smoke/ui-snapshot.mjs",
+    "build": "node scripts/build-client.mjs"
+  },
+  "type": "module",
   "os": [
     "darwin",
     "win32"

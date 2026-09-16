@@ -1,0 +1,49 @@
+// 图像引擎门面（v1.8 Phase 3）：保持 lib/image-engine.js 的函数签名与行为不变，
+// 内部改为经 Provider Registry 分派。新增视频/其它 Provider 时只动 registry，不改这里。
+import { dshCodexProvider } from './image/dsh-codex.provider.js';
+import { openAICompatibleProvider, testImageApiConnection } from './image/openai-compatible.provider.js';
+import { createProviderRegistry } from './registry.js';
+import { imageEngineSettingsPath, normalizeImageEngine, readImageEngineSettings } from '../host/services/image-engine-settings.js';
+
+const imageProviders = createProviderRegistry();
+imageProviders.register(dshCodexProvider);
+imageProviders.register(openAICompatibleProvider);
+
+export { imageProviders };
+
+export async function generateImage({ ctx, image, mask, prompt, engine, signal }) {
+  const settings = await readImageEngineSettings();
+  const selected = normalizeImageEngine(engine || settings.engine);
+  const bytes = Buffer.from(image || []);
+  if (!bytes.length) throw new Error('图片输入为空');
+  const provider = imageProviders.require(selected);
+  return { engine: selected, bytes: await provider.generate({ ctx, images: [bytes], mask, prompt, settings, signal }) };
+}
+
+/** Generate or edit an image for the chat imagegen tool using the same route selected by the canvas. */
+export async function generateChatImage({ ctx, images = [], prompt, engine, signal }) {
+  const settings = await readImageEngineSettings();
+  const selected = normalizeImageEngine(engine || settings.engine);
+  const inputs = images.map((item) => Buffer.from(item || [])).filter((item) => item.length);
+  if (!String(prompt || '').trim()) throw new Error('图片生成提示词不能为空');
+  const provider = imageProviders.require(selected);
+  const trimmed = String(prompt).trim();
+  if (selected === 'dsh-codex') return { engine: selected, bytes: await provider.generate({ ctx, images: inputs, prompt: trimmed, settings, signal }) };
+  return { engine: selected, bytes: await provider.generate({ images: inputs, prompt: trimmed, settings, signal }) };
+}
+
+export async function imageEngineHealth(ctx) {
+  const settings = await readImageEngineSettings();
+  const api = await imageProviders.get('api').health();
+  const dshCodex = await imageProviders.get('dsh-codex').health(ctx);
+  return {
+    engine: settings.engine,
+    api,
+    dshCodex,
+    settingsPath: imageEngineSettingsPath(),
+  };
+}
+
+export { testImageApiConnection, normalizeImageEngine, readImageEngineSettings };
+export { imageEngineSettingsPath } from '../host/services/image-engine-settings.js';
+export { writeImageEngineSettings, writeLegacyApiAuth, readLegacyApiAuth } from '../host/services/image-engine-settings.js';
