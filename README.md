@@ -1,12 +1,25 @@
 # DSH画布工作台
 
-面向 DSH Desktop 的可插拔设计画布套件，当前版本 `1.5.9`，包括：
+面向 DSH Desktop 的可插拔设计画布套件，**最新版本 `1.7.0`（main 分支）**，包括：
 
 - `canvas-workbench`：无限画布、项目持久化、聊天图片交互和渐进增强图片工具。
 - 独立文件浏览器已移除；项目目录选择与“在文件夹中显示”由画布插件自身提供。
 - macOS 安装工程。
 - Windows 10/11 初级版 PowerShell 安装、恢复、卸载和健康检查。
 - 可选的内置 `dsh-codex` 兼容构建，用于在支持的 DSH Profile 中使用 Codex OAuth 路由。
+
+## 快速安装最新版（v1.7.0）
+
+最新功能版始终在 **main 分支**（版本号见 `canvas-workbench/package.json` 与 [CHANGELOG](CHANGELOG.md)）。已安装 DSH Desktop 的机器，克隆仓库后运行同步脚本即可：
+
+```bash
+git clone https://github.com/elangan1997-cmyk/dsh-canvas-suite.git
+cd dsh-canvas-suite
+./sync-local-plugins.sh     # 同步插件到本机全部 DSH Profile 并做健康检查
+```
+
+完成后完全退出并重启 DSH Desktop 生效。图像引擎（Codex OAuth 或 API）在「更多 → 图像引擎设置」里首次配置。
+
 ## 先从设计师的工作开始看
 
 DSH 画布工作台不是把网页工具搬到桌面上，而是把设计师每天反复做的几件事连起来：找素材、生成图片、挑选区域、修改、确认效果、保留原图、交给 Photoshop/Illustrator 继续细化。
@@ -59,7 +72,8 @@ DSH 画布工作台不是把网页工具搬到桌面上，而是把设计师每�
 
 面向设计人员的 DSH Desktop 画布工作台，把图片生成、项目文件、无限画布、图片处理和 Photoshop/Illustrator 协作集中在一个工作区。你不需要先了解 Agent：按下面的下载说明安装后，就可以像使用普通设计工具一样开始工作。
 
-> 当前推荐版：[`v1.5.9` macOS 整机重装验证版](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/tag/v1.5.9)；Windows 使用已完成实机验证的 `v1.4.0-windows-preview.4`（custom 20260906）。r5 之前的 Windows 旧包不再推荐。
+> **最新功能版：`v1.7.0`**（整理与颜色标记、聊天图片输出修复、免费商用字体、DSH 主题同步）——从 main 分支源码安装，见上方「快速安装」。
+> **整机重装验证基线：[`v1.5.9` macOS](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/tag/v1.5.9)**；Windows 使用已完成实机验证的 `v1.4.0-windows-preview.4`（custom 20260906）。r5 之前的 Windows 旧包不再推荐。
 
 ## 画布插件能做什么
 
