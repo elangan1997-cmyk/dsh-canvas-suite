@@ -63,11 +63,13 @@ DSH 画布工作台不是把网页工具搬到桌面上，而是把设计师每�
 
 ## 快速选择下载包
 
-- **macOS 新电脑、没有 DSH Desktop**：下载已验证的 1.5.9 完整 DMG/PKG，安装后登录自己的账号。
-- **Windows 新电脑或已有 DSH**：使用已验证的 `v1.4.0-windows-preview.4` 完整包或独立画布包；r5 之前的旧包不再推荐。
-- **已经有 DSH Desktop，只想更新画布**：下载独立插件 ZIP，退出 DSH 后运行安装脚本。
-- **已经有 DSH，偏好包管理更新**：安装 `dsh-canvas-workbench` npm 包；它不包含桌面端和本地大模型环境。
-- **macOS 用户**：已有 DSH 可用 `install-canvas-plugin.sh` 更新画布；全新电脑使用 Release 中的 `macOS-Complete` DMG/PKG。
+| 你的情况 | 推荐做法 |
+| --- | --- |
+| 想要**最新功能 1.7.0**（整理/颜色标记/新字体/主题同步） | 按上方「快速安装」从 main 分支源码安装 |
+| macOS 新电脑、没有 DSH Desktop | 下载已验证的 1.5.9 完整 DMG/PKG（整机重装验收版），安装后登录自己的账号 |
+| Windows 新电脑或已有 DSH | 使用已验证的 `v1.4.0-windows-preview.4`；r5 之前的旧包不再推荐。1.7.0 的 Windows 实机回归尚未完成 |
+| 已有 DSH，只要稳定画布能力 | 独立插件 ZIP（1.5.9），退出 DSH 后运行安装脚本 |
+| 偏好包管理 | `dsh plugin add` 安装 Release 中的 `.tgz`（注意：npm registry 尚未发布，见下文 npm 章节） |
 
 
 面向设计人员的 DSH Desktop 画布工作台，把图片生成、项目文件、无限画布、图片处理和 Photoshop/Illustrator 协作集中在一个工作区。你不需要先了解 Agent：按下面的下载说明安装后，就可以像使用普通设计工具一样开始工作。
@@ -81,7 +83,7 @@ DSH 画布工作台不是把网页工具搬到桌面上，而是把设计师每�
 - 拖入、粘贴、缩放、平移、多选、对齐、复制、删除和 PNG 导出。
 - 项目独立保存，切换项目后可以继续编辑；打开项目文件夹后，图片资产会实时刷新。
 - “更多”菜单提供打开项目文件夹、图像引擎设置和操作日志，方便日常使用与排查。
-- 画布删除只影响画布内容；聊天生成的原图保存在项目根目录的 `TUPIAN/<项目名>/DSH聊天生成图片`，不会因为删除画布元素而丢失。
+- 画布删除只影响画布内容；聊天生成的原图按 `DSH聊天生成图片/<会话标题>/<日期>/<时段>` 分层归档（未绑定画布项目时归档到聊天工作目录同名文件夹），不会因为删除画布元素而丢失，文件夹名跟随会话标题自动改名。
 
 ### 2. 图片生成与聊天协作
 - 在设计模式开启时，图片生成统一读取画布的图像引擎设置：选择 Codex 就走 Codex，选择 API 就走配置的 API 路由。
@@ -109,7 +111,20 @@ DSH 画布工作台不是把网页工具搬到桌面上，而是把设计师每�
 - Photoshop 和 Illustrator 可按本机安装位置检测；也可在设置中手动指定可执行文件。
 - 画布缩放支持 Alt + 滚轮，更接近 Photoshop 的操作习惯；编辑图片时使用原始分辨率，放大不会主动压缩预览源。
 
-### 6. 操作日志
+### 6. 整理与颜色标记（1.7.0 新增）
+- 素材库：按修改时间/文件类型/图片尺寸/文件大小/名称排序；卡片显示宽高、大小、时间。
+- 颜色标记（Mac 式七色，免费可商用工作流友好）：素材库和画布图片均可标记、批量标记、按色筛选；画布标记随项目保存、可撤销。
+- 整理图片：多维排序 + 按颜色/未标记范围筛选；文件类型分块布局；图片尺寸按真实像素排序。
+
+### 7. 免费商用字体（1.7.0 新增）
+- 文字识别/重建默认使用可免费商用的字体家族：阿里巴巴普惠体 3.0（8 档）、思源黑体 SC（7 档）、Inter / Montserrat / Poppins / Source Sans Pro。
+- 不再默认使用苹方等不可商用字体；导出 PSD 的文字层与光栅化预览按所选字体渲染（需本机安装对应字体）。
+
+### 8. 主题与外观（1.7.0 新增）
+- 画布与素材库 UI 对齐 DSH 设计风格，跟随 DSH 深浅主题自动切换。
+- 画布背景可选「跟随系统外观」（从系统读取真实深浅色，不受 DSH 主题影响）。
+
+### 9. 操作日志
 “更多 → 操作日志”会记录最近的项目加载、文件刷新、图片落盘、模型请求、响应解析、预览转换、PSD 生成和失败原因。反馈问题时可以复制日志中的步骤和错误，不需要上传账号或 API Key。
 
 ## 应该下载哪个？
@@ -121,7 +136,7 @@ macOS 从 [`v1.5.9` Release](https://github.com/elangan1997-cmyk/dsh-canvas-suit
 Windows 使用已验证的 `v1.4.0-windows-preview.4`（custom 20260906）：完整包 `DSH-Setup-Fixed-v1.4.1-20260906.zip`，SHA-256 `a6d5e1a984af4bacfb64ef8aa5628fb97a569b6bb6cf08334130027725c5a683`；独立画布包 `DSH-Canvas-Workbench-1.4.0-windows-custom-20260906.zip`，SHA-256 `332fac1c8359ea470958dc0e26d7fea6b7b0b8cbe6ce663769a693068f0b8a9b`。r5 之前的 Windows 包应删除或标记为不推荐。
 
 ### B. 独立画布插件：给已经有 DSH Desktop 的电脑
-这是更新画布能力的轻量包，不带完整 DSH Desktop，不能脱离 DSH 单独启动。
+这是更新画布能力的轻量包，不带完整 DSH Desktop，不能脱离 DSH 单独启动。**注意：Release 中的 ZIP/tgz 目前是 1.5.9；要安装 1.7.0 请使用顶部「快速安装」的源码方式**（1.7.0 的二进制包将在整机验收后发布）。
 
 macOS 直接下载 [`dsh-canvas-workbench-1.5.9.tgz`](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/download/v1.5.9/dsh-canvas-workbench-1.5.9.tgz)；全新电脑则优先使用同一 Release 的 `macOS-Complete` DMG/PKG。
 
@@ -141,7 +156,9 @@ macOS 直接下载 [`dsh-canvas-workbench-1.5.9.tgz`](https://github.com/elangan
 
 ## npm 轻量插件
 
-画布插件可生成标准 npm 包，并通过 `dsh.bundle.patch` 自动注入 DSH：
+画布插件可生成标准 npm 包，并通过 `dsh.bundle.patch` 自动注入 DSH。
+
+> 状态说明：**npm registry 上的 `dsh-canvas-workbench` 尚未发布**（查询返回 404）；目前只能安装 Release 中的 `.tgz`（1.5.9）或走源码安装（1.7.0）。registry 发布需有权限账号完成离线安装验证后进行。
 
 官方 DSH（dsh-desktop）直接用官方命令安装 tgz：
 
