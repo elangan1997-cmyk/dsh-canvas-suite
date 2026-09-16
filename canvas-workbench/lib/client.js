@@ -25,6 +25,230 @@ window.__ModuleLoader__.load({
     const PANEL_WIDTH_KEY = 'dsh-canvas-panel-width';
     const MATERIAL_LIBRARY_KEY = 'dsh-canvas-material-library-v1';
     const MATERIAL_SORT_KEY = 'dsh-canvas-material-sort-v1';
+    // ---- 内联自 src/shared/registry/feature-registry.js（构建期去 import/export；请改源文件） ----
+    // Feature Registry（执行文档 §4）+ Capability 判定（§5）。共享模块：无 DOM / Node 依赖，Host 与 Client 都可用。
+    // Feature 定义：{ id, name, capabilities: string[], commands?, toolbarItems?, panels?, initialize?(ctx), dispose?() }
+    function createFeatureRegistry() {
+      const features = new Map();
+      const enabledIds = new Set();
+      return {
+        register(feature) {
+          if (!feature || typeof feature.id !== 'string' || !feature.id) throw new Error('feature 缺少 id');
+          if (features.has(feature.id)) throw new Error('feature 重复注册：' + feature.id);
+          features.set(feature.id, { capabilities: [], commands: [], toolbarItems: [], panels: [], inspectors: [], contextMenuItems: [], ...feature });
+          return features.get(feature.id);
+        },
+        unregister(id) {
+          const f = features.get(id);
+          if (f && enabledIds.has(id)) { try { if (typeof f.dispose === 'function') f.dispose(); } catch {} enabledIds.delete(id); }
+          return features.delete(id);
+        },
+        get(id) { return features.get(id) || null; },
+        list() { return [...features.values()]; },
+        /** 给定 capability 集合（Set / 数组 / {name:boolean}），返回可启用的 feature：其所需 capabilities 全部为真。 */
+        enabled(capabilities) {
+          const has = capabilityPredicate(capabilities);
+          return this.list().filter((f) => f.capabilities.every(has));
+        },
+        /** 按 capability 集合启用/停用，调用 initialize/dispose；返回 { enabled, disabled }。 */
+        apply(capabilities, ctx) {
+          const has = capabilityPredicate(capabilities);
+          const enabled = [], disabled = [];
+          for (const f of this.list()) {
+            const ok = f.capabilities.every(has);
+            if (ok && !enabledIds.has(f.id)) { try { if (typeof f.initialize === 'function') f.initialize(ctx); } catch {} enabledIds.add(f.id); enabled.push(f.id); }
+            else if (!ok && enabledIds.has(f.id)) { try { if (typeof f.dispose === 'function') f.dispose(); } catch {} enabledIds.delete(f.id); disabled.push(f.id); }
+          }
+          return { enabled, disabled };
+        },
+        isEnabled(id) { return enabledIds.has(id); }
+      };
+    }
+
+    function capabilityPredicate(capabilities) {
+      if (capabilities instanceof Set) return (c) => capabilities.has(c);
+      if (Array.isArray(capabilities)) { const s = new Set(capabilities); return (c) => s.has(c); }
+      if (capabilities && typeof capabilities === 'object') return (c) => Boolean(capabilities[c]);
+      return () => false;
+    }
+
+    /** 1.8.0 已有能力的 Feature 声明（数据层清单：谁需要什么能力）。 */
+    const BUILTIN_FEATURES = Object.freeze([
+      { id: 'canvas-core', name: '无限画布', capabilities: ['canvas.basic'] },
+      { id: 'project-browser', name: '项目管理', capabilities: ['canvas.basic', 'project.store'] },
+      { id: 'material-library', name: '素材库', capabilities: ['canvas.basic', 'materials.list'] },
+      { id: 'chat-image-output', name: '聊天图片输出', capabilities: ['chat.turnTail'] },
+      { id: 'image-generation', name: '图片生成', capabilities: ['image.generate'] },
+      { id: 'image-edit', name: '编辑图片 / 智能擦除', capabilities: ['image.edit'] },
+      { id: 'background-remove', name: '去除背景', capabilities: ['python.available'] },
+      { id: 'vectorize', name: '转矢量', capabilities: ['python.available'] },
+      { id: 'text-edit', name: '文字识别与重建', capabilities: ['text.recognition'] },
+      { id: 'psd-export', name: 'PSD 导出', capabilities: ['text.psd-export', 'python.available'] },
+      { id: 'export', name: 'PNG 导出', capabilities: ['canvas.basic'] },
+      { id: 'video-generation', name: '视频生成（预留）', capabilities: ['video.generate'] }
+    ]);
+
+    /** 由 /dsh-canvas/health 的返回推导 capability 集合（Client 侧用；Host 侧可直接构造）。 */
+    function capabilitiesFromHealth(health = {}) {
+      const caps = { 'canvas.basic': true };
+      const c = health.capabilities || {};
+      caps['project.store'] = c.webServer !== false;
+      caps['materials.list'] = c.webServer !== false;
+      caps['image.generate'] = Boolean(health.imageEngine && ((health.imageEngine.dshCodex && health.imageEngine.dshCodex.ready) || (health.imageEngine.api && health.imageEngine.api.ready)));
+      caps['image.edit'] = caps['image.generate'];
+      caps['text.recognition'] = Boolean(c.llm && c.attachments);
+      caps['python.available'] = health.platform ? health.platform.localPythonFeatures !== 'unavailable' : false;
+      caps['text.psd-export'] = caps['python.available'];
+      caps['video.generate'] = false;
+      return caps;
+    }
+
+    // ---- 内联自 src/shared/commands/history.js（构建期去 import/export；请改源文件） ----
+    // History Manager（执行文档 §8.1）：undo/redo 双栈。新命令入栈时清空 redo 栈；超过上限丢弃最早记录。
+    function createHistoryManager({ limit = 100 } = {}) {
+      const undoStack = [];
+      const redoStack = [];
+      return {
+        push(entry) {
+          undoStack.push(entry);
+          redoStack.length = 0;
+          while (undoStack.length > limit) undoStack.shift();
+          return entry;
+        },
+        async undo() {
+          const entry = undoStack.pop();
+          if (!entry) return false;
+          try { await entry.command.undo(entry.ctx); }
+          catch (err) { undoStack.push(entry); throw err; }
+          redoStack.push(entry);
+          return true;
+        },
+        async redo() {
+          const entry = redoStack.pop();
+          if (!entry) return false;
+          try { await entry.command.redo(entry.ctx); }
+          catch (err) { redoStack.push(entry); throw err; }
+          undoStack.push(entry);
+          return true;
+        },
+        canUndo() { return undoStack.length > 0; },
+        canRedo() { return redoStack.length > 0; },
+        size() { return { undo: undoStack.length, redo: redoStack.length }; },
+        peek() { return undoStack[undoStack.length - 1] || null; },
+        clear() { undoStack.length = 0; redoStack.length = 0; }
+      };
+    }
+
+    // ---- 内联自 src/shared/commands/command-bus.js（构建期去 import/export；请改源文件） ----
+    // Command Bus（执行文档 §8）：所有用户级操作尽可能走 Command；Provider/Feature 不直接改全局状态。
+    // Command 约定：execute(ctx) → 业务结果；undo(ctx) 可选；redo(ctx) 缺省重放 execute。
+    class Command {
+      constructor(fields = {}) { Object.assign(this, fields); }
+      get name() { return this.constructor.name; }
+      async execute() { throw new Error('Command 未实现 execute()'); }
+      async undo() {}
+      async redo(ctx) { return this.execute(ctx); }
+    }
+
+    function createCommandBus({ history = null, onError = null } = {}) {
+      return {
+        history,
+        /** 执行命令并登记历史；execute 抛错时不入栈并原样抛出。 */
+        async execute(command, ctx) {
+          const result = await command.execute(ctx);
+          if (history) history.push({ command, ctx });
+          return result;
+        },
+        async undo() { return history ? history.undo() : false; },
+        async redo() { return history ? history.redo() : false; },
+        canUndo() { return history ? history.canUndo() : false; },
+        canRedo() { return history ? history.canRedo() : false; }
+      };
+    }
+
+    // ---- 内联自 src/shared/contracts/canvas-object.js（构建期去 import/export；请改源文件） ----
+    // CanvasObject 契约（执行文档 §6）：业务层对象，不再把 Excalidraw element 当唯一数据结构。
+    // 第一阶段通过 adapter 与旧 element 双向转换，不删除旧 element 数据（Phase 7 要求）。
+    const CANVAS_OBJECT_TYPES = ['image', 'text', 'video', 'shape', 'group'];
+
+    function createCanvasObject(input = {}) {
+      const type = CANVAS_OBJECT_TYPES.includes(input.type) ? input.type : 'shape';
+      const t = input.transform || {};
+      return {
+        id: String(input.id || ''),
+        type,
+        transform: {
+          x: Number(t.x) || 0,
+          y: Number(t.y) || 0,
+          width: Number(t.width) || 0,
+          height: Number(t.height) || 0,
+          rotation: Number(t.rotation) || 0,
+          scaleX: t.scaleX === undefined ? 1 : Number(t.scaleX) || 1,
+          scaleY: t.scaleY === undefined ? 1 : Number(t.scaleY) || 1
+        },
+        locked: Boolean(input.locked),
+        visible: input.visible === undefined ? true : Boolean(input.visible),
+        metadata: input.metadata && typeof input.metadata === 'object' ? { ...input.metadata } : {}
+      };
+    }
+
+    /** Excalidraw image element → ImageObject（保留 customData 于 metadata；assetId 暂以来源路径承载）。 */
+    function fromExcalidrawElement(el) {
+      if (!el || typeof el !== 'object') return null;
+      const custom = el.customData && typeof el.customData === 'object' ? el.customData : {};
+      const base = createCanvasObject({
+        id: el.id,
+        type: el.type === 'image' ? 'image' : el.type === 'text' ? 'text' : 'shape',
+        transform: { x: el.x, y: el.y, width: el.width, height: el.height, rotation: el.angle, scaleX: Array.isArray(el.scale) ? el.scale[0] : 1, scaleY: Array.isArray(el.scale) ? el.scale[1] : 1 },
+        locked: el.locked,
+        visible: !el.isDeleted,
+        metadata: { excalidraw: { fileId: el.fileId || null, version: el.version || 1, opacity: el.opacity }, customData: custom }
+      });
+      if (base.type === 'image') {
+        return {
+          ...base,
+          assetId: custom.dshAssetId || (custom.dshSourcePath ? 'path:' + custom.dshSourcePath : null),
+          fileName: custom.dshFileName || null,
+          tagColor: custom.dshTagColor || null,
+          crop: null,
+          opacity: el.opacity === undefined ? 1 : Number(el.opacity) / 100
+        };
+      }
+      if (base.type === 'text') {
+        return { ...base, content: String(el.text || ''), style: { fontFamily: el.fontFamily, fontSize: el.fontSize, color: el.strokeColor, textAlign: el.textAlign || 'left', opacity: el.opacity === undefined ? 1 : Number(el.opacity) / 100 } };
+      }
+      return base;
+    }
+
+    /** 把 ImageObject 的可变字段写回 Excalidraw element（只写业务层允许改的字段，其余原样）。 */
+    function applyToExcalidrawElement(el, obj) {
+      if (!el || !obj) return el;
+      const next = { ...el, x: obj.transform.x, y: obj.transform.y, width: obj.transform.width, height: obj.transform.height, angle: obj.transform.rotation, locked: Boolean(obj.locked), isDeleted: !obj.visible };
+      if (obj.type === 'image') {
+        const custom = { ...(el.customData || {}) };
+        if (obj.tagColor) custom.dshTagColor = obj.tagColor; else delete custom.dshTagColor;
+        if (obj.fileName) custom.dshFileName = obj.fileName;
+        next.customData = custom;
+      }
+      return next;
+    }
+
+    // ---- v1.8 内核对象：Feature Registry / Command Bus / History ----
+    // 仅创建并挂到 window.__dshCanvas 供诊断与后续 Feature 接入；不改变现有 UI 行为。
+    const dshFeatureRegistry = createFeatureRegistry();
+    for (const feature of BUILTIN_FEATURES) dshFeatureRegistry.register(feature);
+    const dshHistory = createHistoryManager({ limit: 100 });
+    const dshCommandBus = createCommandBus({ history: dshHistory });
+    try {
+      window.__dshCanvas = Object.assign(window.__dshCanvas || {}, {
+        features: dshFeatureRegistry,
+        commands: dshCommandBus,
+        history: dshHistory,
+        Command,
+        capabilitiesFromHealth,
+        fromExcalidrawElement
+      });
+    } catch (e) {}
     // Mac 式七色标记；hex 与 macOS Finder 标签色一致。
     const MATERIAL_TAG_COLORS = [
       { id: 'red', label: '红', hex: '#ff5f57' },

@@ -19,6 +19,26 @@
       ]
     },
     {
+      "inline": "shared/registry/feature-registry.js",
+      "note": "Feature Registry + capability 判定（共享模块内联）"
+    },
+    {
+      "inline": "shared/commands/history.js",
+      "note": "History Manager（共享模块内联）"
+    },
+    {
+      "inline": "shared/commands/command-bus.js",
+      "note": "Command Bus（共享模块内联）"
+    },
+    {
+      "inline": "shared/contracts/canvas-object.js",
+      "note": "CanvasObject 契约与 Excalidraw 适配（共享模块内联）"
+    },
+    {
+      "file": "registry/10-runtime.js",
+      "note": "创建注册表/命令总线/历史并挂到 window.__dshCanvas"
+    },
+    {
       "file": "features/material-library/00-tag-colors.js",
       "note": "MATERIAL_TAG_COLORS 七色标记",
       "lines": [

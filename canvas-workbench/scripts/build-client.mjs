@@ -15,7 +15,19 @@ const manifestPath = join(pluginRoot, 'src', 'client', 'build-manifest.json');
 export async function buildClient() {
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
   const parts = [];
-  for (const entry of manifest.order) parts.push(await readFile(join(pluginRoot, 'src', 'client', entry.file), 'utf8'));
+  for (const entry of manifest.order) {
+    if (entry.inline) {
+      // 共享 ES 模块内联进浏览器 bundle：去掉 import / export，成为工厂函数作用域内的普通声明。
+      const raw = await readFile(join(pluginRoot, 'src', entry.inline), 'utf8');
+      const stripped = raw
+        .replace(/^import[^\n]*;\s*$/gm, '')
+        .replace(/^export\s+\{[^}]*\};?\s*$/gm, '')
+        .replace(/^export\s+(?=(?:async\s+)?(?:function|class|const|let|var)\b)/gm, '');
+      parts.push(`    // ---- 内联自 src/${entry.inline}（构建期去 import/export；请改源文件） ----\n` + stripped.replace(/^/gm, '    ').replace(/^ {4}$/gm, '') + '\n');
+      continue;
+    }
+    parts.push(await readFile(join(pluginRoot, 'src', 'client', entry.file), 'utf8'));
+  }
   const output = parts.join('');
   return { output, manifest, sha256: createHash('sha256').update(output).digest('hex'), bytes: Buffer.byteLength(output) };
 }
