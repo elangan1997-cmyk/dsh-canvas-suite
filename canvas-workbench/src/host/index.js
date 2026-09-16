@@ -12,6 +12,9 @@ import { MAX_IMAGE_BYTES, MAX_SOURCE_BYTES, SOURCE_EXTENSIONS, cleanJobId, extOf
 import { inject, name } from './plugin-meta.js';
 import { decodeImageData, safeImageName } from '../shared/utils/data-url.js';
 import { createRouter } from './server/router.js';
+import { createJobManager } from './jobs/job-manager.js';
+import { jobTrackingMiddleware } from './jobs/job-tracking.js';
+import { register as registerJobs } from './routes/jobs.routes.js';
 import { register as register0 } from './routes/health.routes.js';
 import { register as register1 } from './routes/project.routes.js';
 import { register as register2 } from './routes/settings.routes.js';
@@ -288,8 +291,10 @@ function apply(ctx) {
     return moved;
   };
 
-  const h = { chatContexts, ctx, documentPreviewPath, flattenRecycleBin, previewUrl, progressPathFor, projectDirectory, projectStatePath, psdPreviewPath, runProcess, runProcessWithTimeout, scanProjectImagesShared, stateWriteChains, writeManagedImage, writeManagedSource, writeManagedSvg, writeProgressFile };
+  const jobs = createJobManager();
+  const h = { jobs, chatContexts, ctx, documentPreviewPath, flattenRecycleBin, previewUrl, progressPathFor, projectDirectory, projectStatePath, psdPreviewPath, runProcess, runProcessWithTimeout, scanProjectImagesShared, stateWriteChains, writeManagedImage, writeManagedSource, writeManagedSvg, writeProgressFile };
   const router = createRouter();
+  router.use(jobTrackingMiddleware(jobs));
   register0(router, h);
   register1(router, h);
   register2(router, h);
@@ -298,6 +303,7 @@ function apply(ctx) {
   register5(router, h);
   register6(router, h);
   register7(router, h);
+  registerJobs(router, h);
 
   const dispose = ctx.webServer.register({
     kind: 'prefix',
