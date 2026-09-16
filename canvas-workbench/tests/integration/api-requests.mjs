@@ -72,8 +72,13 @@ export function normalizeValue(value, fixtureDir) {
   if (typeof value === 'string') {
     let s = value;
     if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(s)) return '<iso>';
-    if (fixtureDir) s = s.split(fixtureDir).join('<fixture>');
+    if (fixtureDir) {
+      s = s.split(fixtureDir).join('<fixture>');
+      s = s.split(encodeURIComponent(fixtureDir)).join('<fixture>');
+    }
+    s = s.replace(/([?&]v=)\d{10,}/g, '$1<v>');
     s = s.replace(/\/Users\/[^/\s"']+/g, '<home>');
+    s = s.replace(/%2FUsers%2F[^%\s"']+/g, '<home-enc>');
     return s;
   }
   return value;

@@ -43,8 +43,9 @@
     "status": 200,
     "contentType": "application/json",
     "body": {
-      "ok": false,
-      "known": false
+      "ok": true,
+      "known": true,
+      "dark": true
     }
   },
   "image-settings": {
@@ -385,7 +386,7 @@
           "size": 292,
           "kind": "image",
           "managed": true,
-          "url": "/dsh-canvas/preview?path=<fixture>%2Fassets%2Fa-small-red.png&v=<v>"
+          "url": "/dsh-canvas/preview?path=%2Fvar%2Ffolders%2F2m%2Fq1j8cvns30j008ytfvfsy3tm0000gn%2FT%2Fdsh-parity-fixture-B5rrnZ%2Fsample-project%2Fassets%2Fa-small-red.png&v=1789581203217"
         },
         {
           "path": "<fixture>/assets/b-wide-green.png",
@@ -394,7 +395,7 @@
           "size": 866,
           "kind": "image",
           "managed": true,
-          "url": "/dsh-canvas/preview?path=<fixture>%2Fassets%2Fb-wide-green.png&v=<v>"
+          "url": "/dsh-canvas/preview?path=%2Fvar%2Ffolders%2F2m%2Fq1j8cvns30j008ytfvfsy3tm0000gn%2FT%2Fdsh-parity-fixture-B5rrnZ%2Fsample-project%2Fassets%2Fb-wide-green.png&v=1789581203218"
         },
         {
           "path": "<fixture>/assets/c-square-blue.bmp",
@@ -403,7 +404,7 @@
           "size": 120054,
           "kind": "image",
           "managed": true,
-          "url": "/dsh-canvas/preview?path=<fixture>%2Fassets%2Fc-square-blue.bmp&v=<v>"
+          "url": "/dsh-canvas/preview?path=%2Fvar%2Ffolders%2F2m%2Fq1j8cvns30j008ytfvfsy3tm0000gn%2FT%2Fdsh-parity-fixture-B5rrnZ%2Fsample-project%2Fassets%2Fc-square-blue.bmp&v=1789581203219"
         },
         {
           "path": "<fixture>/assets/d-vector.svg",
@@ -412,7 +413,7 @@
           "size": 214,
           "kind": "svg",
           "managed": true,
-          "url": "/dsh-canvas/preview?path=<fixture>%2Fassets%2Fd-vector.svg&v=<v>"
+          "url": "/dsh-canvas/preview?path=%2Fvar%2Ffolders%2F2m%2Fq1j8cvns30j008ytfvfsy3tm0000gn%2FT%2Fdsh-parity-fixture-B5rrnZ%2Fsample-project%2Fassets%2Fd-vector.svg&v=1789581203219"
         },
         {
           "path": "<fixture>/assets/e-photo.jpg",
@@ -421,7 +422,7 @@
           "size": 909,
           "kind": "image",
           "managed": true,
-          "url": "/dsh-canvas/preview?path=<fixture>%2Fassets%2Fe-photo.jpg&v=<v>"
+          "url": "/dsh-canvas/preview?path=%2Fvar%2Ffolders%2F2m%2Fq1j8cvns30j008ytfvfsy3tm0000gn%2FT%2Fdsh-parity-fixture-B5rrnZ%2Fsample-project%2Fassets%2Fe-photo.jpg&v=1789581203341"
         },
         {
           "path": "<fixture>/assets/f-web.webp",
@@ -430,7 +431,7 @@
           "size": 94,
           "kind": "image",
           "managed": true,
-          "url": "/dsh-canvas/preview?path=<fixture>%2Fassets%2Ff-web.webp&v=<v>"
+          "url": "/dsh-canvas/preview?path=%2Fvar%2Ffolders%2F2m%2Fq1j8cvns30j008ytfvfsy3tm0000gn%2FT%2Fdsh-parity-fixture-B5rrnZ%2Fsample-project%2Fassets%2Ff-web.webp&v=1789581203374"
         },
         {
           "path": "<fixture>/assets/g-anim.gif",
@@ -439,7 +440,7 @@
           "size": 91,
           "kind": "image",
           "managed": true,
-          "url": "/dsh-canvas/preview?path=<fixture>%2Fassets%2Fg-anim.gif&v=<v>"
+          "url": "/dsh-canvas/preview?path=%2Fvar%2Ffolders%2F2m%2Fq1j8cvns30j008ytfvfsy3tm0000gn%2FT%2Fdsh-parity-fixture-B5rrnZ%2Fsample-project%2Fassets%2Fg-anim.gif&v=1789581203374"
         }
       ]
     }

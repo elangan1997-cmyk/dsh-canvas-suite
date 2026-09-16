@@ -43,8 +43,9 @@
     "status": 200,
     "contentType": "application/json",
     "body": {
-      "ok": false,
-      "known": false
+      "ok": true,
+      "known": true,
+      "dark": true
     }
   },
   "image-settings": {
