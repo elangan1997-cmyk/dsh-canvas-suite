@@ -507,5 +507,389 @@
       "ok": false,
       "error": "尚未选择素材库目录"
     }
+  },
+  "state-post": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "ok": true,
+      "project": "<fixture>",
+      "stale": false,
+      "savedAt": 2
+    }
+  },
+  "state-get-after-post": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "elements": [],
+      "appState": {
+        "theme": "light"
+      },
+      "files": {},
+      "dshMeta": {
+        "revision": 2,
+        "savedAt": 2,
+        "baseRevision": 1
+      }
+    }
+  },
+  "state-post-stale": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "ok": true,
+      "project": "<fixture>",
+      "stale": true,
+      "savedAt": 2
+    }
+  },
+  "state-bad-method": {
+    "status": 404,
+    "contentType": "text/plain",
+    "body": "not found"
+  },
+  "materials-save": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "ok": true,
+      "name": "saved-by-test.png",
+      "path": "<fixture>/assets/saved-by-test.png"
+    }
+  },
+  "materials-after-save": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "ok": true,
+      "dir": "<fixture>/assets",
+      "files": [
+        {
+          "name": "saved-by-test.png",
+          "size": 70,
+          "mtime": "<ts>",
+          "width": 1,
+          "height": 1
+        },
+        {
+          "name": "g-anim.gif",
+          "size": 91,
+          "mtime": "<ts>",
+          "width": 40,
+          "height": 30
+        },
+        {
+          "name": "f-web.webp",
+          "size": 94,
+          "mtime": "<ts>",
+          "width": 96,
+          "height": 96
+        },
+        {
+          "name": "e-photo.jpg",
+          "size": 909,
+          "mtime": "<ts>",
+          "width": 150,
+          "height": 100
+        },
+        {
+          "name": "d-vector.svg",
+          "size": 214,
+          "mtime": "<ts>",
+          "width": 240,
+          "height": 80
+        },
+        {
+          "name": "c-square-blue.bmp",
+          "size": 120054,
+          "mtime": "<ts>",
+          "width": 200,
+          "height": 200
+        },
+        {
+          "name": "b-wide-green.png",
+          "size": 866,
+          "mtime": "<ts>",
+          "width": 320,
+          "height": 120
+        },
+        {
+          "name": "a-small-red.png",
+          "size": 292,
+          "mtime": "<ts>",
+          "width": 64,
+          "height": 48
+        }
+      ]
+    }
+  },
+  "materials-delete": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "ok": true
+    }
+  },
+  "materials-delete-missing": {
+    "status": 500,
+    "contentType": "application/json",
+    "body": {
+      "ok": false,
+      "error": "ENOENT: no such file or directory, unlink '<fixture>/assets/nope.png'"
+    }
+  },
+  "import-file": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "ok": true,
+      "image": {
+        "path": "<fixture>/assets/imported.png",
+        "name": "imported.png",
+        "mtime": "<ts>",
+        "size": 70,
+        "kind": "image",
+        "managed": true,
+        "url": "/dsh-canvas/preview?path=<fixture>%2Fassets%2Fimported.png&v=<v>"
+      }
+    }
+  },
+  "materialize-image": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "ok": true,
+      "image": {
+        "path": "<fixture>/assets/materialized.png",
+        "name": "materialized.png",
+        "mtime": "<ts>",
+        "size": 70,
+        "kind": "image",
+        "managed": true,
+        "url": "/dsh-canvas/preview?path=<fixture>%2Fassets%2Fmaterialized.png&v=<v>"
+      }
+    }
+  },
+  "rename-image": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "ok": true,
+      "name": "materialized-renamed.png",
+      "path": "<fixture>/assets/materialized-renamed.png",
+      "sourcePath": "<fixture>/assets/materialized-renamed.png"
+    }
+  },
+  "archive-images": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "ok": true,
+      "recycle": "<fixture>/画布回收站",
+      "records": [
+        {
+          "original": "<fixture>/assets/imported.png",
+          "archived": "<fixture>/画布回收站/imported.png"
+        }
+      ]
+    }
+  },
+  "restore-image": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "ok": true,
+      "path": "<fixture>/assets/imported.png",
+      "mtime": "<ts>",
+      "url": "/dsh-canvas/preview?path=<fixture>%2Fassets%2Fimported.png&v=<v>"
+    }
+  },
+  "project-files-after-writes": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "ok": true,
+      "project": "<fixture>",
+      "images": [
+        {
+          "path": "<fixture>/assets/a-small-red.png",
+          "name": "a-small-red.png",
+          "mtime": "<ts>",
+          "size": 292,
+          "kind": "image",
+          "managed": true,
+          "url": "/dsh-canvas/preview?path=<fixture>%2Fassets%2Fa-small-red.png&v=<v>"
+        },
+        {
+          "path": "<fixture>/assets/b-wide-green.png",
+          "name": "b-wide-green.png",
+          "mtime": "<ts>",
+          "size": 866,
+          "kind": "image",
+          "managed": true,
+          "url": "/dsh-canvas/preview?path=<fixture>%2Fassets%2Fb-wide-green.png&v=<v>"
+        },
+        {
+          "path": "<fixture>/assets/c-square-blue.bmp",
+          "name": "c-square-blue.bmp",
+          "mtime": "<ts>",
+          "size": 120054,
+          "kind": "image",
+          "managed": true,
+          "url": "/dsh-canvas/preview?path=<fixture>%2Fassets%2Fc-square-blue.bmp&v=<v>"
+        },
+        {
+          "path": "<fixture>/assets/d-vector.svg",
+          "name": "d-vector.svg",
+          "mtime": "<ts>",
+          "size": 214,
+          "kind": "svg",
+          "managed": true,
+          "url": "/dsh-canvas/preview?path=<fixture>%2Fassets%2Fd-vector.svg&v=<v>"
+        },
+        {
+          "path": "<fixture>/assets/e-photo.jpg",
+          "name": "e-photo.jpg",
+          "mtime": "<ts>",
+          "size": 909,
+          "kind": "image",
+          "managed": true,
+          "url": "/dsh-canvas/preview?path=<fixture>%2Fassets%2Fe-photo.jpg&v=<v>"
+        },
+        {
+          "path": "<fixture>/assets/f-web.webp",
+          "name": "f-web.webp",
+          "mtime": "<ts>",
+          "size": 94,
+          "kind": "image",
+          "managed": true,
+          "url": "/dsh-canvas/preview?path=<fixture>%2Fassets%2Ff-web.webp&v=<v>"
+        },
+        {
+          "path": "<fixture>/assets/g-anim.gif",
+          "name": "g-anim.gif",
+          "mtime": "<ts>",
+          "size": 91,
+          "kind": "image",
+          "managed": true,
+          "url": "/dsh-canvas/preview?path=<fixture>%2Fassets%2Fg-anim.gif&v=<v>"
+        },
+        {
+          "path": "<fixture>/assets/imported.png",
+          "name": "imported.png",
+          "mtime": "<ts>",
+          "size": 70,
+          "kind": "image",
+          "managed": true,
+          "url": "/dsh-canvas/preview?path=<fixture>%2Fassets%2Fimported.png&v=<v>"
+        },
+        {
+          "path": "<fixture>/assets/materialized-renamed.png",
+          "name": "materialized-renamed.png",
+          "mtime": "<ts>",
+          "size": 70,
+          "kind": "image",
+          "managed": true,
+          "url": "/dsh-canvas/preview?path=<fixture>%2Fassets%2Fmaterialized-renamed.png&v=<v>"
+        }
+      ]
+    }
+  },
+  "backup-canvas": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "ok": true,
+      "path": "<fixture>/画布备份/canvas-<stamp>.json"
+    }
+  },
+  "chat-context-post": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "ok": true
+    }
+  },
+  "chat-context-bad": {
+    "status": 400,
+    "contentType": "application/json",
+    "body": {
+      "ok": false,
+      "error": "缺少聊天会话 ID"
+    }
+  },
+  "open-project": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "ok": true,
+      "project": "<fixture>",
+      "assets": "<fixture>/assets"
+    }
+  },
+  "ocr-no-llm": {
+    "status": 500,
+    "contentType": "application/json",
+    "body": {
+      "ok": false,
+      "error": "框选区域太小"
+    }
+  },
+  "export-psd-bad": {
+    "status": 500,
+    "contentType": "application/json",
+    "body": {
+      "ok": false,
+      "error": "图片数据无效或超过 32MB"
+    }
+  },
+  "import-project-missing": {
+    "status": 500,
+    "contentType": "application/json",
+    "body": {
+      "ok": false,
+      "error": "ENOENT: no such file or directory, stat '<root>/does-not-exist'"
+    }
+  },
+  "rename-project": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "ok": true,
+      "project": "<root>/renamed-project",
+      "name": "renamed-project"
+    }
+  },
+  "projects-after-rename": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "projects": [
+        {
+          "name": "renamed-project",
+          "path": "<root>/renamed-project",
+          "elements": 0,
+          "images": 0,
+          "updatedAt": "<ts>"
+        }
+      ]
+    }
+  },
+  "delete-project": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "ok": true,
+      "archived": "<root>/已删除画布项目/renamed-project-删除于-<stamp>",
+      "recycle": "<root>/已删除画布项目"
+    }
+  },
+  "projects-after-delete": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "projects": []
+    }
   }
 }

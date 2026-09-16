@@ -52,12 +52,15 @@ async function exportRef(ref) {
 }
 
 async function main() {
-  const fixtureRoot = await mkdtemp(join(tmpdir(), 'dsh-parity-fixture-'));
-  const fixture = await makeSampleProject(join(fixtureRoot, 'sample-project'));
-  const requests = buildRequests(fixture.dir);
+  // 每个 Host 使用独立的 fixture 目录：写路由会改变目录内容，共用会让第二个 Host 看到第一个的残留。
+  const fixtureRoots = [];
   const run = async (pluginDir) => {
+    const fixtureRoot = await mkdtemp(join(tmpdir(), 'dsh-parity-fixture-'));
+    fixtureRoots.push(fixtureRoot);
+    const fixture = await makeSampleProject(join(fixtureRoot, 'sample-project'));
+    const requests = buildRequests(fixture.dir);
     const host = await startHost({ pluginDir, workspaceRoot: fixtureRoot });
-    try { return await runRequests(host.baseUrl, requests, { normalizeResponse, fixtureDir: fixture.dir, sha256 }); }
+    try { return await runRequests(host.baseUrl, requests, { normalizeResponse, fixtureDir: fixture.dir, fixtureRoot, sha256 }); }
     finally { await host.close(); }
   };
 
@@ -86,7 +89,7 @@ async function main() {
       await writeFile(join(outDir, 'last-diff.json'), JSON.stringify({ baselineRef, at: new Date().toISOString(), diffs }, null, 2));
     } finally { await rm(exported.dir, { recursive: true, force: true }); }
   }
-  await rm(fixtureRoot, { recursive: true, force: true });
+  for (const r of fixtureRoots) await rm(r, { recursive: true, force: true });
   if (failures) { console.error(`API 对等测试失败：${failures} 处差异`); process.exit(1); }
   console.log(againstLive ? '（against-live 模式不判定失败）' : 'API 对等测试通过：0 差异');
 }

@@ -108,7 +108,7 @@ export async function startHost({ pluginDir, port = 0, workspaceRoot = null, nod
   const stage = join(stageRoot, 'plugin');
   await cp(pluginDir, stage, {
     recursive: true,
-    filter: (src) => !/[\\/](node_modules|\.git|tests|src|docs)([\\/]|$)/.test(src) && !/[\\/]\._/.test(src)
+    filter: (src) => !/[\\/](node_modules|\.git|tests|docs)([\\/]|$)/.test(src) && !/[\\/]\._/.test(src)
   });
   try { await realpath(nodeModules); await symlink(nodeModules, join(stageRoot, 'node_modules'), 'dir'); }
   catch (err) { throw new Error('DSH node_modules 不可用（用于解析 @deepseek-ai/*）：' + nodeModules + ' — ' + err.message); }
@@ -144,7 +144,7 @@ export async function startHost({ pluginDir, port = 0, workspaceRoot = null, nod
 }
 
 /** 对某个 Host 执行请求清单，返回归一化后的响应字典。 */
-export async function runRequests(baseUrl, requests, { normalizeResponse, fixtureDir, sha256 }) {
+export async function runRequests(baseUrl, requests, { normalizeResponse, fixtureDir, fixtureRoot, sha256 }) {
   const results = {};
   for (const req of requests) {
     const init = { method: req.method };
@@ -160,7 +160,7 @@ export async function runRequests(baseUrl, requests, { normalizeResponse, fixtur
       res.byteLength = text.length;
       try { res.body = /json/.test(contentType) ? JSON.parse(text) : text; } catch { res.body = text; }
     }
-    results[req.name] = normalizeResponse(res, { fixtureDir });
+    results[req.name] = normalizeResponse(res, { fixtureDir, fixtureRoot });
   }
   return results;
 }
