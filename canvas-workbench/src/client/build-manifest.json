@@ -131,14 +131,6 @@
       ]
     },
     {
-      "file": "legacy/00-tldraw-bundle.js",
-      "note": "tldraw 时代遗留：TLDR_BUNDLE 内嵌包 + IFRAME_SRCDOC（无引用，待删除）",
-      "lines": [
-        1536,
-        1555
-      ]
-    },
-    {
       "file": "core/canvas/frame/00-srcdoc.js",
       "note": "EXCALIDRAW_SRCDOC iframe 模板（HTML/CSS/转义 JS）",
       "lines": [
