@@ -45,6 +45,9 @@ export function register(router, h) {
     } finally {
       await unlink(jsxPath).catch(() => {});
       await unlink(appleScriptPath).catch(() => {});
+      // Illustrator 2026 的 ExtendScript 没有 CloseOptions（doc.close 两种写法都抛错），
+      // 脚本关不掉的文档会一直留在 AI 里，用户会误改临时文件。统一用 AppleScript 收尾关闭。
+      await runProcessWithTimeout(osascript, ['-e', 'tell application id "com.adobe.Illustrator"\nclose every document saving no\nend tell'], workDir, 30000).catch(() => {});
     }
   }
 
@@ -60,6 +63,7 @@ export function register(router, h) {
     } finally {
       await unlink(jsxPath).catch(() => {});
       await unlink(appleScriptPath).catch(() => {});
+      await runProcessWithTimeout(osascript, ['-e', 'tell application id "com.adobe.Photoshop"\ntry\nclose every document saving no\nend try\nend tell'], workDir, 30000).catch(() => {});
     }
   }
 

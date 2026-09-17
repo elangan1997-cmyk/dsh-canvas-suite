@@ -318,6 +318,12 @@ export function register(router, h) {
                     try { const info = await stat(tempAi); aiScripted = scripted.exitCode === 0 && info.isFile() && info.size > 1024; } catch (err) { aiScripted = false; }
                     if (aiScripted) { deliverablePath = tempAi; deliverableKind = 'ai'; }
                     else aiWarning = String(scripted.stderr || '').trim() || '未能调用 Illustrator 原生文字层，已退回 SVG 草稿';
+                    // Illustrator 2026 的 ExtendScript 没有 CloseOptions：脚本里 close 不掉临时文档，
+                    // 会留在 AI 里被用户误当成正式文件编辑。先全部关闭（不保存），下面只打开画布正式文件。
+                    try {
+                      const osascript2 = await ctx.subprocess.resolveExecutable('osascript');
+                      await runProcessWithTimeout(osascript2, ['-e', 'tell application id "com.adobe.Illustrator"\nclose every document saving no\nend tell'], outputDir, 30000);
+                    } catch (errClose) {}
                   } catch (err) {
                     aiWarning = String((err && err.message) || err);
                   }
@@ -330,8 +336,10 @@ export function register(router, h) {
               const svgDot = svgOriginalName.lastIndexOf('.');
               const svgBase = svgDot > 0 ? svgOriginalName.slice(0, svgDot) : svgOriginalName;
               const savedSvg = await writeManagedSource(projectDir, svgBase + (deliverableKind === 'ai' ? '-文字编辑.ai' : '-文字编辑.svg'), svgBytes, deliverableKind);
-              let openedInIllustrator = aiScripted;
-              if (!openedInIllustrator && body.openIllustrator !== false) {
+              // 总是打开画布正式文件（= 交付到画布的那份），用户在 AI 里改的就是它，
+              // 保存后画布轮询按 mtime 自动刷新预览。
+              let openedInIllustrator = false;
+              if (body.openIllustrator !== false) {
                 try {
                   if (isWindows) {
                     const openedResult = await openWithSystem(ctx, runProcess, savedSvg.path, dirname(savedSvg.path));
