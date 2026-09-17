@@ -119,6 +119,7 @@ export function register(router, h) {
           let tempClean = '';
           let draftPsd = '';
           let tempSvg = '';
+          let tempAi = '';
           let finalPsd = '';
           let jsxPath = '';
           let appleScriptPath = '';
@@ -235,12 +236,13 @@ export function register(router, h) {
             } else if (body.cleanBackground !== false && !selections.length) {
               cleanupWarning = '没有框选文字区域，跳过 image2 背景清理';
             }
-            if (body.format === 'svg') {
+            if (body.format === 'svg' || body.format === 'ai') {
               // SVG（Illustrator）导出：底图内嵌 + 可编辑 <text>；共享同一套
               // blocks/框选/背景清理逻辑，跳过 Photoshop JSX/AppleScript 环节。
               const svgScript = join(pluginRoot, 'scripts', 'export_text_svg.py');
               await access(svgScript);
               tempSvg = join(outputDir, 'text-svg-' + token + '.svg');
+              tempAi = join(outputDir, 'text-ai-' + token + '.ai');
               const svgArgs = [svgScript, '--input', tempInput, '--output', tempSvg, '--blocks', JSON.stringify(exportBlocks)];
               if (cleanInput) svgArgs.push('--clean-input', cleanInput);
               const svgRun = await runProcessWithTimeout(python.executable, [...python.prefixArgs, ...svgArgs], pluginRoot, 120000);
@@ -248,13 +250,83 @@ export function register(router, h) {
               let svgPayload = null;
               try { svgPayload = svgLines.length ? JSON.parse(svgLines[svgLines.length - 1]) : null; } catch (err) { svgPayload = null; }
               if (svgRun.exitCode !== 0 || !svgPayload || svgPayload.success !== true) throw new Error((svgPayload && svgPayload.error) || String(svgRun.stderr || '').trim() || 'SVG 生成失败');
-              const svgBytes = await readFile(tempSvg);
+              // ── 原生 .ai（与 PSD 的「草稿 + 原生脚本」同构）─────────────────────
+              // SVG/PNG 只是草稿与兜底：由 Illustrator 自己的 ExtendScript 建文档、
+              // 放置并内嵌底图、逐块创建原生点文字（字体按本机 PostScript 名解析），
+              // saveAs 成原生 .ai。脚本失败（未装 AI / 权限 / 版本差异）时退回 SVG。
+              let aiScripted = false;
+              let aiWarning = '';
+              let deliverablePath = tempSvg;
+              let deliverableKind = 'svg';
+              const jsxBlocks = exportBlocks
+                .filter((item) => item && typeof item === 'object' && item.enabled !== false && String(item.text || '').trim())
+                .slice(0, 200)
+                .map((item) => ({
+                  t: String(item.text || ''),
+                  x: Math.max(0, Number(item.x || 0)),
+                  y: Math.max(0, Number(item.y || 0)),
+                  w: Math.max(2, Number(item.width || 240)),
+                  h: Math.max(2, Number(item.height || 48)),
+                  s: Math.max(8, Math.min(220, Number(item.fontSize || Number(item.height || 48) * 0.92 || 24))),
+                  c: /^#[0-9a-fA-F]{6}$/.test(String(item.color || '')) ? String(item.color) : '#111827',
+                  f: String(item.fontPostScript || ''),
+                  a: String(item.textAlign || 'left').toLowerCase(),
+                  r: Number(item.rotation || 0)
+                }));
+              if (body.format === 'ai') {
+                if (isMac) {
+                  try {
+                    const jsxPayload = JSON.stringify({ background: cleanInput || tempInput, output: tempAi, width: Number(svgPayload.width || 1), height: Number(svgPayload.height || 1), blocks: jsxBlocks });
+                    const jsx = '#target illustrator\n(function(){\n'
+                      + 'var cfg=' + jsxPayload + ';\n'
+                      + 'function hex(c){var m=String(c||"#111827").replace("#",""); if(m.length!==6){m="111827";} var col=new RGBColor(); col.red=parseInt(m.substr(0,2),16); col.green=parseInt(m.substr(2,2),16); col.blue=parseInt(m.substr(4,2),16); return col;}\n'
+                      + 'try{\n'
+                      + '  var doc=app.documents.add(DocumentColorSpace.RGB, cfg.width, cfg.height);\n'
+                      + '  try{doc.rulerUnits=RulerUnits.Points;}catch(e1){}\n'
+                      + '  var pi=doc.placedItems.add(); pi.file=new File(cfg.background);\n'
+                      + '  try{ pi.left=0; pi.top=0; pi.width=cfg.width; pi.height=cfg.height; }catch(e2){}\n'
+                      + '  try{ pi.embed(); }catch(e3){}\n'
+                      + '  var list=cfg.blocks||[];\n'
+                      + '  for(var i=0;i<list.length;i++){\n'
+                      + '    var b=list[i]||{}; if(!b.t){continue;}\n'
+                      + '    var tf=doc.textFrames.add(); tf.contents=b.t;\n'
+                      + '    var ca=tf.textRange.characterAttributes;\n'
+                      + '    ca.size=b.s;\n'
+                      + '    try{ ca.textFont=app.textFonts.getByName(b.f); }catch(e4){}\n'
+                      + '    ca.fillColor=hex(b.c);\n'
+                      + '    if(b.a==="center"||b.a==="right"){ try{ tf.textRange.paragraphAttributes.justification=(b.a==="center")?Justification.CENTER:Justification.RIGHT; }catch(e5){} }\n'
+                      + '    tf.left=(b.a==="center")?(b.x+b.w/2):((b.a==="right")?(b.x+b.w-1):(b.x+1));\n'
+                      + '    tf.top=b.y;\n'
+                      + '    if(Math.abs(b.r||0)>0.05){ try{ tf.rotate(-(b.r)); }catch(e6){} }\n'
+                      + '  }\n'
+                      + '  var opts=new IllustratorSaveOptions(); try{ opts.pdfCompatible=true; }catch(e7){}\n'
+                      + '  doc.saveAs(new File(cfg.output), opts);\n'
+                      + '  try{ doc.close(CloseOptions.DONTSAVECHANGES); }catch(e8){ try{ doc.close(2); }catch(e9){} }\n'
+                      + '  "dsh-ai-done";\n'
+                      + '}catch(err){ throw new Error("illustrator jsx: "+String(err)); }\n'
+                      + '})();\n';
+                    await writeFile(jsxPath, jsx, 'utf8');
+                    const appleScript = 'tell application id "com.adobe.Illustrator"\nactivate\ndo javascript (read POSIX file ' + JSON.stringify(jsxPath) + ' as «class utf8»)\nend tell\n';
+                    await writeFile(appleScriptPath, appleScript, 'utf8');
+                    const osascript = await ctx.subprocess.resolveExecutable('osascript');
+                    const scripted = await runProcessWithTimeout(osascript, [appleScriptPath], outputDir, 300000);
+                    try { const info = await stat(tempAi); aiScripted = scripted.exitCode === 0 && info.isFile() && info.size > 1024; } catch (err) { aiScripted = false; }
+                    if (aiScripted) { deliverablePath = tempAi; deliverableKind = 'ai'; }
+                    else aiWarning = String(scripted.stderr || '').trim() || '未能调用 Illustrator 原生文字层，已退回 SVG 草稿';
+                  } catch (err) {
+                    aiWarning = String((err && err.message) || err);
+                  }
+                } else {
+                  aiWarning = 'Windows 已生成可打开的 SVG；原生 Illustrator 文字层自动化暂仅支持 macOS';
+                }
+              }
+              const svgBytes = await readFile(deliverablePath);
               const svgOriginalName = safeImageName(body.name || '画布图片.png');
               const svgDot = svgOriginalName.lastIndexOf('.');
               const svgBase = svgDot > 0 ? svgOriginalName.slice(0, svgDot) : svgOriginalName;
-              const savedSvg = await writeManagedSource(projectDir, svgBase + '-文字编辑.svg', svgBytes, 'svg');
-              let openedInIllustrator = false;
-              if (body.openIllustrator !== false) {
+              const savedSvg = await writeManagedSource(projectDir, svgBase + (deliverableKind === 'ai' ? '-文字编辑.ai' : '-文字编辑.svg'), svgBytes, deliverableKind);
+              let openedInIllustrator = aiScripted;
+              if (!openedInIllustrator && body.openIllustrator !== false) {
                 try {
                   if (isWindows) {
                     const openedResult = await openWithSystem(ctx, runProcess, savedSvg.path, dirname(savedSvg.path));
@@ -272,11 +344,12 @@ export function register(router, h) {
               const svgInfo = await stat(savedSvg.path);
               respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({
                 ok: true,
-                image: { path: savedSvg.path, name: savedSvg.name, mtime: svgInfo.mtimeMs, kind: 'svg', managed: true, url: previewUrl(savedSvg.path, svgInfo.mtimeMs) },
+                image: { path: savedSvg.path, name: savedSvg.name, mtime: svgInfo.mtimeMs, kind: deliverableKind, managed: true, url: previewUrl(savedSvg.path, svgInfo.mtimeMs) },
+                ai: aiScripted,
                 illustrator: openedInIllustrator,
                 cleanupEngine,
                 texts: Number(svgPayload.texts || 0),
-                warning: cleanupWarning || ''
+                warning: [cleanupWarning, aiWarning].filter(Boolean).join('；')
               }));
               return;
             }
@@ -342,7 +415,7 @@ export function register(router, h) {
           } catch (err) {
             respond(res, 500, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: String((err && err.message) || err) }));
           } finally {
-            for (const path of [tempInput, tempMask, tempGenerated, tempClean, tempSvg, draftPsd, finalPsd, jsxPath, appleScriptPath]) if (path) await unlink(path).catch(() => {});
+            for (const path of [tempInput, tempMask, tempGenerated, tempClean, tempSvg, tempAi, draftPsd, finalPsd, jsxPath, appleScriptPath]) if (path) await unlink(path).catch(() => {});
           }
           return;
   });

@@ -239,7 +239,7 @@
             React.createElement('div', { className: 'dsh-text-rebuild-actions' },
               React.createElement('button', { className: 'dsh-text-rebuild-cancel', disabled: !!data.busy, onClick: props.onClose }, '取消'),
               React.createElement('button', { className: 'dsh-text-rebuild-export', disabled: !!data.busy || data.loading || enabledCount === 0, onClick: () => props.onExport(blocks, true, selections) }, data.busy ? '正在清理并生成…' : '清理背景并生成 PSD'),
-              React.createElement('button', { className: 'dsh-text-rebuild-export', disabled: !!data.busy || data.loading || enabledCount === 0, onClick: () => props.onExport(blocks, true, selections, 'svg') }, data.busy ? '正在清理并生成…' : '生成 SVG（Illustrator）')
+              React.createElement('button', { className: 'dsh-text-rebuild-export', disabled: !!data.busy || data.loading || enabledCount === 0, title: '与 PSD 同构：由 Illustrator 脚本生成原生点文字层并保存为 .ai；不可用时退回 SVG', onClick: () => props.onExport(blocks, true, selections, 'ai') }, data.busy ? '正在清理并生成…' : '生成 AI（Illustrator）')
             )
           ),
           zoomed && data.dataURL ? React.createElement('div', { className: 'dsh-text-zoom-overlay', role: 'dialog', 'aria-modal': 'true' },

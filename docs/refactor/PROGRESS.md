@@ -52,3 +52,4 @@
 - [真实 Codex 擦除验证] 合成 2000×1400 浅色背景 + 文字框 → 擦除 43s：文字框消失、窗口外零改动（顶部 100px 完全一致）、擦除区与上下带亮度差 2.2/2.4（源图自身梯度 1.0 量级）。对比图 `regression-1.8/erase-crop-tonematch-compare.png`。
 - [2026-09-17·聊天图片不显示] 用户反馈一轮 12 张中 1 张碎图。根因：DSH 附件 blob 解析悬而不决 + 附件记录的 sourcePath 已被移走（空目录），旧三级回退是「取第一个非空」导致第三级从未尝试。修复：候选链逐级尝试 + 本地优先 + blob 6s 超时 + resolve-image 按名找回（含兄弟项目目录探测）+ 整洁失败卡。真实会话验证 12/12 显示。
 - [2026-09-17·SVG 导出] export-text-svg.py + 路由 format:'svg' 分支 + 面板双按钮（PSD / SVG）；离线 XML 校验 + harness 全链路（含无选区全禁用、隐藏组语义）通过；PYTHON_TOOLS 10→11。
+- [2026-09-17·原生 .ai] format:'ai' 分支：Illustrator ExtendScript（documents.add RGB → placedItems 嵌底图 → textFrames 原生点文字 → saveAs IllustratorSaveOptions(pdfCompatible)），AppleScript do javascript 同 Photoshop 模式；实测 5s 生成 271KB %PDF 头 .ai，字体引用（普惠体/Inter）与文字位置/对齐/颜色在 Quick Look 预览验证正确；失败退回 SVG。
