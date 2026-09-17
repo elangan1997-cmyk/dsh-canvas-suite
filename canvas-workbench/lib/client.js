@@ -1961,7 +1961,7 @@ function dims2(d){return new Promise(function(res){var i=new Image();i.onload=fu
         var c=item.customData||{};
         if(String(c.dshEditState||"")!=="processing")return;
         var started=Number(c.dshEditStartedAt||0);
-        if(started&&now-started>STALE_EDIT_MS)stale.push(item.id);
+        if(!started||now-started>STALE_EDIT_MS)stale.push(item.id);
       });
     }catch(eScan){return;}
     for(var i=0;i<stale.length;i++){
