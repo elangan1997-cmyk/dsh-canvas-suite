@@ -1793,7 +1793,20 @@
                 // 图层编辑的临时提取图（dshScratch）落在 outputs/ 下，而项目素材扫描在 depth 0
                 // 就跳过 outputs/，它永远不会出现在 project-files 列表里。若不跳过，这里的
                 // “访达删除对账”会在加入画布约 2 秒后就把元素移除，提交编辑时报“原图已不在画布中”。
-                if (source.dshScratch === true) continue;
+                // 图层编辑的两类残留自愈：占位图（dshEditState=processing）与临时提取图
+                // （dshScratch）的源文件都在 outputs/.图片编辑临时/ 下、不在 project-files
+                // 列表里（扫描跳过 outputs/）。写回成功的清理消息偶尔被时序吞掉——这里
+                // 兜底：占位图存活超过 10 分钟直接移除；临时提取图超过 30 分钟也移除。
+                const nowMs = Date.now();
+                if (source.dshEditState === 'processing') {
+                  const started = Number(source.dshEditStartedAt || 0);
+                  if (!started || nowMs - started > 10 * 60 * 1000) { finderRemovingIds.current.add(element.id); missingIds.push(element.id); continue; }
+                }
+                if (source.dshScratch === true) {
+                  const born = Number(source.dshSourceMtime || 0);
+                  if (!born || nowMs - born > 30 * 60 * 1000) { finderRemovingIds.current.add(element.id); missingIds.push(element.id); continue; }
+                  continue;
+                }
                 const disk = filesByPath.get(source.dshSourcePath);
                 if (!disk) {
                   const pendingRename = pendingRenames.current.get(element.id);

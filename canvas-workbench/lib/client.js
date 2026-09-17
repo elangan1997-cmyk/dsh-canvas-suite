@@ -1968,7 +1968,7 @@ function dims2(d){return new Promise(function(res){var i=new Image();i.onload=fu
       try{ markEditPlaceholderFailed({placeholderId:stale[i],message:"等待超过 "+Math.round(STALE_EDIT_MS/60000)+" 分钟没有响应，已标记失败——删除这张后重新编辑即可"}); }catch(eMark){}
     }
   }
-  setInterval(failStaleEditPlaceholders, 30000);
+  setInterval(failStaleEditPlaceholders, 15000);
   function addEditedImage(detail){if(!api||!detail||!detail.image||!detail.image.url)return Promise.reject(new Error("图片编辑结果无效"));var placeholder=findEditPlaceholder(detail),source=(api.getSceneElements()||[]).find(function(item){return item&&item.id===detail.elementId&&item.type==="image"&&!item.isDeleted;});if(!placeholder&&!source)return Promise.reject(new Error("原图片和等待图片均已不在画布中"));return fetch(detail.image.url,{cache:"no-store"}).then(function(r){if(!r.ok)throw new Error("读取编辑结果失败 HTTP "+r.status);return r.blob();}).then(toDataURLBlob).then(function(dataURL){return dims2(dataURL).then(function(dm){var now=Date.now(),token=now.toString(36)+"_"+Math.random().toString(36).slice(2,8),fileId="f_edit_"+token,ratio=dm.w/Math.max(1,dm.h),base=placeholder||source,w=Number(base.width||240),h=Math.max(1,Math.round(w/ratio)),mime=(String(dataURL).match(/^data:([^;]+)/i)||[])[1]||"image/png",id=placeholder?placeholder.id:("e_edit_"+token),selected={};selected[id]=true;api.addFiles([{id:fileId,dataURL:dataURL,mimeType:mime,created:now,lastRetrieved:now}]);var customSource=source&&source.customData||{},el=Object.assign({},base,{id:id,fileId:fileId,x:placeholder?Number(placeholder.x||0):Number(source.x||0)+Number(source.width||w)+70,y:placeholder?Number(placeholder.y||0):Number(source.y||0),width:w,height:h,index:placeholder?placeholder.index:undefined,seed:placeholder?placeholder.seed:Math.floor(Math.random()*1e9),version:Number(base.version||0)+1,versionNonce:Math.floor(Math.random()*1e9),updated:now,isDeleted:false,customData:Object.assign({},customSource,placeholder&&placeholder.customData||{},{dshFileName:detail.image.name||"编辑结果.png",dshSourcePath:detail.image.path||"",dshSourceMtime:Number(detail.image.mtime||0),dshSourceKind:detail.image.kind||"image",dshManaged:true,dshEditState:"complete",dshEditRootPath:detail.editRootPath||customSource.dshEditRootPath||customSource.dshSourcePath||"",dshEditHistory:Array.isArray(detail.editHistory)?detail.editHistory:[],dshEditDepth:Number(detail.editDepth||1),dshEditEngine:detail.engine||"codex"})}),all=api.getSceneElements()||[],next=placeholder?all.map(function(item){return item&&item.id===placeholder.id?el:item;}):all.concat([el]);api.updateScene({elements:next,appState:Object.assign({},api.getAppState()||empty,{selectedElementIds:selected}),commitToHistory:false});post({type:"image-edit-added",name:detail.image.name||"编辑结果",engine:detail.engine||"codex"});});});}
   function addBackgroundRemovedImage(detail){
     if(!api||!detail||!detail.image||!detail.image.url)return Promise.reject(new Error("去背景结果无效"));
@@ -4257,7 +4257,20 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
                 // 图层编辑的临时提取图（dshScratch）落在 outputs/ 下，而项目素材扫描在 depth 0
                 // 就跳过 outputs/，它永远不会出现在 project-files 列表里。若不跳过，这里的
                 // “访达删除对账”会在加入画布约 2 秒后就把元素移除，提交编辑时报“原图已不在画布中”。
-                if (source.dshScratch === true) continue;
+                // 图层编辑的两类残留自愈：占位图（dshEditState=processing）与临时提取图
+                // （dshScratch）的源文件都在 outputs/.图片编辑临时/ 下、不在 project-files
+                // 列表里（扫描跳过 outputs/）。写回成功的清理消息偶尔被时序吞掉——这里
+                // 兜底：占位图存活超过 10 分钟直接移除；临时提取图超过 30 分钟也移除。
+                const nowMs = Date.now();
+                if (source.dshEditState === 'processing') {
+                  const started = Number(source.dshEditStartedAt || 0);
+                  if (!started || nowMs - started > 10 * 60 * 1000) { finderRemovingIds.current.add(element.id); missingIds.push(element.id); continue; }
+                }
+                if (source.dshScratch === true) {
+                  const born = Number(source.dshSourceMtime || 0);
+                  if (!born || nowMs - born > 30 * 60 * 1000) { finderRemovingIds.current.add(element.id); missingIds.push(element.id); continue; }
+                  continue;
+                }
                 const disk = filesByPath.get(source.dshSourcePath);
                 if (!disk) {
                   const pendingRename = pendingRenames.current.get(element.id);
