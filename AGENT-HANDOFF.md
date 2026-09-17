@@ -581,3 +581,47 @@ git diff --check：通过
   图层编辑前**弹窗提醒先在 Illustrator 里关掉这份稿**。
 - 新增常驻排查通道：`$TMPDIR/dsh-canvas-ai-diag.json`（最近 8 条，含 `close/warn/msJsx/z=实际/期望`）。
 - **接手第一件事**：真机验收最后两轮（见报告 §5）。已知闸门是"文件正开在 Illustrator 里会被反向覆盖"，目前只靠弹窗规避。**未提交、未验收前不要打 tag、不要发布。**
+
+## 16. 2026-09-17 夜：Adobe 桥接（Photoshop / Illustrator ⇄ 画布）落地（分支 `refactor/v1.8`，**未真机验收**）
+
+> 契约文档：**[`canvas-workbench/adobe-bridge/PROTOCOL.md`](canvas-workbench/adobe-bridge/PROTOCOL.md)**——目录、清单字段、状态机、安装、排障速查全在那里。改任何一端先读它、改字段同步改它。
+
+用户需求原话："在 PS 或 AI 里加一个插件，把选中的图层发送到画板编辑，编辑好的图片或分离图层的 PSD/AI 文件返回到 PS/AI"。
+方案定为**脚本 + 文件夹传输**（不是 UXP / 不走 HTTP）：兼容 CS6→2026 全版本，装法就是拷 .jsx；没有端口、没有网络权限、没有签名。
+
+**做了什么（文件地图，全部以 `adobe-bridge` 命名便于 grep）：**
+
+| 层 | 文件 | 职责 |
+|---|---|---|
+| 契约 | `canvas-workbench/adobe-bridge/PROTOCOL.md` | 唯一契约 |
+| 共享纯函数 | `src/shared/utils/adobe-bridge.js` | 目录名常量、清单校验、序号、安全名（host import；客户端经 build-manifest `inline`） |
+| Host 服务 | `src/host/services/adobe-bridge.js` | 握手 `bridge.json`（心跳 ≤20s 重写）、收件清单校验（文件稳定 ≥1s）、ack 改名 `.done.json`、发件箱写入（序号永不覆盖、清单最后写）、出处解析、脚本安装、`bridge-log.jsonl` |
+| Host 路由 | `src/host/routes/adobe-bridge.routes.js` | `/dsh-canvas/adobe-bridge/{activate,inbound,ack,return,status,install-scripts}`；在 `src/host/index.js` 创建服务并注册 |
+| 客户端 | `src/client/features/adobe-bridge/00-bridge.js` | 3s 轮询器（心跳 + 收件上画布 + `customData.dshBridge` 打印 + ack）、`requestAdobeBridgeReturn`、`installAdobeBridgeScripts` |
+| 客户端接入 | `src/client/app/02-CanvasOverlay.js` | 轮询 effect；`request-bridge-return` 消息；通用自动上画布**跳过 `ADOBE桥接/`**（`isAdobeBridgePath`，否则重复添加）；`flushPending` 透传 `customData`；「更多 → 🔗 安装 Adobe 桥接脚本」 |
+| iframe | `src/client/core/canvas/frame/00-srcdoc.js` | 选中工具栏「→Ps」「→Ai」按钮 + `requestBridgeReturn`（有源文件传路径，否则传 dataURL）+ CSS |
+| Adobe 脚本 | `adobe-bridge/dsh-bridge-core.jsx` | ES3 工具：JSON 手写序列化/eval 解析、UTF-8 文件读写、握手/清单/日志/偏好、ScriptUI 骨架 |
+| | `adobe-bridge/DSH画布桥接-Photoshop.jsx` | palette 常驻；AM `targetLayers` 取多选 → 隔离可见性 → `duplicate(合并可见)` → crop → PNG 副本；`Plc ` 置入 + 按 origin.bounds 归位；`scheduleTask` 2.5s 轮询发件箱 |
+| | `adobe-bridge/DSH画布桥接-Illustrator.jsx` | dialog 模态（AI 不支持常驻 palette）；复制选区到临时文档导出 PNG24；**y 向上→y 向下换算**（画板左上为原点）写清单，置入时反向；整画板另存 .ai 副本不动原文档 |
+| 检查 | `scripts/check-adobe-bridge-jsx.mjs`（已入 `npm run check`） | BOM 必须有 / 去 `#` 指令后 `node --check` / ES5+ 特性扫描（箭头、const、JSON、forEach、trim、尾逗号…） |
+| 安装 CLI | `scripts/install-adobe-bridge.mjs`（`npm run install:adobe-bridge`，`--list`） | 与画布按钮共用 `installScripts()` |
+| 测试 | `tests/unit/adobe-bridge.test.mjs` | 纯函数 + 临时目录跑完整收→列→ack→返回流程（5 项） |
+
+**已验证（确定性证据）：**
+- `npm run check` 全绿（含新 jsx 检查：3 个脚本 BOM/语法/ES3）；`npm test` 40 通过（原 35 + 新 5）；`build --check` 一致。
+- Node 打桩 `File/Folder` 跑 core：手写 `toJSON` 输出能被 Node `JSON.parse` 解析、`parseJSON` 回读一致、jobId 合规、`shouldHome` 四种分支正确；host `validateInboundManifest` 接受脚本格式清单。
+- 安装器真机：用户副本 + **PS 用户级目录 `~/Library/Application Support/Adobe/Adobe Photoshop 2025/Presets/Scripts` 写入成功**（该目录已有用户自装的 `BiRefNet-Remove-BG.jsx`，证明 PS 会扫描它，PS 面板不需要 sudo）；`/Applications` 下 PS/AI 目录 root 权限 → 返回可粘贴的 `sudo cp` / `sudo sh -c 'for …'` 命令；Illustrator 是 `Presets.localized/<25 个 locale>/Scripts`，合并为一条。
+
+**未验证（接手第一件事，按顺序）：**
+1. **真机跑 PS 面板**：文件 → 脚本 → DSH画布桥接-Photoshop，看 palette 是否常驻、状态灯是否读到 `bridge.json`（需 DSH 开着 + 画布可见 + 已绑项目；否则显示离线原因）。
+2. 发送一个文字图层 → 画布 3s 内长出来、反馈条显示「已从 Photoshop 接收」、清单变 `.done.json`。可能的坑：`targetLayers` 索引 ±1（有/无背景层）、`duplicate(name,true)` 在只有隐藏背景时的透明度、CMYK 文档转 RGB。
+3. 画布选中 → 「→Ps」→ 发件箱出现 `0001-*.png` + `0001.json` → PS 面板 2.5s 内亮「有 1 个返回件」→ 置入为图层 → 归位（文档名一致时）。可能的坑：`Plc ` 置入后 `activeLayer` 是否就是新图层、`resize` 百分比基准、PNG dpi 与文档分辨率不同导致的置入尺寸。
+4. AI：对话框能否在 2026 正常显示（`dialog` 应无问题）；`documents.add(space,w,h)` 的 artboardRect 是否如预期 `[0,0,w,-h]`（代码不假设、按实际 rect 对齐，但 `paste` 后 `selection` 是否等于粘贴项需确认）；`exportFile PNG24` 的 `artBoardClipping` 是否裁到我们的临时画板；`pasteInPlace` 在新文档的相对位置。
+5. Windows：`Folder('~')`、`%APPDATA%` 路径、`scheduleTask`；`PROTOCOL.md §6` 的 Windows 目录尚未实机验证。
+
+**边界与决定：**
+- 当前机器插件处于**已卸载**状态（用户在做 1.7.0 干净重装测试），本节代码**没有同步到四层运行副本**——要试桥接需从 `refactor/v1.8` 运行 `./sync-local-plugins.sh`。
+- 发件箱文件**永不覆盖**（序号递增），用户要求保留历史；清理由用户手动。
+- 收件方向刻意**不复用通用自动上画布**（要打出处印、要 ack、要独立反馈），因此通用逻辑跳过 `ADOBE桥接/`；如果桥接轮询器坏了，文件仍在素材库可手动加。
+- `.jsx` 必须带 UTF-8 BOM、必须 ES3（检查器会拦）；`#include` 要求三个文件同目录。
+- 没有触碰图层级编辑（§15）的任何代码；两者只在 `customData` 上并存。

@@ -27,6 +27,8 @@ import { register as register4 } from './routes/generation.routes.js';
 import { register as register5 } from './routes/text.routes.js';
 import { register as register6 } from './routes/material.routes.js';
 import { register as register7 } from './routes/external.routes.js';
+import { register as registerAdobeBridge } from './routes/adobe-bridge.routes.js';
+import { createAdobeBridge } from './services/adobe-bridge.js';
 
 function apply(ctx) {
   const fs = ctx.get('fs');
@@ -297,7 +299,9 @@ function apply(ctx) {
 
   const jobs = createJobManager();
   const pythonTools = createPythonToolRegistry({ pluginRoot: PLUGIN_ROOT, resolvePython: (c) => resolvePython(c || ctx), run: runProcessWithTimeout });
-  const h = { jobs, pythonTools, chatContexts, ctx, documentPreviewPath, flattenRecycleBin, previewUrl, progressPathFor, projectDirectory, projectStatePath, psdPreviewPath, runProcess, runProcessWithTimeout, scanProjectImagesShared, stateWriteChains, writeManagedImage, writeManagedSource, writeManagedSvg, writeProgressFile };
+  // Adobe 桥接（Photoshop/Illustrator 脚本面板 ⇄ 画布）：纯文件夹传输，协议见 adobe-bridge/PROTOCOL.md。
+  const adobeBridge = createAdobeBridge({ pluginRoot: PLUGIN_ROOT, previewUrl });
+  const h = { adobeBridge, jobs, pythonTools, chatContexts, ctx, documentPreviewPath, flattenRecycleBin, previewUrl, progressPathFor, projectDirectory, projectStatePath, psdPreviewPath, runProcess, runProcessWithTimeout, scanProjectImagesShared, stateWriteChains, writeManagedImage, writeManagedSource, writeManagedSvg, writeProgressFile };
   const router = createRouter();
   router.use(jobTrackingMiddleware(jobs));
   register0(router, h);
@@ -308,6 +312,7 @@ function apply(ctx) {
   register5(router, h);
   register6(router, h);
   register7(router, h);
+  registerAdobeBridge(router, h);
   registerJobs(router, h);
   registerContracts(router, h);
   registerDocument(router, h);

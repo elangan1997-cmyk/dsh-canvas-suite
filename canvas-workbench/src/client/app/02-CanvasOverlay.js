@@ -669,7 +669,7 @@
         pendingRef.current = [];
         const total = queue.length;
         const columns = total > 1 ? Math.min(5, Math.ceil(Math.sqrt(total * 1.35))) : 1;
-        queue.forEach((item, index) => post({ type: 'add-image', explicit: true, url: item.url, path: item.path || '', name: item.name || basename(item.path || ''), mtime: item.mtime || 0, kind: item.kind || 'image', managed: item.managed, batchIndex: total > 1 ? index : undefined, batchTotal: total, batchColumns: columns, atX: item.atX, atY: item.atY }));
+        queue.forEach((item, index) => post({ type: 'add-image', explicit: true, url: item.url, path: item.path || '', name: item.name || basename(item.path || ''), mtime: item.mtime || 0, kind: item.kind || 'image', managed: item.managed, batchIndex: total > 1 ? index : undefined, batchTotal: total, batchColumns: columns, atX: item.atX, atY: item.atY, customData: item.customData && typeof item.customData === 'object' ? item.customData : undefined }));
       };
       const loadProject = (next, requireExisting) => {
         next = { ...next, sessionId: next.sessionId || projectRef.current.sessionId || activeChatSessionId };
@@ -1286,6 +1286,9 @@
               setFeedback('✓ 已在 Illustrator 中打开 ' + String(result.data.kind || d.sourceKind || '源文件') + '；保存后画布约 8 秒内更新');
             })
             .catch((err) => setFeedback('⚠ Illustrator 打开失败：' + String((err && err.message) || err)));
+        } else if (d.type === 'request-bridge-return') {
+          // 画布「→Ps / →Ai」：写入项目 ADOBE桥接/发件箱，由 PS/AI 的 DSH画布桥接 面板置入（adobe-bridge/PROTOCOL.md §4）。
+          void requestAdobeBridgeReturn(projectRef.current, d, setFeedback);
         } else if (d.type === 'material-drag-start') {
           canvasMaterialDrag.current = Array.isArray(d.items) ? d.items.filter((item) => item && item.dataURL) : [];
           setMaterialDropActive(false);
@@ -1843,6 +1846,8 @@
                   const fresh = [];
                   for (const item of result.images || []) {
                     if (!item || !item.path) continue;
+                    // ADOBE桥接/ 下的文件由桥接轮询器按清单上画布（要打出处印、要 ack），这里跳过以免重复添加。
+                    if (isAdobeBridgePath(item.path)) continue;
                     if (autoAddBaseline.current.has(item.path) || linked.has(item.path) || queuedDiskPaths.current.has(item.path)) continue;
                     autoAddBaseline.current.add(item.path);
                     if (Number(item.mtime || 0) > Date.now() - 15 * 60 * 1000) fresh.push(item);
@@ -1910,6 +1915,28 @@
           knownDiskPaths.current = null;
           queuedDiskPaths.current.clear();
         };
+      }, [on, projectInfo.cwd, projectInfo.project]);
+
+      // Adobe 桥接轮询：心跳握手 + 把 PS/AI 面板送来的图层放上画布（features/adobe-bridge/00-bridge.js）。
+      // 与上面的项目轮询互不干扰：桥接文件由这里按清单添加，通用自动上画布已跳过 ADOBE桥接/。
+      React.useEffect(() => {
+        if (!on) return undefined;
+        const poller = createAdobeBridgePoller({
+          getProject: () => projectRef.current,
+          isLinked: (path) => ((latestSnapshot.current && latestSnapshot.current.elements) || []).some((el) => el && el.type === 'image' && !el.isDeleted && el.customData && el.customData.dshSourcePath === path),
+          isQueued: (path) => queuedDiskPaths.current.has(path),
+          addImages: (items) => {
+            for (const item of items) {
+              queuedDiskPaths.current.add(item.path);
+              if (knownDiskPaths.current) knownDiskPaths.current.add(item.path);
+              pendingRef.current.push(item);
+            }
+            flushPending();
+          },
+          setFeedback
+        });
+        poller.start();
+        return () => poller.stop();
       }, [on, projectInfo.cwd, projectInfo.project]);
 
       const startResize = (e) => {
@@ -2022,6 +2049,7 @@
             }, (canvasBgFollowSystem ? '☑' : '☐') + ' 画布背景跟随系统'),
             React.createElement('button', { onClick: () => { setMoreMenuOpen(false); openProjectFolder(); }, disabled: !projectInfo.project }, '📁 打开项目文件夹'),
             React.createElement('button', { onClick: openImageSettings }, '⚙ 图像引擎设置'),
+            React.createElement('button', { title: '把 DSH画布桥接 脚本面板装进本机 Photoshop / Illustrator（文件 → 脚本），实现图层送到画布、编辑后一键返回', onClick: () => { setMoreMenuOpen(false); void installAdobeBridgeScripts(setFeedback); } }, '🔗 安装 Adobe 桥接脚本'),
             React.createElement('button', { onClick: () => { setMoreMenuOpen(false); saveNow(); setFeedback('✓ 已保存当前画布'); }, disabled: !projectInfo.project }, '保存当前画布'),
             React.createElement('button', { className: 'dsh-canvas-more-danger', title: '先备份画布，再把项目图片移入画布回收站', onClick: () => { setMoreMenuOpen(false); backupAndClear(); }, disabled: !projectInfo.project }, '清空当前画布')
           ) : null

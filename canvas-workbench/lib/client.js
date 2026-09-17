@@ -1838,6 +1838,203 @@ window.__ModuleLoader__.load({
       );
     }
 
+    // ---- 内联自 src/shared/utils/adobe-bridge.js（构建期去 import/export；请改源文件） ----
+    // Adobe 桥接：纯函数共享模块（无 Node / DOM 依赖）。Host 直接 import；客户端由 build-manifest 内联。
+    // 目录名、清单命名、序号、路径判定都集中在这里——改协议先改 adobe-bridge/PROTOCOL.md，再改这里。
+    const ADOBE_BRIDGE_PROTOCOL = 1;
+    const ADOBE_BRIDGE_DIR = 'ADOBE桥接';
+    const ADOBE_BRIDGE_INBOX = Object.freeze({ photoshop: '来自Photoshop', illustrator: '来自Illustrator' });
+    const ADOBE_BRIDGE_OUTBOX = '发件箱';
+    const ADOBE_BRIDGE_APPS = Object.freeze(['photoshop', 'illustrator']);
+    const ADOBE_BRIDGE_APP_LABELS = Object.freeze({ photoshop: 'Photoshop', illustrator: 'Illustrator' });
+    // 画布可原样返回给 Adobe 的文件类型（图片按图片、分层按分层，不做转换）。
+    const ADOBE_BRIDGE_RETURNABLE = Object.freeze(['png', 'jpg', 'jpeg', 'webp', 'psd', 'ai', 'svg', 'pdf']);
+
+    /** 路径是否位于项目的 ADOBE桥接/ 目录下（通用自动上画布要跳过它，交给桥接轮询器）。 */
+    function isAdobeBridgePath(path) {
+      return /[\\/]ADOBE桥接[\\/]/.test(String(path || ''));
+    }
+
+    /** 是否为待处理清单：`*.json` 但不是 `*.done.json` / `*.failed.json`。 */
+    function isPendingBridgeManifest(name) {
+      const value = String(name || '');
+      return /\.json$/i.test(value) && !/\.(done|failed)\.json$/i.test(value);
+    }
+
+    /** 文件名安全化：去掉路径分隔与非法字符，折叠空白，限长；空值用 fallback。 */
+    function sanitizeBridgeName(value, fallback) {
+      const cleaned = String(value || '').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '-').replace(/\s+/g, ' ').trim().replace(/^\.+/, '');
+      const capped = cleaned.length > 60 ? cleaned.slice(0, 60).trim() : cleaned;
+      return capped || String(fallback || '文件');
+    }
+
+    /** 发件箱序号：扫描现有文件名的 `NNNN-` 前缀取最大值 +1（永不覆盖历史）。 */
+    function nextOutboxSeq(names) {
+      let max = 0;
+      for (const name of names || []) {
+        const match = /^(\d{4,})[-.]/.exec(String(name || ''));
+        if (match) max = Math.max(max, Number(match[1]) || 0);
+      }
+      return max + 1;
+    }
+
+    function padSeq(seq) {
+      return String(Math.max(1, Number(seq) || 1)).padStart(4, '0');
+    }
+
+    /** 发件文件名：`0007-标题-画布.psd`。 */
+    function outboxFileName(seq, name, fallbackExt) {
+      const safe = sanitizeBridgeName(name, '画布图片' + (fallbackExt ? '.' + fallbackExt : ''));
+      return padSeq(seq) + '-' + safe;
+    }
+
+    function bridgeExtOf(name) {
+      const value = String(name || '');
+      const dot = value.lastIndexOf('.');
+      return dot > 0 ? value.slice(dot + 1).toLowerCase() : '';
+    }
+
+    function isReturnableBridgeFile(name) {
+      return ADOBE_BRIDGE_RETURNABLE.includes(bridgeExtOf(name));
+    }
+
+    /** 校验收件清单结构（脚本写的 JSON）。返回 { ok, error, manifest }；不做磁盘检查。 */
+    function validateInboundManifest(raw) {
+      if (!raw || typeof raw !== 'object') return { ok: false, error: '清单不是对象' };
+      if (Number(raw.protocol) !== ADOBE_BRIDGE_PROTOCOL) return { ok: false, error: '协议版本不匹配：' + raw.protocol };
+      if (!ADOBE_BRIDGE_APPS.includes(raw.app)) return { ok: false, error: '未知 app：' + raw.app };
+      if (!raw.jobId || typeof raw.jobId !== 'string') return { ok: false, error: '缺少 jobId' };
+      if (!Array.isArray(raw.items) || !raw.items.length) return { ok: false, error: '清单 items 为空' };
+      for (const item of raw.items) {
+        if (!item || typeof item.file !== 'string' || !item.file) return { ok: false, error: '清单 item 缺少 file' };
+        if (/[\\/]/.test(item.file)) return { ok: false, error: '清单 item.file 不能含路径：' + item.file };
+      }
+      return { ok: true, manifest: raw };
+    }
+
+    /** 生成发件清单对象（写盘前的最终结构；脚本按此读取）。 */
+    function buildOutboundManifest({ seq, targetApp, files, origin, createdAt }) {
+      const at = Number(createdAt) || Date.now();
+      const stamp = new Date(at);
+      const pad = (n) => String(n).padStart(2, '0');
+      const jobId = 'out-' + stamp.getFullYear() + pad(stamp.getMonth() + 1) + pad(stamp.getDate()) + '-' + pad(stamp.getHours()) + pad(stamp.getMinutes()) + pad(stamp.getSeconds()) + '-' + padSeq(seq);
+      return {
+        protocol: ADOBE_BRIDGE_PROTOCOL,
+        jobId,
+        seq: Number(seq) || 1,
+        targetApp: ADOBE_BRIDGE_APPS.includes(targetApp) ? targetApp : 'photoshop',
+        createdAt: at,
+        files: (files || []).map((f) => ({ file: String(f.file || ''), name: String(f.name || f.file || ''), kind: String(f.kind || bridgeExtOf(f.file) || 'png') })),
+        origin: origin && typeof origin === 'object' ? origin : null,
+        placement: 'auto'
+      };
+    }
+
+
+    // Adobe 桥接（客户端半边）。协议契约：adobe-bridge/PROTOCOL.md；纯函数/常量来自内联的
+    // shared/utils/adobe-bridge.js（ADOBE_BRIDGE_APP_LABELS / isAdobeBridgePath …）。
+    //
+    //   收件：createAdobeBridgePoller —— 画布可见且已绑项目时每 3s：心跳 activate → 拉取 inbound
+    //         → 未在画布的文件 add-image（customData.dshBridge 打印出处）→ ack 清单。
+    //   发件：requestAdobeBridgeReturn —— srcdoc「→Ps / →Ai」按钮的 request-bridge-return 消息 → host /return。
+    //   安装：installAdobeBridgeScripts —— 「更多」菜单按钮 → host /install-scripts。
+    //
+    // 通用"项目新文件自动上画布"会跳过 ADOBE桥接/ 下的路径（isAdobeBridgePath），避免与这里重复添加。
+    const ADOBE_BRIDGE_POLL_MS = 3000;
+    const adobeBridgeQuery = (current) => 'cwd=' + encodeURIComponent(current.cwd || '') + '&project=' + encodeURIComponent(current.project || '');
+    const adobeBridgeJson = (url, body) => fetch(url, body === undefined
+      ? { cache: 'no-store' }
+      : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+    ).then((r) => r.json().then((data) => ({ ok: r.ok, data })));
+
+    /**
+     * @param {object} deps
+     * @param {() => {cwd?:string, project?:string, sessionId?:string}} deps.getProject
+     * @param {(path:string) => boolean} deps.isLinked 画布上是否已有该源文件
+     * @param {(path:string) => boolean} deps.isQueued 是否已在加入队列
+     * @param {(items: object[]) => void} deps.addImages 交给 pendingRef + flushPending
+     * @param {(text:string) => void} deps.setFeedback
+     */
+    function createAdobeBridgePoller({ getProject, isLinked, isQueued, addImages, setFeedback }) {
+      let timer = 0;
+      let disposed = false;
+      let busy = false;
+      const schedule = () => {
+        if (disposed) return;
+        clearTimeout(timer);
+        timer = setTimeout(tick, ADOBE_BRIDGE_POLL_MS);
+      };
+      const tick = async () => {
+        if (disposed) return;
+        const current = getProject() || {};
+        if (busy || document.visibilityState !== 'visible' || !current.project) { schedule(); return; }
+        busy = true;
+        try {
+          const heartbeat = { cwd: current.cwd || '', project: current.project || '', sessionId: current.sessionId || '' };
+          await adobeBridgeJson('/dsh-canvas/adobe-bridge/activate', heartbeat).catch(() => null);
+          const result = await adobeBridgeJson('/dsh-canvas/adobe-bridge/inbound?' + adobeBridgeQuery(current));
+          if (disposed || !result.ok || !result.data || !result.data.ok || !Array.isArray(result.data.jobs)) return;
+          for (const job of result.data.jobs) {
+            const items = Array.isArray(job.items) ? job.items : [];
+            const fresh = items.filter((item) => item && item.path && !isLinked(item.path) && !isQueued(item.path));
+            if (fresh.length) {
+              addImages(fresh.map((item) => ({
+                path: item.path, name: item.name, mtime: item.mtime, size: item.size, kind: item.kind, url: item.url, managed: true, explicit: true,
+                customData: { dshBridge: { jobId: job.jobId, app: job.app, layer: item.layer && item.layer.name || '', document: job.document && job.document.name || '' } }
+              })));
+            }
+            await adobeBridgeJson('/dsh-canvas/adobe-bridge/ack', { ...heartbeat, manifest: job.manifestName }).catch(() => null);
+            const label = ADOBE_BRIDGE_APP_LABELS[job.app] || job.app;
+            const names = items.map((item) => (item.layer && item.layer.name) || item.name).join('、');
+            setFeedback('✓ 已从 ' + label + ' 接收 ' + items.length + ' 张图片' + (fresh.length !== items.length ? '（' + (items.length - fresh.length) + ' 张已在画布）' : '') + '：' + names);
+          }
+        } catch (err) {
+          // 轮询失败静默重试；host 不在线时 fetch 直接 reject，不打扰用户。
+        } finally {
+          busy = false;
+          schedule();
+        }
+      };
+      return {
+        start() { disposed = false; clearTimeout(timer); void tick(); },
+        stop() { disposed = true; clearTimeout(timer); }
+      };
+    }
+
+    /** srcdoc「→Ps / →Ai」→ 写发件箱。detail: { app, items:[{sourcePath, dataURL, name, bridge}] } */
+    function requestAdobeBridgeReturn(current, detail, setFeedback) {
+      const app = ADOBE_BRIDGE_APPS.includes(detail && detail.app) ? detail.app : 'photoshop';
+      const label = ADOBE_BRIDGE_APP_LABELS[app];
+      const items = Array.isArray(detail && detail.items) ? detail.items : [];
+      setFeedback('正在把 ' + items.length + ' 张图片放入 ' + label + ' 发件箱…');
+      return adobeBridgeJson('/dsh-canvas/adobe-bridge/return', { cwd: current.cwd || '', project: current.project || '', app, items })
+        .then((result) => {
+          if (!result.ok || !result.data || !result.data.ok) throw new Error((result.data && result.data.error) || '写入发件箱失败');
+          const d = result.data;
+          const originName = d.origin ? ((d.origin.layer && d.origin.layer.name) || (d.origin.document && d.origin.document.name) || '') : '';
+          const hint = app === 'photoshop' ? 'PS 面板会自动检测，点「置入为图层」或「打开为新文档」' : 'AI 面板点「刷新」后「置入」或「打开」';
+          setFeedback('✓ 已放入 ' + label + ' 发件箱 #' + d.seq + '（' + (d.files || []).length + ' 个文件' + (originName ? '，可归位到「' + originName + '」' : '') + '）；' + hint);
+        })
+        .catch((err) => setFeedback('⚠ 返回 ' + label + ' 失败：' + String((err && err.message) || err)));
+    }
+
+    /** 「更多 → 安装 Adobe 桥接脚本」：把 adobe-bridge/*.jsx 拷进本机 PS/AI 的 Scripts 目录。
+     *  权限不足的目录（macOS 的 /Applications 通常是 root）会给出 sudo 命令；用户副本永远可用「浏览…/其它脚本…」打开。 */
+    function installAdobeBridgeScripts(setFeedback) {
+      setFeedback('正在安装 Adobe 桥接脚本面板…');
+      return adobeBridgeJson('/dsh-canvas/adobe-bridge/install-scripts', {})
+        .then((result) => {
+          const d = result.data || {};
+          if (!result.ok || !d.ok) throw new Error(d.error || '安装失败');
+          const okNames = (d.installed || []).map((i) => i.name).join('、');
+          const badText = (d.errors || []).map((e) => (e.name ? e.name + '：' : '') + e.error + (e.hint ? '（' + e.hint + '）' : '')).join('；');
+          const head = okNames
+            ? '✓ 桥接脚本已安装到 ' + okNames + '。重启 PS/AI 后在「文件 → 脚本」打开「DSH画布桥接」面板'
+            : '⚠ 没有装进任何 Adobe 菜单目录。' + (d.manualHint || '');
+          setFeedback(head + (badText ? '。其余：' + badText : '') + (okNames && d.userCopyDir ? '。用户副本：' + d.userCopyDir : ''));
+        })
+        .catch((err) => setFeedback('⚠ 安装桥接脚本失败：' + String((err && err.message) || err)));
+    }
 // Excalidraw (MIT, 完全开源商用) 版 iframe：替代 tldraw，保留相同 postMessage 协议。
 // 从 CDN 加载 React + Excalidraw UMD；离线/内网环境可能加载失败。
 const EXCALIDRAW_SRCDOC = `<!doctype html><html><head><meta charset="utf-8"><style>
@@ -1869,6 +2066,9 @@ const EXCALIDRAW_SRCDOC = `<!doctype html><html><head><meta charset="utf-8"><sty
     .dsh-selection-action.dsh-primary{background:#2563eb;color:#fff}.dsh-selection-action.dsh-primary:hover{background:#3b82f6}
     .dsh-selection-action.dsh-photoshop{background:#001e36;color:#31a8ff}.dsh-selection-action.dsh-photoshop:hover{background:#0b2b46;color:#8dceff}
     .dsh-selection-action.dsh-illustrator{background:#3b1b08;color:#ff9a3d}.dsh-selection-action.dsh-illustrator:hover{background:#5a2608;color:#ffc078}
+    /* Adobe 桥接「返回」：放入发件箱，由 PS/AI 里的 DSH画布桥接 面板置入（adobe-bridge/PROTOCOL.md） */
+    .dsh-selection-action.dsh-bridge-ps{background:#001e36;color:#31a8ff;border:1px dashed rgba(49,168,255,.45)}.dsh-selection-action.dsh-bridge-ps:hover{background:#0b2b46;color:#8dceff}
+    .dsh-selection-action.dsh-bridge-ai{background:#3b1b08;color:#ff9a3d;border:1px dashed rgba(255,154,61,.45)}.dsh-selection-action.dsh-bridge-ai:hover{background:#5a2608;color:#ffc078}
     .dsh-selection-action.dsh-danger:hover{background:rgba(239,68,68,.18);color:#fecaca}
     @keyframes dsh-toolbar-in{from{opacity:0;transform:translate(-50%,-92%) scale(.97)}to{opacity:1;transform:translate(-50%,-100%) scale(1)}}
     .dsh-image-editor{position:fixed;inset:0;z-index:220;display:flex;align-items:center;justify-content:center;padding:18px;background:rgba(5,7,11,.82);backdrop-filter:blur(12px);pointer-events:auto}
@@ -2147,6 +2347,9 @@ function Main(){
     var layerEdit=function(id){if(!api)return;var target=(api.getSceneElements()||[]).find(function(item){return item&&item.id===id&&item.type==="image"&&!item.isDeleted;});if(!target)return;var c=target.customData||{},name=String(c.dshFileName||"");var path=String(c.dshSourcePath||"");if(!/\.(psd|ai|svg)$/i.test(name||path)){post({type:"error",message:"请选择 PSD / AI / SVG 文件后再编辑图层"});return;}if(!path){post({type:"error",message:"该文件没有可写回的源路径"});return;}post({type:"layer-edit-request",path:path,name:name||"文档"});};
     var openInPhotoshop=function(id){if(!api)return;var target=(api.getSceneElements()||[]).find(function(item){return item&&item.id===id&&item.type==="image"&&!item.isDeleted;}),files=fileObject(api.getFiles?api.getFiles():{}),file=target&&files[target.fileId];if(!target||!file||!file.dataURL){post({type:"error",message:"当前图片数据不可用"});return;}var custom=target.customData||{};post({type:"request-photoshop-edit",elementId:id,fileId:target.fileId,name:custom.dshFileName||("画布图片-"+String(id).slice(-6)+".png"),sourcePath:custom.dshSourcePath||"",sourceKind:custom.dshSourceKind||"image",dataURL:file.dataURL});};
     var openInIllustrator=function(id){if(!api)return;var target=(api.getSceneElements?api.getSceneElements():[]).find(function(item){return item&&item.id===id&&item.type==="image"&&!item.isDeleted;}),custom=target&&target.customData||{},kind=String(custom.dshSourceKind||"");if(!target||!custom.dshSourcePath){post({type:"error",message:"Illustrator 编辑需要源文件（该图片没有关联的磁盘源，如为粘贴图请先归档）"});return;}post({type:"request-illustrator-edit",elementId:id,name:custom.dshFileName||("画布文件-"+String(id).slice(-6)),sourcePath:custom.dshSourcePath,sourceKind:kind});};
+    /* Adobe 桥接「返回 Ps/Ai」：把所选图片交给父页面写入项目 ADOBE桥接/发件箱（有源文件传路径，无源文件传 dataURL 先落盘）。
+       customData.dshBridge 是收件时打的印（jobId/app/layer），host 据此解析出处并让 PS/AI 面板原位置入。协议：adobe-bridge/PROTOCOL.md */
+    var requestBridgeReturn=function(ids,app){if(!api||!Array.isArray(ids)||!ids.length)return;var wanted={};ids.forEach(function(id){wanted[id]=true;});var files=fileObject(api.getFiles?api.getFiles():{}),items=[];(api.getSceneElements()||[]).forEach(function(item){if(!item||item.type!=="image"||item.isDeleted||!wanted[item.id])return;var custom=item.customData||{},file=files[item.fileId],sourcePath=String(custom.dshSourcePath||"");if(!sourcePath&&!(file&&file.dataURL))return;items.push({elementId:item.id,fileId:item.fileId,name:custom.dshFileName||("画布图片-"+String(item.id).slice(-6)+".png"),sourcePath:sourcePath,sourceKind:custom.dshSourceKind||"image",dataURL:sourcePath?"":file.dataURL,bridge:custom.dshBridge||null});});if(!items.length){post({type:"error",message:"所选图片没有可返回的数据"});return;}post({type:"request-bridge-return",app:app,items:items});};
     var requestVectorize=function(id,vectorMode){if(!api)return;var target=(api.getSceneElements?api.getSceneElements():[]).find(function(item){return item&&item.id===id&&item.type==="image"&&!item.isDeleted;}),files=fileObject(api.getFiles?api.getFiles():{}),file=target&&files[target.fileId],custom=target&&target.customData||{},kind=String(custom.dshSourceKind||"image"),mimeMatch=String(file&&file.dataURL||"").match(/^data:([^;]+);base64,/i),mime=mimeMatch?String(mimeMatch[1]).toLowerCase():"",rasterMime=["image/png","image/jpeg","image/jpg","image/webp","image/gif","image/avif","image/bmp"].indexOf(mime)>=0;if(!target||!file||!file.dataURL||["image","psd"].indexOf(kind)<0||!rasterMime){post({type:"error",message:"当前图片不适合转矢量，请选择 PNG/JPG/WebP 等栅格图片"});return;}post({type:"request-vectorize",elementId:id,fileId:target.fileId,name:custom.dshFileName||("画布图片-"+String(id).slice(-6)+".png"),sourcePath:custom.dshSourcePath||"",imageData:file.dataURL,vectorMode:vectorMode||"flat"});};
     var requestTextRebuild=function(id){if(!api)return;var target=(api.getSceneElements?api.getSceneElements():[]).find(function(item){return item&&item.id===id&&item.type==="image"&&!item.isDeleted;}),files=fileObject(api.getFiles?api.getFiles():{}),file=target&&files[target.fileId];if(!target||!file||!file.dataURL){post({type:"error",message:"当前图片数据不可用"});return;}var custom=target.customData||{};post({type:"request-text-rebuild",elementId:id,fileId:target.fileId,name:custom.dshFileName||("画布图片-"+String(id).slice(-6)+".png"),sourcePath:custom.dshSourcePath||"",imageData:file.dataURL});};
     var materialPayloadForSelection=function(ids){if(!api)return[];var wanted=new Set(Array.isArray(ids)?ids:[]),files=fileObject(api.getFiles?api.getFiles():{});return (api.getSceneElements?api.getSceneElements():[]).filter(function(item){return item&&item.type==="image"&&!item.isDeleted&&wanted.has(item.id);}).map(function(item,index){var file=files[item.fileId],custom=item.customData||{};return file&&file.dataURL?{dataURL:file.dataURL,name:custom.dshFileName||("画布素材-"+(index+1)+"-"+String(item.id).slice(-6)+".png")}:null;}).filter(Boolean);};
@@ -2170,6 +2373,8 @@ function Main(){
         toolbar.count===1?window.React.createElement('button',{className:'dsh-selection-action',title:'不经过主聊天，直接输入图片修改需求',onClick:function(){openImageEditor('edit',toolbar.ids[0]);}},'编辑图片'):null,
         toolbar.count===1?window.React.createElement('button',{className:'dsh-selection-action dsh-photoshop',title:'在 Photoshop 中打开链接文件；保存后自动刷新画布',onClick:function(){openInPhotoshop(toolbar.ids[0]);}},'Ps 编辑'):null,
         toolbar.count===1?window.React.createElement('button',{className:'dsh-selection-action dsh-illustrator',title:'在 Illustrator 中打开原文件；保存后自动刷新画布',onClick:function(){openInIllustrator(toolbar.ids[0]);}},'AI 编辑'):null,
+        window.React.createElement('button',{className:'dsh-selection-action dsh-bridge-ps',title:'返回 Photoshop：放入项目 ADOBE桥接/发件箱，在 PS 的「DSH画布桥接」面板点「置入为图层」即可回到原位（需先在「更多」里安装桥接脚本）',onClick:function(){requestBridgeReturn(toolbar.ids,"photoshop");}},'→Ps'),
+        window.React.createElement('button',{className:'dsh-selection-action dsh-bridge-ai',title:'返回 Illustrator：放入项目 ADOBE桥接/发件箱，在 AI 的「DSH画布桥接」面板点「刷新」后置入或打开（需先在「更多」里安装桥接脚本）',onClick:function(){requestBridgeReturn(toolbar.ids,"illustrator");}},'→Ai'),
         toolbar.count===1&&/\.(psd|ai|svg)$/i.test(String(toolbar.singleName||""))?window.React.createElement('button',{className:'dsh-selection-action',title:'选择该文档的指定图层，交给画布引擎修改后原位写回（其余图层与排版保留）',onClick:function(){layerEdit(toolbar.ids[0]);}},'编辑图层'):null,
         toolbar.count===1&&["image","psd"].indexOf(toolbar.singleKind||"image")>=0?window.React.createElement('button',{className:'dsh-selection-action dsh-text-rebuild-action',title:'框选后由当前聊天模型理解文字，并生成可在 Photoshop 中继续编辑的 PSD',onClick:function(){requestTextRebuild(toolbar.ids[0]);}},'编辑文字'):null,
         window.React.createElement('div',{className:'dsh-selection-more'},
@@ -3133,7 +3338,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
         pendingRef.current = [];
         const total = queue.length;
         const columns = total > 1 ? Math.min(5, Math.ceil(Math.sqrt(total * 1.35))) : 1;
-        queue.forEach((item, index) => post({ type: 'add-image', explicit: true, url: item.url, path: item.path || '', name: item.name || basename(item.path || ''), mtime: item.mtime || 0, kind: item.kind || 'image', managed: item.managed, batchIndex: total > 1 ? index : undefined, batchTotal: total, batchColumns: columns, atX: item.atX, atY: item.atY }));
+        queue.forEach((item, index) => post({ type: 'add-image', explicit: true, url: item.url, path: item.path || '', name: item.name || basename(item.path || ''), mtime: item.mtime || 0, kind: item.kind || 'image', managed: item.managed, batchIndex: total > 1 ? index : undefined, batchTotal: total, batchColumns: columns, atX: item.atX, atY: item.atY, customData: item.customData && typeof item.customData === 'object' ? item.customData : undefined }));
       };
       const loadProject = (next, requireExisting) => {
         next = { ...next, sessionId: next.sessionId || projectRef.current.sessionId || activeChatSessionId };
@@ -3750,6 +3955,9 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
               setFeedback('✓ 已在 Illustrator 中打开 ' + String(result.data.kind || d.sourceKind || '源文件') + '；保存后画布约 8 秒内更新');
             })
             .catch((err) => setFeedback('⚠ Illustrator 打开失败：' + String((err && err.message) || err)));
+        } else if (d.type === 'request-bridge-return') {
+          // 画布「→Ps / →Ai」：写入项目 ADOBE桥接/发件箱，由 PS/AI 的 DSH画布桥接 面板置入（adobe-bridge/PROTOCOL.md §4）。
+          void requestAdobeBridgeReturn(projectRef.current, d, setFeedback);
         } else if (d.type === 'material-drag-start') {
           canvasMaterialDrag.current = Array.isArray(d.items) ? d.items.filter((item) => item && item.dataURL) : [];
           setMaterialDropActive(false);
@@ -4307,6 +4515,8 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
                   const fresh = [];
                   for (const item of result.images || []) {
                     if (!item || !item.path) continue;
+                    // ADOBE桥接/ 下的文件由桥接轮询器按清单上画布（要打出处印、要 ack），这里跳过以免重复添加。
+                    if (isAdobeBridgePath(item.path)) continue;
                     if (autoAddBaseline.current.has(item.path) || linked.has(item.path) || queuedDiskPaths.current.has(item.path)) continue;
                     autoAddBaseline.current.add(item.path);
                     if (Number(item.mtime || 0) > Date.now() - 15 * 60 * 1000) fresh.push(item);
@@ -4374,6 +4584,28 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
           knownDiskPaths.current = null;
           queuedDiskPaths.current.clear();
         };
+      }, [on, projectInfo.cwd, projectInfo.project]);
+
+      // Adobe 桥接轮询：心跳握手 + 把 PS/AI 面板送来的图层放上画布（features/adobe-bridge/00-bridge.js）。
+      // 与上面的项目轮询互不干扰：桥接文件由这里按清单添加，通用自动上画布已跳过 ADOBE桥接/。
+      React.useEffect(() => {
+        if (!on) return undefined;
+        const poller = createAdobeBridgePoller({
+          getProject: () => projectRef.current,
+          isLinked: (path) => ((latestSnapshot.current && latestSnapshot.current.elements) || []).some((el) => el && el.type === 'image' && !el.isDeleted && el.customData && el.customData.dshSourcePath === path),
+          isQueued: (path) => queuedDiskPaths.current.has(path),
+          addImages: (items) => {
+            for (const item of items) {
+              queuedDiskPaths.current.add(item.path);
+              if (knownDiskPaths.current) knownDiskPaths.current.add(item.path);
+              pendingRef.current.push(item);
+            }
+            flushPending();
+          },
+          setFeedback
+        });
+        poller.start();
+        return () => poller.stop();
       }, [on, projectInfo.cwd, projectInfo.project]);
 
       const startResize = (e) => {
@@ -4486,6 +4718,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
             }, (canvasBgFollowSystem ? '☑' : '☐') + ' 画布背景跟随系统'),
             React.createElement('button', { onClick: () => { setMoreMenuOpen(false); openProjectFolder(); }, disabled: !projectInfo.project }, '📁 打开项目文件夹'),
             React.createElement('button', { onClick: openImageSettings }, '⚙ 图像引擎设置'),
+            React.createElement('button', { title: '把 DSH画布桥接 脚本面板装进本机 Photoshop / Illustrator（文件 → 脚本），实现图层送到画布、编辑后一键返回', onClick: () => { setMoreMenuOpen(false); void installAdobeBridgeScripts(setFeedback); } }, '🔗 安装 Adobe 桥接脚本'),
             React.createElement('button', { onClick: () => { setMoreMenuOpen(false); saveNow(); setFeedback('✓ 已保存当前画布'); }, disabled: !projectInfo.project }, '保存当前画布'),
             React.createElement('button', { className: 'dsh-canvas-more-danger', title: '先备份画布，再把项目图片移入画布回收站', onClick: () => { setMoreMenuOpen(false); backupAndClear(); }, disabled: !projectInfo.project }, '清空当前画布')
           ) : null
