@@ -294,7 +294,7 @@ function Main(){
         toolbar.count===1?window.React.createElement('button',{className:'dsh-selection-action',title:'不经过主聊天，直接输入图片修改需求',onClick:function(){openImageEditor('edit',toolbar.ids[0]);}},'编辑图片'):null,
         toolbar.count===1?window.React.createElement('button',{className:'dsh-selection-action dsh-photoshop',title:'在 Photoshop 中打开链接文件；保存后自动刷新画布',onClick:function(){openInPhotoshop(toolbar.ids[0]);}},'Ps 编辑'):null,
         toolbar.count===1?window.React.createElement('button',{className:'dsh-selection-action dsh-illustrator',title:'在 Illustrator 中打开原文件；保存后自动刷新画布',onClick:function(){openInIllustrator(toolbar.ids[0]);}},'AI 编辑'):null,
-        toolbar.count===1?window.React.createElement('button',{className:'dsh-selection-action',title:'选择 PSD/AI/SVG 的指定图层，交给画布引擎修改后原位写回（其余图层与排版保留）',onClick:function(){layerEdit(toolbar.ids[0]);}},'编辑图层'):null,
+        toolbar.count===1&&/\.(psd|ai|svg)$/i.test(String(toolbar.singleName||""))?window.React.createElement('button',{className:'dsh-selection-action',title:'选择该文档的指定图层，交给画布引擎修改后原位写回（其余图层与排版保留）',onClick:function(){layerEdit(toolbar.ids[0]);}},'编辑图层'):null,
         toolbar.count===1&&["image","psd"].indexOf(toolbar.singleKind||"image")>=0?window.React.createElement('button',{className:'dsh-selection-action dsh-text-rebuild-action',title:'框选后由当前聊天模型理解文字，并生成可在 Photoshop 中继续编辑的 PSD',onClick:function(){requestTextRebuild(toolbar.ids[0]);}},'编辑文字'):null,
         window.React.createElement('div',{className:'dsh-selection-more'},
           window.React.createElement('button',{className:'dsh-selection-action dsh-more-toggle',title:'更多操作',onClick:function(e){e.stopPropagation();setMoreOpen(!moreOpen);}},'更多 ▾'),
