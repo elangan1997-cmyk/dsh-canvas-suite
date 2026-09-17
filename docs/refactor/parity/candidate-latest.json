@@ -45,7 +45,7 @@
     "body": {
       "ok": true,
       "known": true,
-      "dark": false
+      "dark": true
     }
   },
   "image-settings": {

@@ -2852,7 +2852,8 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
       const knownDiskPaths = React.useRef(null);
       const queuedDiskPaths = React.useRef(new Set());
       const photoshopWatch = React.useRef(null);
-      // 项目目录新文件的自动上画布基线：首轮只记不加，之后 mtime 在近 15 分钟内的新文件自动加入画布
+      // 项目目录新文件的自动上画布基线：持久化到 localStorage（键含项目路径），
+      // 重启不重拍——否则重启前刚生成/拷入的新文件会被当成历史、永远不再上画布。
       const autoAddBaseline = React.useRef(null);
       const materializingImages = React.useRef(new Set());
       const finderRemovingIds = React.useRef(new Set());
@@ -4285,7 +4286,10 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
                   if (el && el.type === 'image' && !el.isDeleted && el.customData && el.customData.dshSourcePath) linked.add(el.customData.dshSourcePath);
                 }
                 if (!autoAddBaseline.current) {
-                  autoAddBaseline.current = new Set(diskPaths);
+                  try {
+                    const stored = localStorage.getItem('dsh-canvas-autoadd-baseline:' + currentProjectPath());
+                    autoAddBaseline.current = stored ? new Set(JSON.parse(stored)) : new Set(diskPaths);
+                  } catch (errBase) { autoAddBaseline.current = new Set(diskPaths); }
                 } else {
                   const fresh = [];
                   for (const item of result.images || []) {
@@ -4294,6 +4298,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
                     autoAddBaseline.current.add(item.path);
                     if (Number(item.mtime || 0) > Date.now() - 15 * 60 * 1000) fresh.push(item);
                   }
+                  try { localStorage.setItem('dsh-canvas-autoadd-baseline:' + currentProjectPath(), JSON.stringify([...autoAddBaseline.current])); } catch (errSave) {}
                   if (fresh.length) {
                     for (const item of fresh) {
                       queuedDiskPaths.current.add(item.path);

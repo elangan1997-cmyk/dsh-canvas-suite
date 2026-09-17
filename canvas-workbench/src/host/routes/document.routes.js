@@ -643,12 +643,13 @@ export function register(router, h) {
       // 5) 落盘
       //    .ai：按用户选择**直接写回原文件**（原图层保留、修改结果作为新层叠加在上面）。
       //         这是唯一会改动用户原始素材的路径，所以覆盖前先把原文件备份到项目里的「画布备份/」。
-      //    .psd：与 .ai 相同（用户拍板同语义）。.svg：另存 -图层编辑 新版本，不动原文件。
+      //    .psd/.svg：与 .ai 相同（用户拍板同语义，统一 inplace 防版本堆积）。
       const bytes = await readFile(tempOut);
       let saved;
       let writeMode = 'version';
-      if (ext === 'ai' || ext === 'psd') {
-        // .psd 与 .ai 同语义：直接写回原文件（原图层保留、修改版叠加在上），覆盖前备份
+      if (ext === 'ai' || ext === 'psd' || ext === 'svg') {
+        // 三种格式统一 inplace：直接写回原文件（避免 -图层编辑/-2/-3 版本文件堆积——
+        // 用户点名的问题），覆盖前自动备份到「画布备份/」。SVG 无宿主冲突，纯文本可安全覆写。
         const backupDir = join(projectDir, '画布备份');
         await mkdir(backupDir, { recursive: true });
         const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+$/, '');
@@ -658,8 +659,6 @@ export function register(router, h) {
         const info = await stat(path);
         saved = { path, name: basename(path), mtime: info.mtimeMs, size: info.size, kind: ext, managed: true, url: previewUrl(path, info.mtimeMs) };
         writeMode = 'inplace';
-      } else {
-        saved = await writeManagedSource(projectDir, base + '-图层编辑.' + ext, bytes, ext);
       }
       const savedInfo = await stat(saved.path);
       json(res, CORS, 200, {
