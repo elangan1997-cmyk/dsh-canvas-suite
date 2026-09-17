@@ -38,7 +38,7 @@ try {
   assert.equal(caps.body.data.features.length, 12);
 
   const tools = await getJson('/dsh-canvas/python-tools');
-  assert.equal(tools.body.data.tools.length, 11);
+  assert.equal(tools.body.data.tools.length, 12);
   assert.ok(tools.body.data.tools.every((t) => t.path.endsWith(t.script.replace('scripts/', 'scripts/'))));
   // resolve-image：按文件名在项目/工作区找回
   const rq = (name) => getJson('/dsh-canvas/resolve-image?name=' + encodeURIComponent(name) + '&cwd=' + encodeURIComponent(root) + '&project=' + encodeURIComponent(fixture.dir));

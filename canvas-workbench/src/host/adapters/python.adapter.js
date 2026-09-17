@@ -14,7 +14,8 @@ export const PYTHON_TOOLS = Object.freeze([
   { id: 'background.remove', script: 'scripts/remove_background.py', group: 'background' },
   { id: 'vector.vectorize', script: 'scripts/vectorize_image.py', group: 'vector' },
   { id: 'psd.export-text', script: 'scripts/export_text_psd.py', group: 'psd' },
-  { id: 'svg.export-text', script: 'scripts/export_text_svg.py', group: 'svg' }
+  { id: 'svg.export-text', script: 'scripts/export_text_svg.py', group: 'svg' },
+  { id: 'psd.layers', script: 'scripts/psd_layers.py', group: 'psd' }
 ]);
 
 /**

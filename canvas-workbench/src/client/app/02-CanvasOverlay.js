@@ -1,3 +1,45 @@
+    // PSD / AI 图层编辑对话框：选图层 + 输入要求 → 引擎修改 → 脚本原位写回新版本
+    function LayerEditDialog(props) {
+      const data = props.data || {};
+      const [prompt, setPrompt] = React.useState('');
+      const rowStyle = { display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 8, cursor: 'pointer', border: '1px solid transparent' };
+      return React.createElement('div', { className: 'dsh-text-rebuild', role: 'dialog', 'aria-modal': 'true' },
+        React.createElement('div', { className: 'dsh-text-rebuild-head' },
+          React.createElement('div', null,
+            React.createElement('strong', null, '图层编辑 · ' + (data.name || '文档')),
+            React.createElement('span', { style: { marginLeft: 8, opacity: 0.65 } }, String(data.kind || '').toUpperCase() + ' · 选图层 → 描述修改 → 原位写回')
+          ),
+          React.createElement('button', { className: 'dsh-text-rebuild-cancel', disabled: !!data.busy, onClick: props.onClose }, '×')
+        ),
+        React.createElement('div', { style: { maxHeight: 300, overflowY: 'auto', padding: '4px 0' } },
+          data.loading ? React.createElement('div', { className: 'dsh-text-rebuild-note' }, '正在读取图层…（.ai 需要 Illustrator）')
+          : (data.layers || []).length ? (data.layers || []).map((layer) => React.createElement('div', {
+              key: layer.id,
+              style: { ...rowStyle, background: data.selectedId === layer.id ? 'var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,.06))' : 'transparent', borderColor: data.selectedId === layer.id ? 'var(--dsw-alias-border-l3, rgba(0,0,0,.25))' : 'transparent' },
+              onClick: () => props.onSelect(layer.id)
+            },
+            React.createElement('input', { type: 'radio', checked: data.selectedId === layer.id, onChange: () => props.onSelect(layer.id), onClick: (e) => e.stopPropagation() }),
+            React.createElement('span', { style: { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, title: layer.name }, layer.name),
+            React.createElement('span', { style: { opacity: 0.55, fontSize: 11 } }, layer.kind + ' · ' + layer.w + '×' + layer.h + (layer.visible === false ? ' · 已隐藏' : ''))
+          ))
+          : React.createElement('div', { className: 'dsh-text-rebuild-note' }, '没有读到图层')
+        ),
+        React.createElement('div', { className: 'dsh-text-rebuild-foot' },
+          React.createElement('textarea', {
+            style: { flex: 1, minHeight: 56, resize: 'vertical', borderRadius: 8, padding: '8px 10px', font: 'inherit' },
+            value: prompt, disabled: !!data.busy, placeholder: '对该图层的修改要求，例如：删除底部小字 / 把产品改成蓝色 / 背景换成浅灰',
+            onChange: (e) => setPrompt(e.target.value),
+            onKeyDown: (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !data.busy) props.onSubmit(prompt); }
+          }),
+          React.createElement('div', { className: 'dsh-text-rebuild-actions' },
+            React.createElement('button', { className: 'dsh-text-rebuild-cancel', disabled: !!data.busy, onClick: props.onClose }, '取消'),
+            React.createElement('button', { className: 'dsh-text-rebuild-export', disabled: !!data.busy || data.loading || !data.layers.length, onClick: () => props.onSubmit(prompt) }, data.busy ? '正在修改并写回…' : '修改并原位写回')
+          )
+        ),
+        React.createElement('div', { className: 'dsh-text-rebuild-note' + (data.error ? ' dsh-error' : '') },
+          data.error || '写回会另存为新版本（-图层编辑），不覆盖当前文件；其余图层、文字与排版保持原样。')
+      );
+    }
     function CanvasOverlay() {
       const [on, setOn] = React.useState(getMode());
       const minimumChatWidth = 520;
@@ -29,6 +71,7 @@
       const [imageSettings, setImageSettings] = React.useState(null);
       const [imageSettingsBusy, setImageSettingsBusy] = React.useState(false);
       const [textRebuild, setTextRebuild] = React.useState(null);
+      const [layerEdit, setLayerEdit] = React.useState(null);
       const projectRef = React.useRef({ cwd: activeChatCwd, sessionId: activeChatSessionId, project: chosenProject(activeChatCwd, activeChatSessionId) });
       const projectSwitchToken = React.useRef(0);
       // 场景令牌：每次向 iframe 发 load 都换新值；iframe 回传的 changed 必须携带
@@ -961,6 +1004,43 @@
           })
           .catch((err) => { clearInProgress.current = false; setFeedback('⚠ 清空前保护失败，已取消清空：' + String((err && err.message) || err)); });
       };
+      const openLayerEdit = (d) => {
+        const next = { path: d.path, name: d.name || '文档', loading: true, busy: false, layers: [], selectedId: null, error: '' };
+        setLayerEdit(next);
+        fetch('/dsh-canvas/document-layers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...projectRef.current, path: d.path }) })
+          .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
+          .then((result) => {
+            if (!result.ok || !result.data || !result.data.ok) throw new Error(result.data && result.data.error || '图层读取失败');
+            setLayerEdit((prev) => prev ? { ...prev, loading: false, layers: result.data.layers || [], kind: result.data.kind, selectedId: (result.data.layers || [])[0] ? result.data.layers[0].id : null } : prev);
+          })
+          .catch((err) => setLayerEdit((prev) => prev ? { ...prev, loading: false, error: '⚠ ' + String((err && err.message) || err) } : prev));
+      };
+      const submitLayerEdit = (prompt) => {
+        const current = projectRef.current;
+        const active = layerEdit;
+        if (!active || active.busy || active.loading) return;
+        const layer = (active.layers || []).find((item) => item.id === active.selectedId);
+        if (!layer) { setLayerEdit({ ...active, error: '⚠ 请先选择要修改的图层' }); return; }
+        if (!String(prompt || '').trim()) { setLayerEdit({ ...active, error: '⚠ 请输入图层修改要求' }); return; }
+        setLayerEdit({ ...active, busy: true, error: '' });
+        setFeedback('正在修改图层「' + layer.name + '」并原位写回…');
+        fetch('/dsh-canvas/edit-layer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...current, path: active.path, name: active.name, layerId: layer.id, layerName: layer.name, prompt: String(prompt).trim() }) })
+          .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
+          .then((result) => {
+            if (!result.ok || !result.data || !result.data.ok || !result.data.image) throw new Error(result.data && result.data.error || '图层写回失败');
+            const image = result.data.image;
+            queuedDiskPaths.current.add(image.path);
+            if (knownDiskPaths.current) knownDiskPaths.current.add(image.path);
+            pendingRef.current.push({ ...image, explicit: true });
+            flushPending();
+            setLayerEdit(null);
+            setFeedback('✓ 图层「' + layer.name + '」已修改并原位写回（' + (result.data.engine || '') + '），新版本已加入画布：' + image.name);
+          })
+          .catch((err) => {
+            setFeedback('⚠ 图层修改失败');
+            setLayerEdit((prev) => prev ? { ...prev, busy: false, error: '⚠ ' + String((err && err.message) || err) } : prev);
+          });
+      };
       const exportTextRebuild = (blocks, openPhotoshop, selectedRegions, format) => {
         const current = projectRef.current;
         const active = textRebuild;
@@ -1189,6 +1269,9 @@
           const base = { elementId: d.elementId, name: d.name || '当前图片', dataURL: d.imageData || '', loading: false, busy: false, hasDetected: false, blocks: [], erasePrompt: '', selection: null, selections: [], width: 0, height: 0, error: '' };
           setTextRebuild(base);
           setFeedback('请先框选需要移除并重建的文字区域，再点击“识别选区”');
+        } else if (d.type === 'layer-edit-request') {
+          if (layerEdit && layerEdit.busy) return;
+          openLayerEdit(d);
         } else if (d.type === 'request-text-rebuild-export') {
           const current = projectRef.current;
           const active = textRebuild;
@@ -2103,6 +2186,12 @@
           onDetect: detectTextRebuild,
           onSelectionsChange: updateTextRebuildSelections,
           onExport: exportTextRebuild
+        }) : null,
+        layerEdit ? React.createElement(LayerEditDialog, {
+          data: layerEdit,
+          onClose: () => { if (!layerEdit.busy) setLayerEdit(null); },
+          onSelect: (id) => setLayerEdit((prev) => prev ? { ...prev, selectedId: id } : prev),
+          onSubmit: submitLayerEdit
         }) : null,
         React.createElement('div', { className: 'dsh-canvas-frame-wrap' }, iframe)
       );
