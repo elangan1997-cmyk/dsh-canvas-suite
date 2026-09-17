@@ -13,7 +13,8 @@ export const PYTHON_TOOLS = Object.freeze([
   { id: 'text.prepare-mask', script: 'scripts/prepare_text_mask.py', group: 'text' },
   { id: 'background.remove', script: 'scripts/remove_background.py', group: 'background' },
   { id: 'vector.vectorize', script: 'scripts/vectorize_image.py', group: 'vector' },
-  { id: 'psd.export-text', script: 'scripts/export_text_psd.py', group: 'psd' }
+  { id: 'psd.export-text', script: 'scripts/export_text_psd.py', group: 'psd' },
+  { id: 'svg.export-text', script: 'scripts/export_text_svg.py', group: 'svg' }
 ]);
 
 /**

@@ -118,6 +118,7 @@ export function register(router, h) {
           let tempGenerated = '';
           let tempClean = '';
           let draftPsd = '';
+          let tempSvg = '';
           let finalPsd = '';
           let jsxPath = '';
           let appleScriptPath = '';
@@ -234,6 +235,51 @@ export function register(router, h) {
             } else if (body.cleanBackground !== false && !selections.length) {
               cleanupWarning = '没有框选文字区域，跳过 image2 背景清理';
             }
+            if (body.format === 'svg') {
+              // SVG（Illustrator）导出：底图内嵌 + 可编辑 <text>；共享同一套
+              // blocks/框选/背景清理逻辑，跳过 Photoshop JSX/AppleScript 环节。
+              const svgScript = join(pluginRoot, 'scripts', 'export_text_svg.py');
+              await access(svgScript);
+              tempSvg = join(outputDir, 'text-svg-' + token + '.svg');
+              const svgArgs = [svgScript, '--input', tempInput, '--output', tempSvg, '--blocks', JSON.stringify(exportBlocks)];
+              if (cleanInput) svgArgs.push('--clean-input', cleanInput);
+              const svgRun = await runProcessWithTimeout(python.executable, [...python.prefixArgs, ...svgArgs], pluginRoot, 120000);
+              const svgLines = String(svgRun.stdout || '').trim().split(/\r?\n/).filter(Boolean);
+              let svgPayload = null;
+              try { svgPayload = svgLines.length ? JSON.parse(svgLines[svgLines.length - 1]) : null; } catch (err) { svgPayload = null; }
+              if (svgRun.exitCode !== 0 || !svgPayload || svgPayload.success !== true) throw new Error((svgPayload && svgPayload.error) || String(svgRun.stderr || '').trim() || 'SVG 生成失败');
+              const svgBytes = await readFile(tempSvg);
+              const svgOriginalName = safeImageName(body.name || '画布图片.png');
+              const svgDot = svgOriginalName.lastIndexOf('.');
+              const svgBase = svgDot > 0 ? svgOriginalName.slice(0, svgDot) : svgOriginalName;
+              const savedSvg = await writeManagedSource(projectDir, svgBase + '-文字编辑.svg', svgBytes, 'svg');
+              let openedInIllustrator = false;
+              if (body.openIllustrator !== false) {
+                try {
+                  if (isWindows) {
+                    const openedResult = await openWithSystem(ctx, runProcess, savedSvg.path, dirname(savedSvg.path));
+                    openedInIllustrator = openedResult.exitCode === 0;
+                  } else {
+                    const opener = await ctx.subprocess.resolveExecutable('open');
+                    const attempts = [['-b', 'com.adobe.Illustrator', savedSvg.path], ['-a', 'Adobe Illustrator 2026', savedSvg.path], ['-a', 'Adobe Illustrator 2025', savedSvg.path], ['-a', 'Adobe Illustrator 2024', savedSvg.path], ['-a', 'Adobe Illustrator', savedSvg.path]];
+                    for (const args of attempts) {
+                      const openedResult = await runProcess(opener, args, dirname(savedSvg.path));
+                      if (openedResult.exitCode === 0) { openedInIllustrator = true; break; }
+                    }
+                  }
+                } catch (err) {}
+              }
+              const svgInfo = await stat(savedSvg.path);
+              respond(res, 200, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({
+                ok: true,
+                image: { path: savedSvg.path, name: savedSvg.name, mtime: svgInfo.mtimeMs, kind: 'svg', managed: true, url: previewUrl(savedSvg.path, svgInfo.mtimeMs) },
+                illustrator: openedInIllustrator,
+                cleanupEngine,
+                texts: Number(svgPayload.texts || 0),
+                warning: cleanupWarning || ''
+              }));
+              return;
+            }
             const generatedArgs = [script, '--input', tempInput, '--output', draftPsd, '--blocks', JSON.stringify(exportBlocks)];
             if (cleanInput) generatedArgs.push('--clean-input', cleanInput);
             const generated = await runProcessWithTimeout(python.executable, [...python.prefixArgs, ...generatedArgs], pluginRoot, 180000);
@@ -296,7 +342,7 @@ export function register(router, h) {
           } catch (err) {
             respond(res, 500, { ...CORS, 'content-type': 'application/json' }, JSON.stringify({ ok: false, error: String((err && err.message) || err) }));
           } finally {
-            for (const path of [tempInput, tempMask, tempGenerated, tempClean, draftPsd, finalPsd, jsxPath, appleScriptPath]) if (path) await unlink(path).catch(() => {});
+            for (const path of [tempInput, tempMask, tempGenerated, tempClean, tempSvg, draftPsd, finalPsd, jsxPath, appleScriptPath]) if (path) await unlink(path).catch(() => {});
           }
           return;
   });

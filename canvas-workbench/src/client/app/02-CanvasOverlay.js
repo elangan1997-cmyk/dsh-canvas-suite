@@ -961,7 +961,7 @@
           })
           .catch((err) => { clearInProgress.current = false; setFeedback('⚠ 清空前保护失败，已取消清空：' + String((err && err.message) || err)); });
       };
-      const exportTextRebuild = (blocks, openPhotoshop, selectedRegions) => {
+      const exportTextRebuild = (blocks, openPhotoshop, selectedRegions, format) => {
         const current = projectRef.current;
         const active = textRebuild;
         if (!active || active.busy) return;
@@ -977,11 +977,11 @@
         fetch('/dsh-canvas/export-text-psd', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...current, elementId: active.elementId, name: active.name, imageData: active.dataURL, width: Number(active.width || 0), height: Number(active.height || 0), selection: regions.length === 1 ? regions[0] : null, selections: regions, blocks: normalizedBlocks, erasePrompt: active.erasePrompt || '', cleanBackground: true, openPhotoshop: openPhotoshop !== false })
+          body: JSON.stringify({ ...current, format: format || 'psd', openPhotoshop: format === 'svg' ? false : openPhotoshop, openIllustrator: format === 'svg' ? openPhotoshop !== false : undefined, elementId: active.elementId, name: active.name, imageData: active.dataURL, width: Number(active.width || 0), height: Number(active.height || 0), selection: regions.length === 1 ? regions[0] : null, selections: regions, blocks: normalizedBlocks, erasePrompt: active.erasePrompt || '', cleanBackground: true, openPhotoshop: openPhotoshop !== false })
         })
           .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
           .then((result) => {
-            if (!result.ok || !result.data || !result.data.ok || !result.data.image) throw new Error(result.data && result.data.error || 'PSD 生成失败');
+            if (!result.ok || !result.data || !result.data.ok || !result.data.image) throw new Error(result.data && result.data.error || (format === 'svg' ? 'SVG 生成失败' : 'PSD 生成失败'));
             const image = result.data.image;
             queuedDiskPaths.current.add(image.path);
             if (knownDiskPaths.current) knownDiskPaths.current.add(image.path);
@@ -989,10 +989,12 @@
             flushPending();
             setTextRebuild(null);
             const cleanup = result.data.cleanedBackground ? ('；背景已由 ' + (result.data.cleanupEngine || 'image2') + ' 局部清理') : '；未完成背景清理，已保留原图';
-            const suffix = result.data.photoshop ? '已写入 Photoshop 文字层' : '已生成 PSD 草稿（文字层需在 Photoshop 中继续整理）';
+            const suffix = format === 'svg'
+              ? (result.data.illustrator ? ('已生成 SVG 并尝试用 Illustrator 打开（' + (result.data.texts || 0) + ' 个文字对象）') : ('已生成 SVG（' + (result.data.texts || 0) + ' 个文字对象，可在 Illustrator 中编辑文字）'))
+              : (result.data.photoshop ? '已写入 Photoshop 文字层' : '已生成 PSD 草稿（文字层需在 Photoshop 中继续整理）');
             setFeedback('✓ ' + suffix + cleanup + '，文件已加入画布：' + image.name + (result.data.warning ? '；' + result.data.warning : ''));
           })
-          .catch((err) => setTextRebuild((prev) => prev ? { ...prev, busy: false, error: '⚠ PSD 生成失败：' + String((err && err.message) || err) } : prev));
+          .catch((err) => setTextRebuild((prev) => prev ? { ...prev, busy: false, error: '⚠ ' + (format === 'svg' ? 'SVG' : 'PSD') + ' 生成失败：' + String((err && err.message) || err) } : prev));
       };
       const detectTextRebuild = (selectedRegions) => {
         const active = textRebuild;

@@ -114,14 +114,14 @@ test('BUILTIN_FEATURES 全部可注册；capabilitiesFromHealth 基于真实 1.7
 test('Python Tool Registry：10 个工具、路径落在 pluginRoot、run 经 resolvePython', async () => {
   const calls = [];
   const reg = createPythonToolRegistry({ pluginRoot: '/plugin', resolvePython: async () => '/usr/bin/python3', run: async (exe, args, cwd, t) => { calls.push({ exe, args, cwd, t }); return { exitCode: 0, stdout: 'ok', stderr: '' }; } });
-  assert.equal(PYTHON_TOOLS.length, 10);
-  assert.equal(new Set(PYTHON_TOOLS.map((t) => t.id)).size, 10, 'id 唯一');
+  assert.equal(PYTHON_TOOLS.length, 11);
+  assert.equal(new Set(PYTHON_TOOLS.map((t) => t.id)).size, 11, 'id 唯一');
   assert.equal(reg.resolve('text.ocr').path, '/plugin/scripts/ocr_image.py');
   assert.throws(() => reg.resolve('nope'), /未注册的 Python 工具/);
   const out = await reg.run('vector.vectorize', { args: ['--in', 'a.png'], cwd: '/w', timeoutMs: 5 });
   assert.deepEqual(out, { exitCode: 0, stdout: 'ok', stderr: '' });
   assert.deepEqual(calls[0], { exe: '/usr/bin/python3', args: ['/plugin/scripts/vectorize_image.py', '--in', 'a.png'], cwd: '/w', t: 5 });
-  assert.equal(reg.list().length, 10);
+  assert.equal(reg.list().length, 11);
 });
 
 test('注册表声明的脚本文件都真实存在', async () => {
