@@ -48,3 +48,5 @@
 - [Phase 6–8] Command/History + Feature Registry + 契约 + schema v2 + Python Tool Registry + 三个只读端点；bundle 内联机制；unit+migration 35/35，集成 3 套 PASS，对等 55/0。
 - [最终回归] sync → 重启 DSH：health/capabilities(12 features, 10 enabled)/jobs/python-tools/system-appearance 全部经真实网关通过；`window.__dshCanvas` 内核就绪；DOM 快照 0 结构差异；干净 fixture 重采 30 条 API 仅 3 处 = system-appearance 修复；**Codex edit-image 端到端 13s 通过**，Job 记录 completed。证据目录 `docs/refactor/regression-1.8/`。
 - [未做/诚实记录] scripts/ 物理重组；CanvasOverlay（2,100 行分段）未按 Feature 再拆；Command 层未接入具体 UI 操作（Excalidraw 自带 undo 覆盖画布操作，业务级命令留给 Text Edit v2/替换资产）；Windows 实机回归；性能内存计时。
+- [2026-09-17 上午·用户反馈] fd811d7 动态加载覆盖层（真实路径验证：提交即出现，Codex 返回后消失，动画在跑）；42a1abc 擦除裁剪 + 色调匹配（erase-pipeline 集成测试通过；真实 Codex 擦除见下条）。
+- [真实 Codex 擦除验证] 合成 2000×1400 浅色背景 + 文字框 → 擦除 43s：文字框消失、窗口外零改动（顶部 100px 完全一致）、擦除区与上下带亮度差 2.2/2.4（源图自身梯度 1.0 量级）。对比图 `regression-1.8/erase-crop-tonematch-compare.png`。
