@@ -8,7 +8,7 @@
 //      文件（源文件副本、模型输出、写回产物）一律放 ASCII 系统临时目录，结束后只把字节搬回项目；
 //   2) 脚本报错可能以模态弹窗出现并卡死 AppleEvent——脚本开头 displayDialogs=NO /
 //      userInteractionLevel=DONTDISPLAYALERTS，并保存恢复。
-import { cp, mkdir, readdir, readFile, rm, stat, unlink, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readdir, readFile, realpath, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import { basename, join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { expandHome } from '../../shared/utils/paths.js';
@@ -93,8 +93,11 @@ export function register(router, h) {
       // Illustrator 2026 的 AppleScript 取不到 document 的 file/full name（coercion 全家报错），
       // 但 ExtendScript 的 Document.fullName / SaveOptions.DONOTSAVECHANGES 都是可靠的。
       // 按完整路径精确匹配；路径读不到时退化为按文件名匹配（临时副本同名也无害：一并保存关闭）。
+      // realpath 归一：/var 是 /private/var 的符号链接，fullName 返回后者
+      let wantAi = path;
+      try { wantAi = await realpath(path); } catch (errRp) {}
       const body = [
-        'var want=' + JSON.stringify(String(path).replace(/\\/g, '/')) + ';',
+        'var want=' + JSON.stringify(String(wantAi).replace(/\\/g, '/')) + ';',
         'var wantName=want.split("/").pop();',
         'var closed=0, saved=0;',
         'for(var i=app.documents.length-1;i>=0;i--){',
@@ -104,8 +107,9 @@ export function register(router, h) {
         '  try{ match=(String(d.fullName).replace(/\\\\/g,"/")===want); }catch(eF){}',
         '  if(!match){ try{ match=(String(d.name)===wantName); }catch(eN2){} }',
         '  if(match){',
+        '    try{ app.activeDocument=d; }catch(eA){}',
         '    try{ d.save(); saved++; }catch(eS){}',
-        '    try{ d.close(SaveOptions.DONOTSAVECHANGES); closed++; }catch(eC){ try{ d.close(2); closed++; }catch(eC2){} }',
+        '    try{ app.activeDocument=d; d.close(SaveOptions.DONOTSAVECHANGES); closed++; }catch(eC){ try{ d.close(2); closed++; }catch(eC2){} }',
         '  }',
         '}',
         'return "OK saved="+saved+" closed="+closed;'
@@ -205,18 +209,64 @@ export function register(router, h) {
   }
 
   /** 运行 Photoshop JSX（完整脚本字符串）。 */
-  async function runPhotoshopJsx(jsx, workDir, timeoutMs = 300000) {
+  async function runPhotoshopJsx(jsx, workDir, timeoutMs = 300000, opts = {}) {
+    const activate = opts.activate === true;
+    const closeNames = Array.isArray(opts.closeNames) ? opts.closeNames : [];
+    const noFinalClose = opts.noFinalClose === true;
     const osascript = await ctx.subprocess.resolveExecutable('osascript');
     const jsxPath = join(workDir, '.dsh-ps-jsx-' + Date.now() + '-' + Math.random().toString(16).slice(2) + '.jsx');
-    const appleScriptPath = jsxPath + '.applescript';
+    const appleScriptPath = jsxPath + '.dsh.applescript';
     await writeFile(jsxPath, jsx, 'utf8');
-    await writeFile(appleScriptPath, 'tell application id "com.adobe.Photoshop"\nactivate\ndo javascript (read POSIX file ' + JSON.stringify(jsxPath) + ' as «class utf8»)\nend tell\n', 'utf8');
+    await writeFile(appleScriptPath, 'tell application id "com.adobe.Photoshop"\n' + (activate ? 'activate\n' : '') + 'do javascript (read POSIX file ' + JSON.stringify(jsxPath) + ' as «class utf8»)\nend tell\n', 'utf8');
     try {
       return await runProcessWithTimeout(osascript, [appleScriptPath], workDir, timeoutMs);
     } finally {
       await unlink(jsxPath).catch(() => {});
       await unlink(appleScriptPath).catch(() => {});
-      await runProcessWithTimeout(osascript, ['-e', 'tell application id "com.adobe.Photoshop"\ntry\nclose every document saving no\nend try\nend tell'], workDir, 30000).catch(() => {});
+      // 绝不能“close every document”：用户自己的稿（含未保存修改）会被无提示丢弃。
+      // 只兜底关我们本次打开的文件名对应的文档（脚本内正常路径已自行 close，这只是崩溃兜底）。
+      if (!noFinalClose && closeNames.length) {
+        for (const name of closeNames) {
+          const closeScript = 'tell application id "com.adobe.Photoshop"\ntry\nclose (every document whose name is ' + JSON.stringify(name) + ') saving no\nend try\nend tell\n';
+          await runProcessWithTimeout(osascript, ['-e', closeScript], workDir, 30000).catch(() => {});
+        }
+      }
+    }
+  }
+
+  /**
+   * PSD 预检（与 ensureAiSavedClosed 同语义）：目标 .psd 若开在 Photoshop 里，
+   * 先保存再关闭；保存失败（如从未落盘的新建文档）就不关，绝不丢用户未保存的工作。
+   */
+  async function ensurePsdSavedClosed(path, workDir) {
+    try {
+      let wantPsd = path;
+      try { wantPsd = await realpath(path); } catch (errRp2) {}
+      const body = [
+        'var want=' + JSON.stringify(String(wantPsd).replace(/\\/g, '/')) + ';',
+        'var wantName=want.split("/").pop();',
+        'var saved=0, closed=0;',
+        'for(var i=app.documents.length-1;i>=0;i--){',
+        '  var d=null; try{ d=app.documents[i]; }catch(eD){ continue; }',
+        '  if(!d){ continue; }',
+        '  var match=false;',
+        '  try{ match=(String(d.fullName).replace(/\\\\/g,"/")===want); }catch(eF){}',
+        '  if(!match){ try{ match=(String(d.name)===wantName); }catch(eN2){} }',
+        '  if(!match){ continue; }',
+        '  var ok=false;',
+        // Photoshop 的 save/close 都要求目标文档是 activeDocument
+        '  try{ app.activeDocument=d; }catch(eA){}',
+        '  try{ d.save(); saved++; ok=true; }catch(eS){}',
+        // 只有保存成功才关：保存失败说明文档可能从未落盘，关掉=丢未保存工作
+        '  if(ok){ try{ app.activeDocument=d; d.close(SaveOptions.DONOTSAVECHANGES); closed++; }catch(eC){} }',
+        '}',
+        'return "OK saved="+saved+" closed="+closed;'
+      ].join('\n');
+      const jsx = '#target photoshop\n(function(){\ntry{ ' + body + ' }catch(err){ return "ERR "+String(err); }\n})();\n';
+      const r = await runPhotoshopJsx(jsx, workDir, 60000, { noFinalClose: true });
+      return String(r.stdout || '').trim();
+    } catch (err) {
+      return 'preflight-failed: ' + String((err && err.message) || err).slice(0, 80);
     }
   }
 
@@ -229,6 +279,7 @@ export function register(router, h) {
       if (!path || (ext !== 'psd' && ext !== 'ai' && ext !== 'svg')) { json(res, CORS, 400, { ok: false, error: '仅支持 .psd / .ai / .svg 文件' }); return; }
       let layers = [];
       let aiRead = null;
+      if (ext === 'psd') await ensurePsdSavedClosed(path, dirname(path));
       if (ext === 'psd') {
         const python = await resolvePython(ctx);
         const r = await runProcessWithTimeout(python.executable, [...python.prefixArgs, join(PLUGIN_ROOT, 'scripts', 'psd_layers.py'), '--psd', path, '--list'], PLUGIN_ROOT, 120000);
@@ -477,6 +528,7 @@ export function register(router, h) {
       const dot = originalName.lastIndexOf('.');
       const base = dot > 0 ? originalName.slice(0, dot) : originalName;
       const tempOut = join(asciiDir, 'out.' + ext);
+      if (ext === 'psd') await ensurePsdSavedClosed(path, outputDir);
       if (ext === 'psd') {
         const jsx = '#target photoshop\n'
           + '(function(){\n'
@@ -490,16 +542,19 @@ export function register(router, h) {
           + '  step="flatten-copy"; try{png.flatten();}catch(e0){} png.selection.selectAll(); png.selection.copy(); png.close(SaveOptions.DONOTSAVECHANGES);\n'
           + '  step="paste"; app.activeDocument=doc; var pasted=doc.paste(); pasted.name="__dsh_layer_update__";\n'
           + '  step="translate"; var b=pasted.bounds; pasted.translate(-b[0].as("px"), -b[1].as("px"));\n'
+          // 与 .ai 相同语义（用户拍板）：不删除原图层，修改结果作为新层叠加在原图层之上；
+          // move 后用 itemIndex 读回自检（成功时 pasted.index === target 原 index，target 顺延 +1）
           + '  step="replace"; var target=findLayer(doc,' + JSON.stringify(layerName || '__none__') + ');\n'
-          + '  if(target){ pasted.move(target, ElementPlacement.PLACEBEFORE); target.remove(); pasted.name=' + JSON.stringify(layerName || '图层更新') + '; }\n'
-          + '  else { pasted.name=' + JSON.stringify(layerName || '图层更新') + '; }\n'
+          + '  var zi=-1, ti=-1;\n'
+          + '  if(target){ try{ ti=Number(target.itemIndex); }catch(eI){} pasted.move(target, ElementPlacement.PLACEBEFORE); try{ zi=Number(pasted.itemIndex); }catch(eI2){} pasted.name=' + JSON.stringify((layerName || '图层') + ' 修改版') + '; }\n'
+          + '  else { pasted.name=' + JSON.stringify((layerName || '图层') + ' 修改版') + '; }\n'
           + '  step="save"; doc.saveAs(new File(' + JSON.stringify(tempOut) + '), new PhotoshopSaveOptions(), true, Extension.LOWERCASE);\n'
           + '  step="close"; doc.close(SaveOptions.DONOTSAVECHANGES);\n'
           + '  app.displayDialogs=prevD;\n'
-          + '  return "OK";\n'
+          + '  return "OK z="+zi+"/"+ti;\n'
           + '}catch(err){ try{app.displayDialogs=prevD;}catch(eR){} return "ERR at "+step+": "+String(err); }\n'
           + '})();\n';
-        const r = await runPhotoshopJsx(jsx, asciiDir);
+        const r = await runPhotoshopJsx(jsx, asciiDir, 300000, { closeNames: ['source.psd', 'edited.png'] });
         const out = await readFile(tempOut).catch(() => null);
         if (!String(r.stdout || '').trim().startsWith('OK') || !out || out.length < 1024) {
           throw new Error('Photoshop 写回失败：' + String(r.stdout || r.stderr || '').trim().slice(0, 200));
@@ -588,19 +643,20 @@ export function register(router, h) {
       // 5) 落盘
       //    .ai：按用户选择**直接写回原文件**（原图层保留、修改结果作为新层叠加在上面）。
       //         这是唯一会改动用户原始素材的路径，所以覆盖前先把原文件备份到项目里的「画布备份/」。
-      //    .psd / .svg：维持原来的行为——另存一个 -图层编辑 新版本，不动原文件。
+      //    .psd：与 .ai 相同（用户拍板同语义）。.svg：另存 -图层编辑 新版本，不动原文件。
       const bytes = await readFile(tempOut);
       let saved;
       let writeMode = 'version';
-      if (ext === 'ai') {
+      if (ext === 'ai' || ext === 'psd') {
+        // .psd 与 .ai 同语义：直接写回原文件（原图层保留、修改版叠加在上），覆盖前备份
         const backupDir = join(projectDir, '画布备份');
         await mkdir(backupDir, { recursive: true });
         const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+$/, '');
-        backupPath = join(backupDir, base + '-图层编辑前-' + stamp + '.ai');
+        backupPath = join(backupDir, base + '-图层编辑前-' + stamp + '.' + ext);
         await cp(path, backupPath);
         await writeFile(path, bytes);
         const info = await stat(path);
-        saved = { path, name: basename(path), mtime: info.mtimeMs, size: info.size, kind: 'ai', managed: true, url: previewUrl(path, info.mtimeMs) };
+        saved = { path, name: basename(path), mtime: info.mtimeMs, size: info.size, kind: ext, managed: true, url: previewUrl(path, info.mtimeMs) };
         writeMode = 'inplace';
       } else {
         saved = await writeManagedSource(projectDir, base + '-图层编辑.' + ext, bytes, ext);
@@ -646,6 +702,8 @@ export function register(router, h) {
       const out = join(outputDir, '.layer-src-' + token + '.png');
       let wTmp = 0, hTmp = 0;
       let stdout = '';
+      if (ext === 'psd') await ensurePsdSavedClosed(path, outputDir);
+      if (ext === 'ai') await ensureAiSavedClosed(path, outputDir);
       if (ext === 'psd') {
         const python = await resolvePython(ctx);
         const r = await runProcessWithTimeout(python.executable, [...python.prefixArgs, join(PLUGIN_ROOT, 'scripts', 'psd_layers.py'), '--psd', path, '--extract', '--id', String(layerId), '--output', out], PLUGIN_ROOT, 180000);
