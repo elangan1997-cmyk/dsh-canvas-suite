@@ -69,12 +69,17 @@ export function register(router, h) {
       const body = JSON.parse(await readBody(req) || '{}');
       const path = expandHome(String(body.path || ''));
       const ext = extOf(path);
-      if (!path || (ext !== 'psd' && ext !== 'ai')) { json(res, CORS, 400, { ok: false, error: '仅支持 .psd / .ai 文件' }); return; }
+      if (!path || (ext !== 'psd' && ext !== 'ai' && ext !== 'svg')) { json(res, CORS, 400, { ok: false, error: '仅支持 .psd / .ai / .svg 文件' }); return; }
       let layers = [];
       if (ext === 'psd') {
         const python = await resolvePython(ctx);
         const r = await runProcessWithTimeout(python.executable, [...python.prefixArgs, join(PLUGIN_ROOT, 'scripts', 'psd_layers.py'), '--psd', path, '--list'], PLUGIN_ROOT, 120000);
         if (r.exitCode !== 0) throw new Error(String(r.stderr || '').trim() || 'PSD 图层读取失败');
+        layers = String(r.stdout || '').trim().split(/\r?\n/).filter(Boolean).map((line) => { try { return JSON.parse(line); } catch (err) { return null; } }).filter(Boolean);
+      } else if (ext === 'svg') {
+        const python = await resolvePython(ctx);
+        const r = await runProcessWithTimeout(python.executable, [...python.prefixArgs, join(PLUGIN_ROOT, 'scripts', 'svg_layers.py'), '--svg', path, '--list'], PLUGIN_ROOT, 60000);
+        if (r.exitCode !== 0) throw new Error(String(r.stderr || '').trim() || 'SVG 图层读取失败');
         layers = String(r.stdout || '').trim().split(/\r?\n/).filter(Boolean).map((line) => { try { return JSON.parse(line); } catch (err) { return null; } }).filter(Boolean);
       } else {
         if (!isMac) { json(res, CORS, 500, { ok: false, error: 'AI 文件图层读取需要 macOS 上的 Illustrator' }); return; }
@@ -115,7 +120,7 @@ export function register(router, h) {
       const layerId = Number(body.layerId);
       const prompt = String(body.prompt || '').trim().slice(0, 4000);
       const layerName = String(body.layerName || '').slice(0, 200);
-      if (!path || (ext !== 'psd' && ext !== 'ai')) { json(res, CORS, 400, { ok: false, error: '仅支持 .psd / .ai 文件' }); return; }
+      if (!path || (ext !== 'psd' && ext !== 'ai' && ext !== 'svg')) { json(res, CORS, 400, { ok: false, error: '仅支持 .psd / .ai / .svg 文件' }); return; }
       if (!Number.isInteger(layerId) || layerId < 0) { json(res, CORS, 400, { ok: false, error: '缺少图层' }); return; }
       if (!prompt) { json(res, CORS, 400, { ok: false, error: '请输入图层修改提示词' }); return; }
       const projectDir = projectDirectory(body.cwd, body.project);
@@ -134,12 +139,27 @@ export function register(router, h) {
         const r = await runProcessWithTimeout(python.executable, [...python.prefixArgs, join(PLUGIN_ROOT, 'scripts', 'psd_layers.py'), '--psd', path, '--extract', '--id', String(layerId), '--output', tempExtract], PLUGIN_ROOT, 180000);
         if (r.exitCode !== 0) throw new Error(String(r.stderr || '').trim() || '图层提取失败');
         extractStdout = String(r.stdout || '');
+      } else if (ext === 'svg') {
+        // 提取 = 解码 SVG 内嵌背景位图（只支持编辑 Image 图层；文字对象请在编辑器里直接改）
+        const pythonSvg = await resolvePython(ctx);
+        const rSvg = await runProcessWithTimeout(pythonSvg.executable, [...pythonSvg.prefixArgs, '-c',
+          'import base64,json,sys,xml.etree.ElementTree as ET\n'
+          + 'root=ET.parse(sys.argv[1]).getroot()\n'
+          + 'imgs=[e for e in root.iter("{http://www.w3.org/2000/svg}image")]\n'
+          + 'href=imgs[0].get("{http://www.w3.org/1999/xlink}href") if imgs else ""\n'
+          + 'data=href.split(",",1)[1] if href.startswith("data:") else ""\n'
+          + 'open(sys.argv[2],"wb").write(base64.b64decode(data))\n'
+          + 'print(json.dumps({"w":root.get("width"),"h":root.get("height")}))',
+          path, tempExtract], PLUGIN_ROOT, 60000);
+        if (rSvg.exitCode !== 0) throw new Error(String(rSvg.stderr || '').trim().slice(0, 200) || 'SVG 背景提取失败');
+        const mSvg = /^\{"w":"?(\d+)"?,\s*"h":"?(\d+)"?\}$/.exec(String(rSvg.stdout || '').trim().replace(/\s+/g, ' '));
+        extractStdout = mSvg ? JSON.stringify({ w: Number(mSvg[1]), h: Number(mSvg[2]) }) : String(rSvg.stdout || '');
       } else {
         if (!isMac) throw new Error('AI 文件图层编辑需要 macOS 上的 Illustrator');
         const body2 = [
           'var doc=app.open(new File(' + JSON.stringify(path) + '));',
           'var ab=doc.artboards[0].artboardRect; var W=ab[2]-ab[0], H=ab[1]-ab[3];',
-          'var states=[];',
+          'var states=[].',
           'for(var i=0;i<doc.pageItems.length;i++){ states.push(doc.pageItems[i].hidden); doc.pageItems[i].hidden=(i===' + layerId + ')?false:true; }',
           'var opts=new ImageCaptureOptions(); try{opts.resolution=72;opts.transparency=true;}catch(e){}',
           'doc.imageCapture(new File(' + JSON.stringify(tempExtract) + '), [ab[0], ab[1], ab[0]+W, ab[1]-H], opts);',
@@ -214,6 +234,10 @@ export function register(router, h) {
         if (!String(r.stdout || '').trim().startsWith('OK') || !out || out.length < 1024) {
           throw new Error('Photoshop 写回失败：' + String(r.stdout || r.stderr || '').trim().slice(0, 200));
         }
+      } else if (ext === 'svg') {
+        const pythonSvg2 = await resolvePython(ctx);
+        const rSvg2 = await runProcessWithTimeout(pythonSvg2.executable, [...pythonSvg2.prefixArgs, join(PLUGIN_ROOT, 'scripts', 'svg_layers.py'), '--svg', asciiSource, '--replace-image', '--input', tempEdited, '--output', tempOut], PLUGIN_ROOT, 120000);
+        if (rSvg2.exitCode !== 0) throw new Error('SVG 写回失败：' + String(rSvg2.stderr || '').trim().slice(0, 200));
       } else {
         const body3 = [
           'var doc=app.open(new File(' + JSON.stringify(asciiSource) + '));',
