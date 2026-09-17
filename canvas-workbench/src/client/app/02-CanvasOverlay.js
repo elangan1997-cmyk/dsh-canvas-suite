@@ -1220,6 +1220,7 @@
           const updateProgress = (progress) => {
             if (!progress) return;
             setRemoveProgress(progress);
+            post({ type: 'placeholder-progress', placeholderId: d.placeholderId, percent: progress.percent, stage: progress.stage, message: progress.message });
             const value = Number(progress.percent);
             const suffix = Number.isFinite(value) ? ' ' + Math.round(Math.max(0, Math.min(100, value))) + '%' : '';
             if (progress.stage !== 'complete' && progress.stage !== 'error') setFeedback(String(progress.message || '本地去背景处理中…') + suffix);
