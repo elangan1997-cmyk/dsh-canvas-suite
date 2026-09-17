@@ -40,6 +40,18 @@ try {
   const tools = await getJson('/dsh-canvas/python-tools');
   assert.equal(tools.body.data.tools.length, 10);
   assert.ok(tools.body.data.tools.every((t) => t.path.endsWith(t.script.replace('scripts/', 'scripts/'))));
+  // resolve-image：按文件名在项目/工作区找回
+  const rq = (name) => getJson('/dsh-canvas/resolve-image?name=' + encodeURIComponent(name) + '&cwd=' + encodeURIComponent(root) + '&project=' + encodeURIComponent(fixture.dir));
+  const exact = await rq('a-small-red.png');
+  assert.equal(exact.status, 200); assert.equal(exact.body.data.path, join(fixture.dir, 'assets', 'a-small-red.png')); assert.equal(exact.body.data.exact, true);
+  const byPlannedPath = await rq('/somewhere/planned/outputs/b-wide-green.png');
+  assert.equal(byPlannedPath.body.data.path, join(fixture.dir, 'assets', 'b-wide-green.png'), '只取 basename');
+  const fuzzy = await rq('a-small-red-2.png');
+  assert.equal(fuzzy.status, 200); assert.equal(fuzzy.body.data.exact, false); assert.equal(fuzzy.body.data.path, join(fixture.dir, 'assets', 'a-small-red.png'), '-N 副本名回落到原名');
+  const notFound = await rq('nope.png');
+  assert.equal(notFound.status, 404); assert.equal(notFound.body.error.code, 'ASSET_NOT_FOUND');
+  const invalid = await getJson('/dsh-canvas/resolve-image?name=' + encodeURIComponent('notes.txt'));
+  assert.equal(invalid.status, 400);
   console.log('contracts integration: PASS');
 } finally {
   await host.close();

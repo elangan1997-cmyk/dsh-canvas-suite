@@ -251,4 +251,84 @@ export function register(router, h) {
           }
           return;
   });
+
+  // v1.8：按文件名在项目/工作区常见目录中找回图片（§28 形状）。
+  // 场景：AI 文字里写了“计划路径”或附件记录的 sourcePath 已被移动/删除，
+  // 而同名文件实际在 DSH聊天生成图片/ 或 assets/ 里。客户端图片输出的最后一级回退调用它。
+  router.add({ method: 'GET', path: '/dsh-canvas/resolve-image', prefix: false }, async (req, res, { query, CORS }) => {
+    const fail = (status, code, message) => respond(res, status, { ...CORS, 'content-type': 'application/json', 'cache-control': 'no-store' }, JSON.stringify({ ok: false, error: { code, message } }));
+    const params = parseQuery(query);
+    const wanted = basename(String(params.name || '')).trim();
+    if (!wanted || wanted === '.' || wanted === '..' || !isImagePath(wanted)) { fail(400, 'INVALID_REQUEST', '缺少合法图片文件名'); return; }
+    const projectDir = projectDirectory(expandHome(params.cwd || ''), params.project || '');
+    const cwd = expandHome(params.cwd || '');
+    const roots = [];
+    const push = (dir, priority) => { if (dir) roots.push({ dir: dir.replace(/[\/]+$/, ''), priority }); };
+    if (projectDir) {
+      push(join(projectDir, 'DSH聊天生成图片'), 0);
+      push(join(projectDir, 'assets'), 1);
+      push(projectDir, 2);
+    }
+    push(join(cwd, 'DSH聊天生成图片'), 3);
+    if (cwd) push(cwd, 4);
+    const stripCopy = (value) => String(value).toLowerCase().replace(/-(\d+)(\.[a-z0-9]+)$/i, '$2');
+    const wantedExact = String(wanted).toLowerCase();
+    const wantedBase = stripCopy(wanted);
+    const seen = new Set();
+    let exact = [], fuzzy = [];
+    let budget = 4000;
+    for (const { dir } of roots.sort((a, b) => a.priority - b.priority)) {
+      if (seen.has(dir) || budget <= 0) continue;
+      seen.add(dir);
+      // 有界 BFS：优先精确命中，深度 ≤ 3，跳过隐藏目录与回收站/备份。
+      const queue = [[dir, 0]];
+      while (queue.length && budget > 0) {
+        const [current, depth] = queue.shift();
+        let entries;
+        try { entries = await readdir(current, { withFileTypes: true }); } catch (err) { continue; }
+        for (const entry of entries) {
+          budget -= 1;
+          if (budget <= 0) break;
+          if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === '画布回收站' || entry.name === '画布备份') continue;
+          const full = join(current, entry.name);
+          if (entry.isDirectory()) { if (depth < 3) queue.push([full, depth + 1]); continue; }
+          if (!entry.isFile() || !isImagePath(entry.name)) continue;
+          const lower = entry.name.toLowerCase();
+          if (lower === wantedExact) exact.push(full);
+          else if (stripCopy(entry.name) === wantedBase) fuzzy.push(full);
+        }
+      }
+      if (exact.length) break;
+    }
+    // 会话 cwd 与画布项目常是同级的两个项目目录（例如 8d / 8d过滤棉）；
+    // 附件原图往往归档在兄弟项目的 DSH聊天生成图片/ 下。主搜索找不到时，
+    // 在父目录的兄弟项目里做精确同名探测（只查这两个约定目录，不递归整棵树）。
+    const trySiblingArchives = async () => {
+      const parents = [...new Set([projectDir && dirname(projectDir), cwd && dirname(cwd)].filter(Boolean))];
+      for (const parent of parents) {
+        let siblings;
+        try { siblings = await readdir(parent, { withFileTypes: true }); } catch (err) { continue; }
+        for (const sibling of siblings) {
+          if (!sibling.isDirectory() || sibling.name.startsWith('.')) continue;
+          for (const folder of ['DSH聊天生成图片', 'assets']) {
+            const candidate = join(parent, sibling.name, folder, wanted);
+            try { const info = await stat(candidate); if (info.isFile()) return candidate; } catch (err) {}
+          }
+        }
+      }
+      return '';
+    };
+    let pool = exact.length ? exact : fuzzy;
+    if (!pool.length) {
+      const sibling = await trySiblingArchives();
+      if (sibling) pool = [sibling];
+    }
+    if (!pool.length) { fail(404, 'ASSET_NOT_FOUND', '未找到同名图片：' + wanted); return; }
+    let best = pool[0];
+    let bestMtime = -1;
+    for (const candidate of pool) {
+      try { const info = await stat(candidate); if (info.mtimeMs > bestMtime) { bestMtime = info.mtimeMs; best = candidate; } } catch (err) {}
+    }
+    respond(res, 200, { ...CORS, 'content-type': 'application/json', 'cache-control': 'no-store' }, JSON.stringify({ ok: true, data: { path: best, exact: Boolean(exact.length) } }));
+  });
 }
