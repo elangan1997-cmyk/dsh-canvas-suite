@@ -1,43 +1,33 @@
-    // PSD / AI 图层编辑对话框：选图层 + 输入要求 → 引擎修改 → 脚本原位写回新版本
+    // PSD / AI / SVG 图层编辑对话框（第一步：可视化选择图层）
+    // 点选图层 → 提取为临时画布图 → 自动打开与「编辑图片」完全相同的编辑器 → 提交后原位写回
     function LayerEditDialog(props) {
       const data = props.data || {};
-      const [prompt, setPrompt] = React.useState('');
-      const rowStyle = { display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 8, cursor: 'pointer', border: '1px solid transparent' };
+      const cardStyle = { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: 10, borderRadius: 10, cursor: 'pointer', border: '1px solid transparent', minWidth: 108, maxWidth: 148, background: 'var(--dsw-alias-bg-layer-1, rgba(0,0,0,.03))' };
       return React.createElement('div', { className: 'dsh-text-rebuild', role: 'dialog', 'aria-modal': 'true' },
         React.createElement('div', { className: 'dsh-text-rebuild-head' },
           React.createElement('div', null,
-            React.createElement('strong', null, '图层编辑 · ' + (data.name || '文档')),
-            React.createElement('span', { style: { marginLeft: 8, opacity: 0.65 } }, String(data.kind || '').toUpperCase() + ' · 选图层 → 描述修改 → 原位写回')
+            React.createElement('strong', null, '选择要编辑的图层 · ' + (data.name || '文档')),
+            React.createElement('span', { style: { marginLeft: 8, opacity: 0.65 } }, String(data.kind || '').toUpperCase() + ' · 点选后进入图片编辑器，提交自动原位写回')
           ),
           React.createElement('button', { className: 'dsh-text-rebuild-cancel', disabled: !!data.busy, onClick: props.onClose }, '×')
         ),
-        React.createElement('div', { style: { maxHeight: 300, overflowY: 'auto', padding: '4px 0' } },
-          data.loading ? React.createElement('div', { className: 'dsh-text-rebuild-note' }, '正在读取图层…（.ai 需要 Illustrator）')
-          : (data.layers || []).length ? (data.layers || []).map((layer) => React.createElement('div', {
+        React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 8, maxHeight: 320, overflowY: 'auto', padding: '4px 0' } },
+          data.loading ? React.createElement('div', { className: 'dsh-text-rebuild-note' }, '正在读取图层与缩略图…（.ai 需要 Illustrator）')
+          : (data.layers || []).map((layer) => React.createElement('div', {
               key: layer.id,
-              style: { ...rowStyle, background: data.selectedId === layer.id ? 'var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,.06))' : 'transparent', borderColor: data.selectedId === layer.id ? 'var(--dsw-alias-border-l3, rgba(0,0,0,.25))' : 'transparent' },
-              onClick: () => props.onSelect(layer.id)
+              style: cardStyle,
+              title: layer.name + '（' + layer.kind + ' ' + layer.w + '×' + layer.h + '）',
+              onClick: () => props.onPick(layer)
             },
-            React.createElement('input', { type: 'radio', checked: data.selectedId === layer.id, onChange: () => props.onSelect(layer.id), onClick: (e) => e.stopPropagation() }),
-            React.createElement('span', { style: { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, title: layer.name }, layer.name),
-            React.createElement('span', { style: { opacity: 0.55, fontSize: 11 } }, layer.kind + ' · ' + layer.w + '×' + layer.h + (layer.visible === false ? ' · 已隐藏' : ''))
+            layer.thumb
+              ? React.createElement('img', { src: layer.thumb, alt: layer.name, style: { width: 96, height: 96, objectFit: 'contain', borderRadius: 6, background: 'repeating-conic-gradient(#00000008 0 25%, transparent 0 50%) 0 0/12px 12px' } })
+              : React.createElement('div', { style: { width: 96, height: 96, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', fontSize: 12, padding: 6, overflow: 'hidden', background: 'rgba(0,0,0,.05)', color: 'var(--dsw-alias-label-secondary, #667085)' } }, layer.kind === 'Text' || layer.kind === 'type' || layer.kind === 'TextFrame' ? (layer.name || '文字对象') : (layer.kind + '\n（无预览）')),
+            React.createElement('div', { style: { maxWidth: 132, fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'center' } }, layer.name),
+            React.createElement('div', { style: { fontSize: 10, opacity: 0.55 } }, layer.kind + ' · ' + layer.w + '×' + layer.h)
           ))
-          : React.createElement('div', { className: 'dsh-text-rebuild-note' }, '没有读到图层')
-        ),
-        React.createElement('div', { className: 'dsh-text-rebuild-foot' },
-          React.createElement('textarea', {
-            style: { flex: 1, minHeight: 56, resize: 'vertical', borderRadius: 8, padding: '8px 10px', font: 'inherit' },
-            value: prompt, disabled: !!data.busy, placeholder: '对该图层的修改要求，例如：删除底部小字 / 把产品改成蓝色 / 背景换成浅灰',
-            onChange: (e) => setPrompt(e.target.value),
-            onKeyDown: (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !data.busy) props.onSubmit(prompt); }
-          }),
-          React.createElement('div', { className: 'dsh-text-rebuild-actions' },
-            React.createElement('button', { className: 'dsh-text-rebuild-cancel', disabled: !!data.busy, onClick: props.onClose }, '取消'),
-            React.createElement('button', { className: 'dsh-text-rebuild-export', disabled: !!data.busy || data.loading || !data.layers.length, onClick: () => props.onSubmit(prompt) }, data.busy ? '正在修改并写回…' : '修改并原位写回')
-          )
         ),
         React.createElement('div', { className: 'dsh-text-rebuild-note' + (data.error ? ' dsh-error' : '') },
-          data.error || '写回会另存为新版本（-图层编辑），不覆盖当前文件；其余图层、文字与排版保持原样。')
+          data.error || '选择图层后进入与「编辑图片」相同的编辑器；写回会另存新版本（-图层编辑），不覆盖当前文件，其余图层与排版保持原样。')
       );
     }
     function CanvasOverlay() {
@@ -1015,29 +1005,35 @@
           })
           .catch((err) => setLayerEdit((prev) => prev ? { ...prev, loading: false, error: '⚠ ' + String((err && err.message) || err) } : prev));
       };
-      const submitLayerEdit = (prompt) => {
+      const pickLayerForEdit = (layer) => {
         const current = projectRef.current;
         const active = layerEdit;
-        if (!active || active.busy || active.loading) return;
-        const layer = (active.layers || []).find((item) => item.id === active.selectedId);
-        if (!layer) { setLayerEdit({ ...active, error: '⚠ 请先选择要修改的图层' }); return; }
-        if (!String(prompt || '').trim()) { setLayerEdit({ ...active, error: '⚠ 请输入图层修改要求' }); return; }
+        if (!active || active.busy || active.loading || !layer) return;
+        if (/^(Text|type|TextFrame)$/.test(layer.kind)) { setLayerEdit({ ...active, error: '⚠ 文字对象请在 Illustrator / Photoshop / SVG 编辑器里直接编辑；这里选择位图类图层' }); return; }
         setLayerEdit({ ...active, busy: true, error: '' });
-        setFeedback('正在修改图层「' + layer.name + '」并原位写回…');
-        fetch('/dsh-canvas/edit-layer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...current, path: active.path, name: active.name, layerId: layer.id, layerName: layer.name, prompt: String(prompt).trim() }) })
+        setFeedback('正在提取图层「' + layer.name + '」到画布…');
+        fetch('/dsh-canvas/extract-layer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...current, path: active.path, layerId: layer.id }) })
           .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
           .then((result) => {
-            if (!result.ok || !result.data || !result.data.ok || !result.data.image) throw new Error(result.data && result.data.error || '图层写回失败');
-            const image = result.data.image;
-            queuedDiskPaths.current.add(image.path);
-            if (knownDiskPaths.current) knownDiskPaths.current.add(image.path);
-            pendingRef.current.push({ ...image, explicit: true });
-            flushPending();
+            if (!result.ok || !result.data || !result.data.ok) throw new Error((result.data && result.data.error) || '图层提取失败');
             setLayerEdit(null);
-            setFeedback('✓ 图层「' + layer.name + '」已修改并原位写回（' + (result.data.engine || '') + '），新版本已加入画布：' + image.name);
+            post({
+              type: 'add-image',
+              url: '/dsh-canvas/image?path=' + encodeURIComponent(result.data.path),
+              openEditor: true,
+              customData: {
+                dshFileName: (active.name || '文档') + ' · ' + layer.name,
+                dshSourcePath: result.data.path,
+                dshSourceMtime: result.data.mtimeMs || 0,
+                dshSourceKind: 'image',
+                dshManaged: false,
+                dshLayerEdit: { path: active.path, layerId: layer.id, layerName: layer.name, docName: active.name || '文档' }
+              }
+            });
+            setFeedback('图层「' + layer.name + '」已放入画布并打开编辑器；提交后自动原位写回（' + (active.kind || '') + '）');
           })
           .catch((err) => {
-            setFeedback('⚠ 图层修改失败');
+            setFeedback('⚠ 图层提取失败');
             setLayerEdit((prev) => prev ? { ...prev, busy: false, error: '⚠ ' + String((err && err.message) || err) } : prev);
           });
       };
@@ -1399,6 +1395,32 @@
               setFeedback('✓ 已导入 ' + image.name + '，画布会随文件修改自动刷新');
             })
             .catch((err) => setFeedback('⚠ 导入文件失败：' + String((err && err.message) || err)));
+        } else if (d.type === 'request-image-edit' && d.layerEdit) {
+          // 图层编辑：与编辑图片同一对话框提交，但目标是 PSD/AI/SVG 的指定图层，完成后原位写回
+          const current = projectRef.current;
+          const le = d.layerEdit;
+          setFeedback('正在修改图层「' + (le.layerName || '') + '」并原位写回（' + (d.mode === 'erase' || d.maskData ? '局部擦除' : '整层编辑') + '）…');
+          fetch('/dsh-canvas/edit-layer', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...current, path: le.path, layerId: le.layerId, layerName: le.layerName, name: le.docName, prompt: d.prompt || '', maskData: d.maskData })
+          })
+            .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
+            .then((result) => {
+              if (!result.ok || !result.data || !result.data.ok || !result.data.image) throw new Error((result.data && result.data.error) || '图层写回失败');
+              const image = result.data.image;
+              queuedDiskPaths.current.add(image.path);
+              if (knownDiskPaths.current) knownDiskPaths.current.add(image.path);
+              pendingRef.current.push({ ...image, explicit: true });
+              flushPending();
+              post({ type: 'remove-sources', ids: [d.placeholderId, d.elementId].filter(Boolean) });
+              setFeedback('✓ 图层「' + (le.layerName || '') + '」已修改并原位写回（' + (result.data.engine || '') + '），新版本已加入画布：' + image.name + (result.data.maskWarning ? '；' + result.data.maskWarning : ''));
+            })
+            .catch((err) => {
+              const message = String((err && err.message) || err);
+              post({ type: 'remove-sources', ids: [d.placeholderId, d.elementId].filter(Boolean) });
+              setFeedback('⚠ 图层修改失败：' + message);
+            });
         } else if (d.type === 'request-image-edit') {
           const current = projectRef.current;
           setFeedback(d.mode === 'erase' ? '智能擦除处理中：优先 Codex，失败自动切换 image2 API…' : '图片编辑处理中：不占用聊天上下文…');
@@ -2190,8 +2212,7 @@
         layerEdit ? React.createElement(LayerEditDialog, {
           data: layerEdit,
           onClose: () => { if (!layerEdit.busy) setLayerEdit(null); },
-          onSelect: (id) => setLayerEdit((prev) => prev ? { ...prev, selectedId: id } : prev),
-          onSubmit: submitLayerEdit
+          onPick: pickLayerForEdit
         }) : null,
         React.createElement('div', { className: 'dsh-canvas-frame-wrap' }, iframe)
       );

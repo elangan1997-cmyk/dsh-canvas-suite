@@ -35,6 +35,8 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--psd", required=True, type=pathlib.Path)
     parser.add_argument("--list", action="store_true")
+    parser.add_argument("--thumbs", action="store_true", help="为每个图层生成缩略图（最大边 320px）到 --outdir")
+    parser.add_argument("--outdir", type=pathlib.Path)
     parser.add_argument("--extract", action="store_true")
     parser.add_argument("--id", type=int, default=-1)
     parser.add_argument("--output", type=pathlib.Path)
@@ -45,6 +47,28 @@ def main() -> int:
         if args.list:
             for index, layer in enumerate(layers):
                 print(json.dumps(layer_info(index, layer, psd.size), ensure_ascii=False))
+            return 0
+        if args.thumbs:
+            if not args.outdir:
+                parser.error("--thumbs 需要 --outdir")
+            args.outdir.mkdir(parents=True, exist_ok=True)
+            from PIL import Image
+            for index, layer in enumerate(layers[:30]):
+                try:
+                    try:
+                        pixels = layer.topil()
+                    except Exception:
+                        pixels = layer.composite()
+                    if pixels is None:
+                        continue
+                    if pixels.mode != "RGBA":
+                        pixels = pixels.convert("RGBA")
+                    pixels.thumbnail((320, 320))
+                    out = args.outdir / f"thumb-{index}.png"
+                    pixels.save(out, format="PNG", optimize=True)
+                    print(json.dumps({"id": index, "file": str(out)}, ensure_ascii=False))
+                except Exception:
+                    continue
             return 0
         if args.extract:
             if not (0 <= args.id < len(layers)) or not args.output:

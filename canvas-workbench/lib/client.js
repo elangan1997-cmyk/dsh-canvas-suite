@@ -2044,7 +2044,7 @@ function Main(){
     var ed=useState(null),editing=ed[0],setEditing=ed[1];
     var tb=useState(null),toolbar=tb[0],setToolbar=tb[1];
     var ie=useState(null),imageEditor=ie[0],setImageEditor=ie[1];
-    updateImageEditorState=setImageEditor;
+    updateImageEditorState=setImageEditor;openImageEditorById=function(mode,id){openImageEditor(mode,id);};
     var mo=useState(false),moreOpen=mo[0],setMoreOpen=mo[1];
     /* 选区变化/移动时自动收起"更多"菜单 */
     window.React.useEffect(function(){setMoreOpen(false);},[toolbar]);
@@ -2106,7 +2106,8 @@ function Main(){
       post({type:"changed",snapshot:snapshot,token:window.__dshSceneToken||""});
     };
     var commitName=function(){if(!editing)return;var next=renameCanvasImage(editing.id,editing.value);setEditing(null);if(next)post({type:"name-edited",name:next});};
-    var openImageEditor=function(mode,id){if(!api)return;var target=(api.getSceneElements()||[]).find(function(item){return item&&item.id===id&&item.type==="image"&&!item.isDeleted;}),files=fileObject(api.getFiles?api.getFiles():{}),file=target&&files[target.fileId];if(!target||!file||!file.dataURL){post({type:"error",message:"当前图片数据不可用"});return;}var custom=target.customData||{},item={mode:mode,id:id,fileId:target.fileId,name:custom.dshFileName||("画布图片-"+String(id).slice(-6)+".png"),dataURL:file.dataURL,width:0,height:0,sourcePath:custom.dshSourcePath||"",editRootPath:custom.dshEditRootPath||"",editHistory:Array.isArray(custom.dshEditHistory)?custom.dshEditHistory:[],editDepth:Number(custom.dshEditDepth||0),busy:false,error:""};setImageEditor(item);var probe=new Image();probe.onload=function(){setImageEditor(function(current){return current&&current.id===id?Object.assign({},current,{width:probe.naturalWidth||1,height:probe.naturalHeight||1}):current;});};probe.src=file.dataURL;};
+    var openImageEditorById=null;
+    var openImageEditor=function(mode,id){if(!api)return;var target=(api.getSceneElements()||[]).find(function(item){return item&&item.id===id&&item.type==="image"&&!item.isDeleted;}),files=fileObject(api.getFiles?api.getFiles():{}),file=target&&files[target.fileId];if(!target||!file||!file.dataURL){post({type:"error",message:"当前图片数据不可用"});return;}var custom=target.customData||{},item={mode:mode,id:id,fileId:target.fileId,name:custom.dshFileName||("画布图片-"+String(id).slice(-6)+".png"),dataURL:file.dataURL,width:0,height:0,sourcePath:custom.dshSourcePath||"",editRootPath:custom.dshEditRootPath||"",editHistory:Array.isArray(custom.dshEditHistory)?custom.dshEditHistory:[],layerEdit:custom.dshLayerEdit||null,editDepth:Number(custom.dshEditDepth||0),busy:false,error:""};setImageEditor(item);var probe=new Image();probe.onload=function(){setImageEditor(function(current){return current&&current.id===id?Object.assign({},current,{width:probe.naturalWidth||1,height:probe.naturalHeight||1}):current;});};probe.src=file.dataURL;};
     var layerEdit=function(id){if(!api)return;var target=(api.getSceneElements()||[]).find(function(item){return item&&item.id===id&&item.type==="image"&&!item.isDeleted;});if(!target)return;var c=target.customData||{},name=String(c.dshFileName||"");var path=String(c.dshSourcePath||"");if(!/\.(psd|ai|svg)$/i.test(name||path)){post({type:"error",message:"请选择 PSD / AI / SVG 文件后再编辑图层"});return;}if(!path){post({type:"error",message:"该文件没有可写回的源路径"});return;}post({type:"layer-edit-request",path:path,name:name||"文档"});};
     var openInPhotoshop=function(id){if(!api)return;var target=(api.getSceneElements()||[]).find(function(item){return item&&item.id===id&&item.type==="image"&&!item.isDeleted;}),files=fileObject(api.getFiles?api.getFiles():{}),file=target&&files[target.fileId];if(!target||!file||!file.dataURL){post({type:"error",message:"当前图片数据不可用"});return;}var custom=target.customData||{};post({type:"request-photoshop-edit",elementId:id,fileId:target.fileId,name:custom.dshFileName||("画布图片-"+String(id).slice(-6)+".png"),sourcePath:custom.dshSourcePath||"",sourceKind:custom.dshSourceKind||"image",dataURL:file.dataURL});};
     var openInIllustrator=function(id){if(!api)return;var target=(api.getSceneElements?api.getSceneElements():[]).find(function(item){return item&&item.id===id&&item.type==="image"&&!item.isDeleted;}),custom=target&&target.customData||{},kind=String(custom.dshSourceKind||"");if(!target||!custom.dshSourcePath){post({type:"error",message:"Illustrator 编辑需要源文件（该图片没有关联的磁盘源，如为粘贴图请先归档）"});return;}post({type:"request-illustrator-edit",elementId:id,name:custom.dshFileName||("画布文件-"+String(id).slice(-6)),sourcePath:custom.dshSourcePath,sourceKind:kind});};
@@ -2117,7 +2118,7 @@ function Main(){
     var beginMaterialDrag=function(ids,event){var items=materialPayloadForSelection(ids);if(!items.length)return;if(event&&event.dataTransfer){event.dataTransfer.effectAllowed="copy";event.dataTransfer.setData("application/x-dsh-canvas-image",JSON.stringify({count:items.length}));event.dataTransfer.setData("text/plain",items.length===1?items[0].name:(items.length+" 张画布图片"));}post({type:"material-drag-start",items:items});};
     var sendSelectionToChat=function(ids){if(!api)return;var wanted=new Set(Array.isArray(ids)?ids:[]),files=fileObject(api.getFiles?api.getFiles():{}),images=(api.getSceneElements?api.getSceneElements():[]).filter(function(item){return item&&item.type==="image"&&!item.isDeleted&&wanted.has(item.id);}).map(function(item,index){var file=files[item.fileId],custom=item.customData||{};return file&&file.dataURL?{dataURL:file.dataURL,name:custom.dshFileName||("canvas-selection-"+(index+1)+"-"+String(item.id).slice(-6)+".png"),width:Math.max(1,Number(item.width||0)),height:Math.max(1,Number(item.height||0)),sourceKind:String(custom.dshSourceKind||"image")} : null;}).filter(Boolean);if(!images.length){post({type:"error",message:"所选图片暂时无法读取，请稍后重试"});return;}var batchId="chat_"+Date.now().toString(36)+"_"+Math.random().toString(36).slice(2,7);images.forEach(function(image,index){setTimeout(function(){post({type:"request-send-selection-item",batchId:batchId,index:index+1,total:images.length,image:image});},index*90);});};
     var requestBackgroundRemoval=function(id){if(!api)return;var target=(api.getSceneElements()||[]).find(function(item){return item&&item.id===id&&item.type==="image"&&!item.isDeleted;}),files=fileObject(api.getFiles?api.getFiles():{}),file=target&&files[target.fileId];if(!target||!file||!file.dataURL){post({type:"error",message:"当前图片数据不可用"});return;}try{var custom=target.customData||{},job=createEditPlaceholder({id:id},"本地 rembg · isnet-general-use · 首次使用自动准备"),name=custom.dshFileName||("画布图片-"+String(id).slice(-6)+".png");post({type:"request-remove-background",requestId:job.requestId,placeholderId:job.placeholderId,elementId:id,fileId:target.fileId,name:name,imageData:file.dataURL,imagePath:custom.dshSourcePath||""});}catch(err){post({type:"error",message:String(err&&err.message||err)});}};
-    var submitImageEdit=function(payload){if(!imageEditor||imageEditor.busy)return;try{var job=createEditPlaceholder(imageEditor),request=Object.assign({},imageEditor);setImageEditor(null);post({type:"request-image-edit",requestId:job.requestId,placeholderId:job.placeholderId,elementId:request.id,fileId:request.fileId,name:request.name,imageData:request.dataURL,imagePath:request.sourcePath,editRootPath:request.editRootPath,editHistory:request.editHistory,editDepth:request.editDepth,mode:request.mode,prompt:payload.prompt,maskData:payload.maskData,width:request.width,height:request.height});}catch(err){setImageEditor(Object.assign({},imageEditor,{busy:false,error:String(err&&err.message||err)}));}};
+    var submitImageEdit=function(payload){if(!imageEditor||imageEditor.busy)return;try{var job=createEditPlaceholder(imageEditor),request=Object.assign({},imageEditor);setImageEditor(null);post({type:"request-image-edit",requestId:job.requestId,placeholderId:job.placeholderId,elementId:request.id,fileId:request.fileId,name:request.name,imageData:request.dataURL,imagePath:request.sourcePath,editRootPath:request.editRootPath,editHistory:request.editHistory,editDepth:request.editDepth,mode:request.mode,prompt:payload.prompt,maskData:payload.maskData,width:request.width,height:request.height,layerEdit:request.layerEdit||null});}catch(err){setImageEditor(Object.assign({},imageEditor,{busy:false,error:String(err&&err.message||err)}));}};
     return window.React.createElement('div',{style:{position:'absolute',inset:0}},
       window.React.createElement('div',{style:{position:'absolute',inset:0}},window.React.createElement(window.ExcalidrawLib.Excalidraw,{excalidrawAPI:function(a){api=a;if(!ready){ready=true;post({type:"ready"})}},initialData:{elements:[],appState:empty,files:{}},onChange:onCanvasChange,viewModeEnabled:false,zenModeEnabled:false,langCode:"zh-CN"})),
       window.React.createElement('div',{className:'dsh-name-layer'},pending.map(function(p){var fs=Math.max(9,Math.min(20,p.width/13)),compact=p.height<fs*7||p.width<fs*9,prog=pendingProgress[p.id]||null,pct=prog&&isFinite(Number(prog.percent))?Math.max(0,Math.min(100,Math.round(Number(prog.percent)))):null,elapsed=p.startedAt?Math.max(0,Math.round((Date.now()-p.startedAt)/1000)):0,mm=Math.floor(elapsed/60),ss=String(elapsed%60).padStart(2,'0'),sub=prog&&prog.message?String(prog.message):p.subtitle;return window.React.createElement('div',{key:'pend_'+p.id,className:'dsh-pending',style:{left:p.left+'px',top:p.top+'px',width:p.width+'px',height:p.height+'px',fontSize:fs+'px'}},compact?null:window.React.createElement('div',{className:'dsh-pending-ring'}),pct!==null&&!compact?window.React.createElement('div',{className:'dsh-pending-percent'},pct+'%'):null,window.React.createElement('div',{className:'dsh-pending-title'},p.title),compact||!sub?null:window.React.createElement('div',{className:'dsh-pending-sub'},sub),compact?null:window.React.createElement('div',{className:'dsh-pending-time'},'已用 '+mm+':'+ss),window.React.createElement('div',{className:'dsh-pending-bar'},pct!==null?window.React.createElement('b',{style:{width:pct+'%'}}):window.React.createElement('i',null)));}),labels.filter(function(item){return (editing&&editing.id===item.id)||item.selected||item.tag;}).map(function(item){var labelStyle={left:item.left+'px',top:item.top+'px',width:item.width+'px',minWidth:item.minWidth+'px',maxWidth:item.maxWidth+'px',height:item.height+'px',padding:'3px '+item.paddingX+'px',fontSize:item.fontSize+'px',lineHeight:Math.max(10,item.height-6)+'px',borderRadius:Math.max(4,Math.round(6*item.fontSize/11))+'px',transform:'translateY(-'+item.offsetY+'px)'};return editing&&editing.id===item.id
@@ -2330,7 +2331,7 @@ window.addEventListener("message",function(e){
     return dims2(dataURL).then(function(dm){addImageDataURL(dataURL,dm,{name:d.name||baseName2(d.path||""),path:d.path||"",mtime:d.mtime||0,size:d.size||0,kind:d.kind||"image",managed:d.managed,batchIndex:d.batchIndex,batchTotal:d.batchTotal,batchColumns:d.batchColumns});});
   });}).catch(function(err){post({type:"error",message:"添加图片失败: "+String(err&&err.message||err)});});
 },true);
-var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).then(function(b){return new Promise(function(res,rej){var fr=new FileReader();fr.onload=function(){res(fr.result)};fr.onerror=rej;fr.readAsDataURL(b)})})};var dims=function(d){return new Promise(function(res){var i=new Image();i.onload=function(){res({w:i.naturalWidth,h:i.naturalHeight})};i.onerror=function(){res({w:200,h:130})};i.src=d})};window.addEventListener("message",function(e){if(e.source!==window.parent)return;var d=e.data||{};try{if(d.type==="add-image"&&d.url&&api){toDataURL(d.url).then(function(dataURL){return dims(dataURL).then(function(dm){var fileId="f_"+Math.random().toString(36).slice(2,9);var ratio=(dm.w&&dm.h&&dm.h>0)?dm.w/dm.h:1.6;var w=220,h=Math.round(w/ratio);var mime=(String(dataURL).match(/^data:([^;]+)/i)||[])[1]||"image/png";var el={type:"image",id:"e_"+Math.random().toString(36).slice(2,9),fileId:fileId,x:150,y:150,width:w,height:h,angle:0,seed:Math.floor(Math.random()*1e9),version:1,versionNonce:Math.floor(Math.random()*1e9),isDeleted:false,groupIds:[],boundElements:null,updated:Date.now(),link:null,locked:false,customData:null,roundness:null,mimeType:mime};var files=(function(){var m=new Map();var b=api.getFiles()||{};if(typeof b.forEach==="function"){b.forEach(function(v,k){m.set(k,v)});}else if(typeof b==="object"){Object.keys(b).forEach(function(k){m.set(k,b[k])});}return m;})();if(typeof api.addFiles==="function"){try{api.addFiles([{id:fileId,dataURL:dataURL,mimeType:mime}])}catch(e){}}api.updateScene({elements:(api.getSceneElements()||[]).concat([el]),appState:Object.assign({},api.getAppState()||empty)});post({type:"added"})})}).catch(function(err){post({type:"error",message:"添加图片失败: "+String(err&&err.message||err)})})}else if(d.type==="load"&&api){var s=typeof d.snapshot==="string"?JSON.parse(d.snapshot):d.snapshot;if(s&&s.elements){var files=new Map();if(s.files)Object.keys(s.files).forEach(function(k){var v=s.files[k];files.set(k,{id:k,dataURL:v.dataURL,mimeType:v.mimeType})});api.updateScene({elements:s.elements,appState:Object.assign({},s.appState||empty),files:files})}}else if(d.type==="export"&&api){var elements=(api.getSceneElements()||[]).filter(function(item){return item&&!item.isDeleted&&item.id!=="dsh_theme_backdrop";});if(!elements.length){post({type:"exported",error:"empty"});return;}var exporter=window.ExcalidrawLib&&window.ExcalidrawLib.exportToBlob;if(typeof exporter!=="function"){post({type:"error",message:"导出失败: 当前 Excalidraw 未提供 PNG 导出器"});return;}var state=Object.assign({},api.getAppState()||empty,{exportBackground:true,exportWithDarkMode:false,exportScale:1});Promise.resolve(exporter({elements:elements,appState:state,files:fileObject(api.getFiles?api.getFiles():{}),mimeType:"image/png"})).then(function(blob){var fr=new FileReader();fr.onloadend=function(){post({type:"exported",dataUrl:fr.result})};fr.onerror=function(){post({type:"error",message:"导出失败: 无法读取 PNG 数据"})};fr.readAsDataURL(blob)}).catch(function(err){post({type:"error",message:"导出失败: "+String(err&&err.message||err)})})}else if(d.type==="clear"&&api){api.updateScene({elements:[],appState:empty,files:new Map()});post({type:"changed",snapshot:serialize([],empty,new Map()),token:window.__dshSceneToken||""})}}catch(err){post({type:"error",message:String(err&&err.message||err)})}});})();</script></body></html>`;
+var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).then(function(b){return new Promise(function(res,rej){var fr=new FileReader();fr.onload=function(){res(fr.result)};fr.onerror=rej;fr.readAsDataURL(b)})})};var dims=function(d){return new Promise(function(res){var i=new Image();i.onload=function(){res({w:i.naturalWidth,h:i.naturalHeight})};i.onerror=function(){res({w:200,h:130})};i.src=d})};window.addEventListener("message",function(e){if(e.source!==window.parent)return;var d=e.data||{};try{if(d.type==="add-image"&&d.url&&api){toDataURL(d.url).then(function(dataURL){return dims(dataURL).then(function(dm){var fileId="f_"+Math.random().toString(36).slice(2,9);var ratio=(dm.w&&dm.h&&dm.h>0)?dm.w/dm.h:1.6;var w=220,h=Math.round(w/ratio);var mime=(String(dataURL).match(/^data:([^;]+)/i)||[])[1]||"image/png";var el={type:"image",id:"e_"+Math.random().toString(36).slice(2,9),fileId:fileId,x:150,y:150,width:w,height:h,angle:0,seed:Math.floor(Math.random()*1e9),version:1,versionNonce:Math.floor(Math.random()*1e9),isDeleted:false,groupIds:[],boundElements:null,updated:Date.now(),link:null,locked:false,customData:d.customData||null,roundness:null,mimeType:mime};var files=(function(){var m=new Map();var b=api.getFiles()||{};if(typeof b.forEach==="function"){b.forEach(function(v,k){m.set(k,v)});}else if(typeof b==="object"){Object.keys(b).forEach(function(k){m.set(k,b[k])});}return m;})();if(typeof api.addFiles==="function"){try{api.addFiles([{id:fileId,dataURL:dataURL,mimeType:mime}])}catch(e){}}api.updateScene({elements:(api.getSceneElements()||[]).concat([el]),appState:Object.assign({},api.getAppState()||empty)});post({type:"added"});if(d.openEditor&&d.customData&&d.customData.dshLayerEdit&&typeof openImageEditorById==="function"){setTimeout(function(){openImageEditorById("edit",el.id);},160);}})}).catch(function(err){post({type:"error",message:"添加图片失败: "+String(err&&err.message||err)})})}else if(d.type==="load"&&api){var s=typeof d.snapshot==="string"?JSON.parse(d.snapshot):d.snapshot;if(s&&s.elements){var files=new Map();if(s.files)Object.keys(s.files).forEach(function(k){var v=s.files[k];files.set(k,{id:k,dataURL:v.dataURL,mimeType:v.mimeType})});api.updateScene({elements:s.elements,appState:Object.assign({},s.appState||empty),files:files})}}else if(d.type==="export"&&api){var elements=(api.getSceneElements()||[]).filter(function(item){return item&&!item.isDeleted&&item.id!=="dsh_theme_backdrop";});if(!elements.length){post({type:"exported",error:"empty"});return;}var exporter=window.ExcalidrawLib&&window.ExcalidrawLib.exportToBlob;if(typeof exporter!=="function"){post({type:"error",message:"导出失败: 当前 Excalidraw 未提供 PNG 导出器"});return;}var state=Object.assign({},api.getAppState()||empty,{exportBackground:true,exportWithDarkMode:false,exportScale:1});Promise.resolve(exporter({elements:elements,appState:state,files:fileObject(api.getFiles?api.getFiles():{}),mimeType:"image/png"})).then(function(blob){var fr=new FileReader();fr.onloadend=function(){post({type:"exported",dataUrl:fr.result})};fr.onerror=function(){post({type:"error",message:"导出失败: 无法读取 PNG 数据"})};fr.readAsDataURL(blob)}).catch(function(err){post({type:"error",message:"导出失败: "+String(err&&err.message||err)})})}else if(d.type==="clear"&&api){api.updateScene({elements:[],appState:empty,files:new Map()});post({type:"changed",snapshot:serialize([],empty,new Map()),token:window.__dshSceneToken||""})}}catch(err){post({type:"error",message:String(err&&err.message||err)})}});})();</script></body></html>`;
 
     // Excalidraw/React are pinned vendor assets served by the plugin host.
     // Keeping these scripts off a public CDN prevents DSH srcdoc/CSP changes
@@ -2425,46 +2426,36 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
       }
     }
 
-    // PSD / AI 图层编辑对话框：选图层 + 输入要求 → 引擎修改 → 脚本原位写回新版本
+    // PSD / AI / SVG 图层编辑对话框（第一步：可视化选择图层）
+    // 点选图层 → 提取为临时画布图 → 自动打开与「编辑图片」完全相同的编辑器 → 提交后原位写回
     function LayerEditDialog(props) {
       const data = props.data || {};
-      const [prompt, setPrompt] = React.useState('');
-      const rowStyle = { display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 8, cursor: 'pointer', border: '1px solid transparent' };
+      const cardStyle = { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: 10, borderRadius: 10, cursor: 'pointer', border: '1px solid transparent', minWidth: 108, maxWidth: 148, background: 'var(--dsw-alias-bg-layer-1, rgba(0,0,0,.03))' };
       return React.createElement('div', { className: 'dsh-text-rebuild', role: 'dialog', 'aria-modal': 'true' },
         React.createElement('div', { className: 'dsh-text-rebuild-head' },
           React.createElement('div', null,
-            React.createElement('strong', null, '图层编辑 · ' + (data.name || '文档')),
-            React.createElement('span', { style: { marginLeft: 8, opacity: 0.65 } }, String(data.kind || '').toUpperCase() + ' · 选图层 → 描述修改 → 原位写回')
+            React.createElement('strong', null, '选择要编辑的图层 · ' + (data.name || '文档')),
+            React.createElement('span', { style: { marginLeft: 8, opacity: 0.65 } }, String(data.kind || '').toUpperCase() + ' · 点选后进入图片编辑器，提交自动原位写回')
           ),
           React.createElement('button', { className: 'dsh-text-rebuild-cancel', disabled: !!data.busy, onClick: props.onClose }, '×')
         ),
-        React.createElement('div', { style: { maxHeight: 300, overflowY: 'auto', padding: '4px 0' } },
-          data.loading ? React.createElement('div', { className: 'dsh-text-rebuild-note' }, '正在读取图层…（.ai 需要 Illustrator）')
-          : (data.layers || []).length ? (data.layers || []).map((layer) => React.createElement('div', {
+        React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 8, maxHeight: 320, overflowY: 'auto', padding: '4px 0' } },
+          data.loading ? React.createElement('div', { className: 'dsh-text-rebuild-note' }, '正在读取图层与缩略图…（.ai 需要 Illustrator）')
+          : (data.layers || []).map((layer) => React.createElement('div', {
               key: layer.id,
-              style: { ...rowStyle, background: data.selectedId === layer.id ? 'var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,.06))' : 'transparent', borderColor: data.selectedId === layer.id ? 'var(--dsw-alias-border-l3, rgba(0,0,0,.25))' : 'transparent' },
-              onClick: () => props.onSelect(layer.id)
+              style: cardStyle,
+              title: layer.name + '（' + layer.kind + ' ' + layer.w + '×' + layer.h + '）',
+              onClick: () => props.onPick(layer)
             },
-            React.createElement('input', { type: 'radio', checked: data.selectedId === layer.id, onChange: () => props.onSelect(layer.id), onClick: (e) => e.stopPropagation() }),
-            React.createElement('span', { style: { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, title: layer.name }, layer.name),
-            React.createElement('span', { style: { opacity: 0.55, fontSize: 11 } }, layer.kind + ' · ' + layer.w + '×' + layer.h + (layer.visible === false ? ' · 已隐藏' : ''))
+            layer.thumb
+              ? React.createElement('img', { src: layer.thumb, alt: layer.name, style: { width: 96, height: 96, objectFit: 'contain', borderRadius: 6, background: 'repeating-conic-gradient(#00000008 0 25%, transparent 0 50%) 0 0/12px 12px' } })
+              : React.createElement('div', { style: { width: 96, height: 96, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', fontSize: 12, padding: 6, overflow: 'hidden', background: 'rgba(0,0,0,.05)', color: 'var(--dsw-alias-label-secondary, #667085)' } }, layer.kind === 'Text' || layer.kind === 'type' || layer.kind === 'TextFrame' ? (layer.name || '文字对象') : (layer.kind + '\n（无预览）')),
+            React.createElement('div', { style: { maxWidth: 132, fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'center' } }, layer.name),
+            React.createElement('div', { style: { fontSize: 10, opacity: 0.55 } }, layer.kind + ' · ' + layer.w + '×' + layer.h)
           ))
-          : React.createElement('div', { className: 'dsh-text-rebuild-note' }, '没有读到图层')
-        ),
-        React.createElement('div', { className: 'dsh-text-rebuild-foot' },
-          React.createElement('textarea', {
-            style: { flex: 1, minHeight: 56, resize: 'vertical', borderRadius: 8, padding: '8px 10px', font: 'inherit' },
-            value: prompt, disabled: !!data.busy, placeholder: '对该图层的修改要求，例如：删除底部小字 / 把产品改成蓝色 / 背景换成浅灰',
-            onChange: (e) => setPrompt(e.target.value),
-            onKeyDown: (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !data.busy) props.onSubmit(prompt); }
-          }),
-          React.createElement('div', { className: 'dsh-text-rebuild-actions' },
-            React.createElement('button', { className: 'dsh-text-rebuild-cancel', disabled: !!data.busy, onClick: props.onClose }, '取消'),
-            React.createElement('button', { className: 'dsh-text-rebuild-export', disabled: !!data.busy || data.loading || !data.layers.length, onClick: () => props.onSubmit(prompt) }, data.busy ? '正在修改并写回…' : '修改并原位写回')
-          )
         ),
         React.createElement('div', { className: 'dsh-text-rebuild-note' + (data.error ? ' dsh-error' : '') },
-          data.error || '写回会另存为新版本（-图层编辑），不覆盖当前文件；其余图层、文字与排版保持原样。')
+          data.error || '选择图层后进入与「编辑图片」相同的编辑器；写回会另存新版本（-图层编辑），不覆盖当前文件，其余图层与排版保持原样。')
       );
     }
     function CanvasOverlay() {
@@ -3442,29 +3433,35 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
           })
           .catch((err) => setLayerEdit((prev) => prev ? { ...prev, loading: false, error: '⚠ ' + String((err && err.message) || err) } : prev));
       };
-      const submitLayerEdit = (prompt) => {
+      const pickLayerForEdit = (layer) => {
         const current = projectRef.current;
         const active = layerEdit;
-        if (!active || active.busy || active.loading) return;
-        const layer = (active.layers || []).find((item) => item.id === active.selectedId);
-        if (!layer) { setLayerEdit({ ...active, error: '⚠ 请先选择要修改的图层' }); return; }
-        if (!String(prompt || '').trim()) { setLayerEdit({ ...active, error: '⚠ 请输入图层修改要求' }); return; }
+        if (!active || active.busy || active.loading || !layer) return;
+        if (/^(Text|type|TextFrame)$/.test(layer.kind)) { setLayerEdit({ ...active, error: '⚠ 文字对象请在 Illustrator / Photoshop / SVG 编辑器里直接编辑；这里选择位图类图层' }); return; }
         setLayerEdit({ ...active, busy: true, error: '' });
-        setFeedback('正在修改图层「' + layer.name + '」并原位写回…');
-        fetch('/dsh-canvas/edit-layer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...current, path: active.path, name: active.name, layerId: layer.id, layerName: layer.name, prompt: String(prompt).trim() }) })
+        setFeedback('正在提取图层「' + layer.name + '」到画布…');
+        fetch('/dsh-canvas/extract-layer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...current, path: active.path, layerId: layer.id }) })
           .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
           .then((result) => {
-            if (!result.ok || !result.data || !result.data.ok || !result.data.image) throw new Error(result.data && result.data.error || '图层写回失败');
-            const image = result.data.image;
-            queuedDiskPaths.current.add(image.path);
-            if (knownDiskPaths.current) knownDiskPaths.current.add(image.path);
-            pendingRef.current.push({ ...image, explicit: true });
-            flushPending();
+            if (!result.ok || !result.data || !result.data.ok) throw new Error((result.data && result.data.error) || '图层提取失败');
             setLayerEdit(null);
-            setFeedback('✓ 图层「' + layer.name + '」已修改并原位写回（' + (result.data.engine || '') + '），新版本已加入画布：' + image.name);
+            post({
+              type: 'add-image',
+              url: '/dsh-canvas/image?path=' + encodeURIComponent(result.data.path),
+              openEditor: true,
+              customData: {
+                dshFileName: (active.name || '文档') + ' · ' + layer.name,
+                dshSourcePath: result.data.path,
+                dshSourceMtime: result.data.mtimeMs || 0,
+                dshSourceKind: 'image',
+                dshManaged: false,
+                dshLayerEdit: { path: active.path, layerId: layer.id, layerName: layer.name, docName: active.name || '文档' }
+              }
+            });
+            setFeedback('图层「' + layer.name + '」已放入画布并打开编辑器；提交后自动原位写回（' + (active.kind || '') + '）');
           })
           .catch((err) => {
-            setFeedback('⚠ 图层修改失败');
+            setFeedback('⚠ 图层提取失败');
             setLayerEdit((prev) => prev ? { ...prev, busy: false, error: '⚠ ' + String((err && err.message) || err) } : prev);
           });
       };
@@ -3826,6 +3823,32 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
               setFeedback('✓ 已导入 ' + image.name + '，画布会随文件修改自动刷新');
             })
             .catch((err) => setFeedback('⚠ 导入文件失败：' + String((err && err.message) || err)));
+        } else if (d.type === 'request-image-edit' && d.layerEdit) {
+          // 图层编辑：与编辑图片同一对话框提交，但目标是 PSD/AI/SVG 的指定图层，完成后原位写回
+          const current = projectRef.current;
+          const le = d.layerEdit;
+          setFeedback('正在修改图层「' + (le.layerName || '') + '」并原位写回（' + (d.mode === 'erase' || d.maskData ? '局部擦除' : '整层编辑') + '）…');
+          fetch('/dsh-canvas/edit-layer', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...current, path: le.path, layerId: le.layerId, layerName: le.layerName, name: le.docName, prompt: d.prompt || '', maskData: d.maskData })
+          })
+            .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
+            .then((result) => {
+              if (!result.ok || !result.data || !result.data.ok || !result.data.image) throw new Error((result.data && result.data.error) || '图层写回失败');
+              const image = result.data.image;
+              queuedDiskPaths.current.add(image.path);
+              if (knownDiskPaths.current) knownDiskPaths.current.add(image.path);
+              pendingRef.current.push({ ...image, explicit: true });
+              flushPending();
+              post({ type: 'remove-sources', ids: [d.placeholderId, d.elementId].filter(Boolean) });
+              setFeedback('✓ 图层「' + (le.layerName || '') + '」已修改并原位写回（' + (result.data.engine || '') + '），新版本已加入画布：' + image.name + (result.data.maskWarning ? '；' + result.data.maskWarning : ''));
+            })
+            .catch((err) => {
+              const message = String((err && err.message) || err);
+              post({ type: 'remove-sources', ids: [d.placeholderId, d.elementId].filter(Boolean) });
+              setFeedback('⚠ 图层修改失败：' + message);
+            });
         } else if (d.type === 'request-image-edit') {
           const current = projectRef.current;
           setFeedback(d.mode === 'erase' ? '智能擦除处理中：优先 Codex，失败自动切换 image2 API…' : '图片编辑处理中：不占用聊天上下文…');
@@ -4617,8 +4640,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
         layerEdit ? React.createElement(LayerEditDialog, {
           data: layerEdit,
           onClose: () => { if (!layerEdit.busy) setLayerEdit(null); },
-          onSelect: (id) => setLayerEdit((prev) => prev ? { ...prev, selectedId: id } : prev),
-          onSubmit: submitLayerEdit
+          onPick: pickLayerForEdit
         }) : null,
         React.createElement('div', { className: 'dsh-canvas-frame-wrap' }, iframe)
       );
