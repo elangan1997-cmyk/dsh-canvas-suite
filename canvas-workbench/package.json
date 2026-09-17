@@ -4,7 +4,7 @@
   "private": true,
   "description": "可插拔设计模式：独立 Excalidraw 画布、渐进增强的会话图片工具与本地项目资产",
   "scripts": {
-    "check": "node ../tests/check-portability.mjs && node scripts/check-syntax.mjs && node scripts/build-client.mjs --check",
+    "check": "node ../tests/check-portability.mjs && node scripts/check-syntax.mjs && node scripts/check-generated-jsx.mjs && node scripts/build-client.mjs --check",
     "test": "node --test \"tests/unit/**/*.test.mjs\" \"tests/migration/**/*.test.mjs\"",
     "test:unit": "node --test \"tests/unit/**/*.test.mjs\"",
     "test:integration": "node tests/integration/api-parity.mjs",

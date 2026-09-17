@@ -564,3 +564,20 @@ git diff --check：通过
 **当前运行副本 = 重构版**（sync 于 02:2x，DSH 保持运行以便用户查看）。回滚：`git checkout main && ./sync-local-plugins.sh` 并重启 DSH。
 
 **§40 发布条件未满足项（诚实）：** Windows 实机回归（J3/J4/E8）；scripts/ 物理重组；CanvasOverlay 2,100 行分段未按 Feature 再拆（state 归属表待画）；Command 层未接入具体 UI 操作；性能内存计时。这些不阻塞在 macOS 上使用重构版，但阻塞打 v1.8.0 tag。
+
+## 15. 2026-09-17 白天：.ai 图层编辑全链路修复（**未提交**）
+
+> 详细交接报告：**[`docs/HANDOFF-2026-09-17-图层编辑修复.md`](docs/HANDOFF-2026-09-17-图层编辑修复.md)**（九轮问题 → 根因 → 证据 → 修法、验证配方、风险与下一步）。本节只放结论与接手要点。
+
+一天之内按用户反馈修了九轮，主题是「画布 → 编辑图层 → 在 .ai 上跑通」：
+
+- 起点 HEAD `c8537c2`（分支 `refactor/v1.8`，与 origin 同步）。**五改一新增，共 +622/−151 行，全部未提交**；
+  四层运行副本已同步一致。`canvas-workbench/scripts/check-generated-jsx.mjs` 为新增（已接入 `npm run check`）。
+- 修掉的关键 bug（每条都有确定性证据）：JSX 字符串拼接语法错误导致 .ai 缩略图全空；`'var states=[].'` 导致提取必失败；
+  只读流程误开用户正式文件并整体关闭（跳转 AI → 打开 → 秒关）；`add-image` 漏 `explicit:true`（点了没反应 + 画布"加载失败"）；
+  `openImageEditorById` 作用域错误 + 死监听器 + `customData` 丢失（编辑器不自动弹）；临时提取图被"访达删除对账"移除（"原图已不在画布中"）；
+  写回用"先删后加"两条消息竞态（结果丢失 + 占位图残留）；`pi.move(prev, PLACEAFTER)` 语义错误且不检查（新图盖住 7 个文字层，文字其实还在）。
+- 两处产品决策（用户拍板）：`.ai` 写回改为**覆盖原文件 + 原图层保留 + 修改版叠加在上 + 改前备份到「画布备份/」**（`.psd/.svg` 仍另存新版本，响应 `mode` 字段区分）；
+  图层编辑前**弹窗提醒先在 Illustrator 里关掉这份稿**。
+- 新增常驻排查通道：`$TMPDIR/dsh-canvas-ai-diag.json`（最近 8 条，含 `close/warn/msJsx/z=实际/期望`）。
+- **接手第一件事**：真机验收最后两轮（见报告 §5）。已知闸门是"文件正开在 Illustrator 里会被反向覆盖"，目前只靠弹窗规避。**未提交、未验收前不要打 tag、不要发布。**
