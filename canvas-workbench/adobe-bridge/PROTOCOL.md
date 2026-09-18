@@ -180,7 +180,7 @@ host 只认清单，且要求清单里列出的每个文件都存在、非空、
 `src/host/services/adobe-bridge.js`）；入口：画布「更多 → 🔐 安装 PS / AI 菜单面板（需 Mac 密码）」「🔗 刷新桥接脚本副本」，
 或 `npm run install:adobe-bridge`（`node scripts/install-adobe-bridge.mjs`，`--list` 只看不装；root 目录会给出 sudo 命令）。
 
-### 常驻面板（CEP 扩展，推荐；PS/AI CC 2014+ 通用）
+### 常驻面板（CEP 扩展，推荐；Illustrator 全版本 + Photoshop ≤2024）
 
 `adobe-bridge/cep/`（`CSXS/manifest.xml` + `index.html` + `main.js`，ES5）是一个 CEP HTML 面板：可停靠、非模态、每 3s 自动检测发件箱，
 **一个扩展同时声明 PHXS/PHSP（Photoshop）与 ILST（Illustrator）**。它没有业务逻辑——按钮通过 `evalScript` 调用用户副本里的
@@ -193,8 +193,10 @@ host 只认清单，且要求清单里列出的每个文件都存在、非空、
 - 入口：重启应用后 Photoshop「窗口 → 扩展（旧版）→ DSH 画布桥接」、Illustrator「窗口 → 扩展功能 → DSH 画布桥接」（应用只在启动时扫描扩展目录）。
 - 真机（2026-09-18，Illustrator 2026）：菜单出现、面板加载、读到真实 DSH 心跳（项目名正确）、按钮 → evalScript → jsx → 错误回显链路通。
   PS 2025 内置 `CEPHtmlEngine.app`，同一扩展重启后可用。
-- 为什么不是 UXP：用户要求"什么版本都可以"，UXP 只覆盖 PS 2022+；CEP 覆盖 CC 2014 → 2025/2026（Adobe 已宣布未来移除，届时再迁 UXP，
-  面板逻辑仍在 jsx 里不受影响）。CS6 没有 CEP，用下面的模态面板 / 一键脚本兜底。
+- **适用范围（2026-09-18 实测更正）**：**Photoshop 2025（26.x）已移除 CEP**（用户机器上 Overlord 等多个 CEP 扩展在 AI 里可见、
+  PS 2025 菜单无任何旧扩展入口），CEP 面板只对 **Illustrator（至今）与 Photoshop ≤2024** 生效。
+  PS 2025+ 想要常驻面板只剩 UXP（仅 PS 2022+，且分发依赖 UDT/开发者模式/.ccx 侧载，用户已决定不做）——
+  PS 2025+ 的日常路径 = DSH 画布按钮（零安装）+ 菜单一键脚本；CS6 用模态面板/一键脚本。
 - 面板 `main.js` 必须 **ES5 + 回调**（CEP 5 的 Chromium 27 没有 Promise/箭头函数）；`check-adobe-bridge-jsx.mjs` 会拦。
 
 ### 菜单脚本（ExtendScript：模态面板 + 一键脚本，任何有 ExtendScript 的版本）
