@@ -644,6 +644,8 @@ git diff --check：通过
   - `ensureInstalled()` 在 host `apply()` 静默运行（版本一致且文件在位即跳过，不弹窗不提权）——它能保证的是**用户副本**（远程驱动用），
     菜单入口需要「更多 → 🔐 安装 PS / AI 菜单面板」走 `osascript … with administrator privileges`（系统密码框，插件接触不到密码），
     `installScripts` 把"目录不可写但三个脚本已在"视为已安装。菜单需重启 PS/AI 一次才出现（只在启动时扫描 Scripts）。
+    2026-09-18 起这两个安装按钮**按需显示**：打开「更多」菜单时 `GET /status` 查 `scriptsInstalled`/`cepInstalled`，缺哪个才显示哪个，
+    装完按钮即隐（`fetchAdobeBridgeInstallStatus`，features/adobe-bridge/00-bridge.js）；「🔗 刷新脚本副本」按钮已删（启动 `ensureUserCopy()` 无条件覆盖已覆盖该场景）。
   - **远程驱动**（PROTOCOL §9）：`remoteEval(app, call)` 写驾驭脚本 → `$.evalFile` 面板脚本（无头模式）→ 调 `DSH_BRIDGE.ps/.ai.*`；
     macOS osascript 文本模式 + `with timeout`；Windows PowerShell COM `DoJavaScriptFile`（**未实机验证**）。
     `POST /pull`（顶栏「取 Ps 图层 / 取 Ai 对象」）与 `/return` 自动置入（响应 `remote:{attempted,running,placed,error}`）。
@@ -667,7 +669,7 @@ PS 应用目录 + AI 25 个 locale（含 zh_CN），`scripts-installed.json` 记
 - `adobe-bridge/cep/`：manifest 同时声明 PHXS/PHSP/ILST；`main.js` **ES5 + 回调**（CEP 5 = Chromium 27，无 Promise）；面板零业务逻辑——
   `cep.fs` 读 bridge.json/发件箱做状态，按钮 `evalScript` 调用户副本 jsx 的 `DSH_BRIDGE.ps/.ai.*`（无头模式）。`installCep()`：整目录复制到
   `~/Library/Application Support/Adobe/CEP/extensions/com.dsh.canvasbridge` + `defaults write com.adobe.CSXS.{6..12} PlayerDebugMode 1`；
-  `ensureInstalled()` 每次 DSH 启动都跑它（幂等）。路由 `/install-scripts {cep:true}`；更多菜单「🧩 安装常驻面板（推荐，免密码）」。
+  `ensureInstalled()` 每次 DSH 启动都跑它（幂等）。路由 `/install-scripts {cep:true}`；「🧩 安装常驻面板」按钮按需显示（启动自动装失败时才出现）。
 - **真机（Illustrator 2026，11:40 重启后）**：「窗口 → 扩展功能 → DSH 画布桥接」出现并打开（242×280 浮动面板）；状态行读到**真实 DSH**
   的心跳（项目「白底图」——用户已重启 DSH 到 v1.8）；无文档时点「发送选中对象」面板底部回显「⚠ …请先打开一个文档」→ 按钮→evalScript→jsx 链路通。
   Photoshop 2025 内置 `CEPHtmlEngine.app`；当时 PS 进程 11:01 启动早于 11:39 安装，重启后即有「窗口 → 扩展（旧版）」。

@@ -177,7 +177,9 @@ host 只认清单，且要求清单里列出的每个文件都存在、非空、
 
 安装 = 把 `adobe-bridge/dsh-bridge-core.jsx`、`DSH画布桥接-Photoshop.jsx`、`DSH画布桥接-Illustrator.jsx`
 三个文件拷进 Adobe 会扫描的 Scripts 目录。逻辑只有一处（`installScripts()` / `installScriptsElevated()`，
-`src/host/services/adobe-bridge.js`）；入口：画布「更多 → 🔐 安装 PS / AI 菜单面板（需 Mac 密码）」「🔗 刷新桥接脚本副本」，
+`src/host/services/adobe-bridge.js`）；入口：画布「更多」菜单**按需显示**——检测到菜单脚本未装（`GET /status` 的
+`scriptsInstalled=false`）才出现「🔐 安装 PS / AI 菜单面板（需 Mac 密码）」，装完按钮即隐（无"刷新脚本副本"入口，
+用户副本由 DSH 启动时 `ensureUserCopy()` 无条件覆盖同步），
 或 `npm run install:adobe-bridge`（`node scripts/install-adobe-bridge.mjs`，`--list` 只看不装；root 目录会给出 sudo 命令）。
 
 ### 常驻面板（CEP 扩展，推荐；Illustrator 全版本 + Photoshop ≤2024）
@@ -186,7 +188,7 @@ host 只认清单，且要求清单里列出的每个文件都存在、非空、
 **一个扩展同时声明 PHXS/PHSP（Photoshop）与 ILST（Illustrator）**。它没有业务逻辑——按钮通过 `evalScript` 调用用户副本里的
 `DSH_BRIDGE.ps/.ai.*`（无头模式），状态和发件箱用 `cep.fs` 直接读文件夹协议，所以改 bug 只改 `.jsx`。
 
-- 安装（`installCep()`，DSH 启动时 `ensureInstalled()` 自动做，画布「更多 → 🧩 安装常驻面板」可手动）：整目录复制到用户级扩展目录
+- 安装（`installCep()`，DSH 启动时 `ensureInstalled()` 自动做；自动装失败时「更多」菜单按需出现「🧩 安装常驻面板」可手动）：整目录复制到用户级扩展目录
   macOS `~/Library/Application Support/Adobe/CEP/extensions/com.dsh.canvasbridge/`、Windows `%APPDATA%\Adobe\CEP\extensions\com.dsh.canvasbridge\`，
   **不需要管理员**；并为 CSXS 6~12 设置用户级开关 `PlayerDebugMode=1`（macOS `defaults write com.adobe.CSXS.N PlayerDebugMode 1`，
   Windows `HKCU\Software\Adobe\CSXS.N`），否则未签名扩展不加载。

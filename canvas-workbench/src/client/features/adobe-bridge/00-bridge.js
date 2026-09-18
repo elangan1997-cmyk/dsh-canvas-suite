@@ -4,7 +4,8 @@
     //   收件：createAdobeBridgePoller —— 画布可见且已绑项目时每 3s：心跳 activate → 拉取 inbound
     //         → 未在画布的文件 add-image（customData.dshBridge 打印出处）→ ack 清单。
     //   发件：requestAdobeBridgeReturn —— srcdoc「→Ps / →Ai」按钮的 request-bridge-return 消息 → host /return。
-    //   安装：installAdobeBridgeScripts —— 「更多」菜单按钮 → host /install-scripts。
+    //   安装：fetchAdobeBridgeInstallStatus + installAdobeBridgeScripts / installAdobeBridgeCepPanel ——
+    //         「更多」菜单只在检测到缺失时显示对应安装按钮（详见函数注释）。
     //
     // 通用"项目新文件自动上画布"会跳过 ADOBE桥接/ 下的路径（isAdobeBridgePath），避免与这里重复添加。
     const ADOBE_BRIDGE_POLL_MS = 3000;
@@ -104,8 +105,19 @@
         .catch((err) => setFeedback('⚠ 从 ' + label + ' 取' + what + '失败：' + String((err && err.message) || err)));
     }
 
-    /** 「更多」里的两个安装入口。
-     *  elevate=false：只刷新用户副本（远程驱动 / 「浏览…」用它；DSH 启动时也自动做）。
+    /** 「更多」菜单按需显示安装入口：查一次桥接状态，缺什么才显示对应按钮。
+     *  查询失败按"已安装"处理（不让按钮闪现），装完后由调用方再查一次让按钮消失。 */
+    function fetchAdobeBridgeInstallStatus() {
+      return adobeBridgeJson('/dsh-canvas/adobe-bridge/status')
+        .then((result) => {
+          const d = (result.ok && result.data && result.data.ok) ? result.data : {};
+          return { scriptsInstalled: d.scriptsInstalled !== false, cepInstalled: d.cepInstalled !== false };
+        })
+        .catch(() => ({ scriptsInstalled: true, cepInstalled: true }));
+    }
+
+    /** 安装入口（菜单里按需出现，见 fetchAdobeBridgeInstallStatus）。
+     *  elevate=false：只刷新用户副本（远程驱动 / 「浏览…」用它；DSH 启动时也自动做，无 UI 入口）。
      *  elevate=true（macOS）：PS/AI 的应用脚本目录都是 root 权限，弹系统管理员密码框把脚本装进菜单——
      *  密码由 macOS 自己的对话框收集，插件接触不到。实测 PS 2025 不扫描用户级目录，菜单入口只有这条路。 */
     function installAdobeBridgeScripts(setFeedback, elevate) {

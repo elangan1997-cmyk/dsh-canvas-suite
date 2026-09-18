@@ -1937,7 +1937,8 @@ window.__ModuleLoader__.load({
     //   收件：createAdobeBridgePoller —— 画布可见且已绑项目时每 3s：心跳 activate → 拉取 inbound
     //         → 未在画布的文件 add-image（customData.dshBridge 打印出处）→ ack 清单。
     //   发件：requestAdobeBridgeReturn —— srcdoc「→Ps / →Ai」按钮的 request-bridge-return 消息 → host /return。
-    //   安装：installAdobeBridgeScripts —— 「更多」菜单按钮 → host /install-scripts。
+    //   安装：fetchAdobeBridgeInstallStatus + installAdobeBridgeScripts / installAdobeBridgeCepPanel ——
+    //         「更多」菜单只在检测到缺失时显示对应安装按钮（详见函数注释）。
     //
     // 通用"项目新文件自动上画布"会跳过 ADOBE桥接/ 下的路径（isAdobeBridgePath），避免与这里重复添加。
     const ADOBE_BRIDGE_POLL_MS = 3000;
@@ -2037,8 +2038,19 @@ window.__ModuleLoader__.load({
         .catch((err) => setFeedback('⚠ 从 ' + label + ' 取' + what + '失败：' + String((err && err.message) || err)));
     }
 
-    /** 「更多」里的两个安装入口。
-     *  elevate=false：只刷新用户副本（远程驱动 / 「浏览…」用它；DSH 启动时也自动做）。
+    /** 「更多」菜单按需显示安装入口：查一次桥接状态，缺什么才显示对应按钮。
+     *  查询失败按"已安装"处理（不让按钮闪现），装完后由调用方再查一次让按钮消失。 */
+    function fetchAdobeBridgeInstallStatus() {
+      return adobeBridgeJson('/dsh-canvas/adobe-bridge/status')
+        .then((result) => {
+          const d = (result.ok && result.data && result.data.ok) ? result.data : {};
+          return { scriptsInstalled: d.scriptsInstalled !== false, cepInstalled: d.cepInstalled !== false };
+        })
+        .catch(() => ({ scriptsInstalled: true, cepInstalled: true }));
+    }
+
+    /** 安装入口（菜单里按需出现，见 fetchAdobeBridgeInstallStatus）。
+     *  elevate=false：只刷新用户副本（远程驱动 / 「浏览…」用它；DSH 启动时也自动做，无 UI 入口）。
      *  elevate=true（macOS）：PS/AI 的应用脚本目录都是 root 权限，弹系统管理员密码框把脚本装进菜单——
      *  密码由 macOS 自己的对话框收集，插件接触不到。实测 PS 2025 不扫描用户级目录，菜单入口只有这条路。 */
     function installAdobeBridgeScripts(setFeedback, elevate) {
@@ -2730,6 +2742,9 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
       const [projectDialog, setProjectDialog] = React.useState(null);
       const [projectList, setProjectList] = React.useState({ loading: false, items: [], error: '' });
       const [moreMenuOpen, setMoreMenuOpen] = React.useState(false);
+      // Adobe 桥接安装状态：默认按"已装"处理不显示安装按钮，打开「更多」菜单时查一次实际状态，
+      // 缺菜单脚本 / CEP 面板才显示对应安装入口（装完按钮即消失，避免常驻三个一次性动作）。
+      const [adobeInstall, setAdobeInstall] = React.useState({ scriptsInstalled: true, cepInstalled: true });
       const [imageSettings, setImageSettings] = React.useState(null);
       const [imageSettingsBusy, setImageSettingsBusy] = React.useState(false);
       const [textRebuild, setTextRebuild] = React.useState(null);
@@ -4478,6 +4493,14 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
         return () => poller.stop();
       }, [on, projectInfo.cwd, projectInfo.project]);
 
+      // 「更多」菜单打开时查桥接安装状态：缺什么才显示对应安装按钮（features/adobe-bridge/00-bridge.js）。
+      React.useEffect(() => {
+        if (!on || !moreMenuOpen) return undefined;
+        let cancelled = false;
+        fetchAdobeBridgeInstallStatus().then((state) => { if (!cancelled) setAdobeInstall(state); });
+        return () => { cancelled = true; };
+      }, [on, moreMenuOpen]);
+
       const startResize = (e) => {
         e.preventDefault();
         const target = e.currentTarget;
@@ -4590,9 +4613,8 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
             }, (canvasBgFollowSystem ? '☑' : '☐') + ' 画布背景跟随系统'),
             React.createElement('button', { onClick: () => { setMoreMenuOpen(false); openProjectFolder(); }, disabled: !projectInfo.project }, '📁 打开项目文件夹'),
             React.createElement('button', { onClick: openImageSettings }, '⚙ 图像引擎设置'),
-            React.createElement('button', { title: '把桥接脚本装进 Photoshop / Illustrator 的「文件 → 脚本」菜单。两款应用的脚本目录都属于系统管理员，会弹出 macOS 密码对话框（密码由系统收集，插件接触不到），只需一次；装完重启 PS/AI 生效。不装也不影响画布里的「取 Ps 图层」「→Ps」', onClick: () => { setMoreMenuOpen(false); void installAdobeBridgeScripts(setFeedback, true); } }, '🔐 安装 PS / AI 菜单面板（需 Mac 密码）'),
-            React.createElement('button', { title: '可停靠的常驻桥接面板，装在用户级目录不需要管理员密码。适用：Illustrator（各版本，入口「窗口 → 扩展功能」）与 Photoshop ≤2024（入口「窗口 → 扩展（旧版）」）。注意 Photoshop 2025 起 Adobe 已移除旧扩展系统，PS 2025+ 请用画布上的「取 Ps 图层」「→Ps」按钮或菜单里的一键脚本。DSH 启动时也会自动安装', onClick: () => { setMoreMenuOpen(false); void installAdobeBridgeCepPanel(setFeedback); } }, '🧩 安装常驻面板（Illustrator / PS≤2024）'),
-            React.createElement('button', { title: '只刷新 ~/.dsh/canvas-workbench/adobe-bridge/scripts 里的脚本副本（远程驱动与「文件 → 脚本 → 浏览…」用它），不需要密码；DSH 启动时也会自动做', onClick: () => { setMoreMenuOpen(false); void installAdobeBridgeScripts(setFeedback, false); } }, '🔗 刷新桥接脚本副本'),
+            adobeInstall.scriptsInstalled ? null : React.createElement('button', { title: '检测到 Photoshop / Illustrator 的「文件 → 脚本」菜单里还没有 DSH 桥接入口。两款应用的脚本目录都属于系统管理员，会弹出 macOS 密码对话框（密码由系统收集，插件接触不到），只需一次；装完重启 PS/AI 生效，此按钮随之消失。不装也不影响画布里的「取 Ps 图层」「→Ps」', onClick: () => { setMoreMenuOpen(false); void installAdobeBridgeScripts(setFeedback, true).then(() => fetchAdobeBridgeInstallStatus()).then(setAdobeInstall); } }, '🔐 安装 PS / AI 菜单面板（需 Mac 密码）'),
+            adobeInstall.cepInstalled ? null : React.createElement('button', { title: '检测到常驻桥接面板未安装。CEP 扩展装在用户级目录不需要管理员密码，可停靠、自动轮询发件箱；适用 Illustrator（各版本，入口「窗口 → 扩展功能」）与 Photoshop ≤2024（入口「窗口 → 扩展（旧版）」）。Photoshop 2025 起 Adobe 已移除旧扩展系统，PS 2025+ 请用画布上的「取 Ps 图层」「→Ps」或菜单里的一键脚本。装好后此按钮自动消失', onClick: () => { setMoreMenuOpen(false); void installAdobeBridgeCepPanel(setFeedback).then(() => fetchAdobeBridgeInstallStatus()).then(setAdobeInstall); } }, '🧩 安装常驻面板（Illustrator / PS≤2024）'),
             React.createElement('button', { onClick: () => { setMoreMenuOpen(false); saveNow(); setFeedback('✓ 已保存当前画布'); }, disabled: !projectInfo.project }, '保存当前画布'),
             React.createElement('button', { className: 'dsh-canvas-more-danger', title: '先备份画布，再把项目图片移入画布回收站', onClick: () => { setMoreMenuOpen(false); backupAndClear(); }, disabled: !projectInfo.project }, '清空当前画布')
           ) : null
