@@ -2,30 +2,28 @@
   DSH 画布桥接 · Photoshop 面板
   ---------------------------------------------------------------------------
   安装：与 dsh-bridge-core.jsx、DSH画布桥接-Illustrator.jsx 一起放进 Photoshop 的 Presets/Scripts，
-        重启后 文件 → 脚本 → DSH画布桥接-Photoshop（画布「更多 → 安装 Adobe 桥接脚本」会自动拷贝）。
+        重启后 文件 → 脚本 → DSH画布桥接-Photoshop（画布「更多 → 安装 Adobe 桥接脚本」会自动拷贝；
+        菜单要重启 PS 才出现，装完当时可用 文件 → 脚本 → 浏览… 打开）。
   功能：① 发送选中图层 → 画布（逐层 / 合并为一张，透明 PNG，裁到图层边界，记录文档坐标）
         ② 发送整个文档 (PSD) → 画布（画布可做图层级编辑）
-        ③ 轮询项目发件箱 → 「置入为图层」（智能对象，可归位到出发位置）/「打开为新文档」
+        ③ 读取项目发件箱 → 「置入为图层」（智能对象，可归位到出发位置）/「打开为新文档」
+  面板形态：模态对话框。实测 PS 2025 不支持 ExtendScript 常驻 palette（脚本一结束窗口就被关，
+        #targetengine 也留不住）——用完点「关闭」，下次从菜单再开；发件箱靠「刷新」。
   协议：canvas-workbench/adobe-bridge/PROTOCOL.md。排障：~/.dsh/canvas-workbench/adobe-bridge/script-log.txt
   实现要点（子代理改 bug 先读）：
     - 选中图层用 ActionManager targetLayers 取 layerID（有背景层时索引不 +1，否则 +1）；
     - 导出用「隔离可见性 → doc.duplicate(合并可见) → crop 到边界 → 另存 PNG 副本」，不改原文档；
     - 置入用 ActionManager "Plc "，随后按 origin.bounds 缩放/平移归位（PS 坐标本就 y 向下、px）。
+    - 无界面自动化测试：$.global.DSH_BRIDGE_HEADLESS = true 后 $.evalFile 本文件，调 DSH_BRIDGE.ps.*。
 */
 #target photoshop
-#targetengine "dshCanvasBridge"
 #include "dsh-bridge-core.jsx"
 
 (function () {
-  var B = DSH_BRIDGE, APP = 'photoshop', POLL_MS = 2500;
+  var B = DSH_BRIDGE, APP = 'photoshop';
   var cTID = function (s) { return charIDToTypeID(s); };
   var sTID = function (s) { return stringIDToTypeID(s); };
   var prefs = B.loadPrefs(APP, { merged: false, alwaysHome: false });
-
-  /* 单实例：面板已开着就只是前置 */
-  if ($.global.DSH_BRIDGE_PS_WIN) {
-    try { if ($.global.DSH_BRIDGE_PS_WIN.visible) { $.global.DSH_BRIDGE_PS_WIN.show(); return; } } catch (e0) {}
-  }
 
   /* ===================== Photoshop 侧工具 ===================== */
   function hasBackground(doc) { try { return !!doc.backgroundLayer; } catch (e) { return false; } }
@@ -276,8 +274,16 @@
     });
   }
 
-  /* ===================== 面板 ===================== */
-  var win = B.makeWindow('palette', 'DSH 画布桥接 · Photoshop');
+  /* 对外暴露（无界面自动化测试 / 其它脚本复用）。$.global.DSH_BRIDGE_HEADLESS === true 时只挂函数、不开面板：
+     测试脚本先设该标志，再 $.evalFile 本文件，然后直接调 DSH_BRIDGE.ps.sendSelection(false) 等。 */
+  B.ps = { sendSelection: sendSelection, sendDocument: sendDocument, importPending: importPending, selectedLayerIds: selectedLayerIds, selectLayerById: selectLayerById, exportLayersPNG: exportLayersPNG, placeFile: placeFile, homeLayer: homeLayer, boundsOf: boundsOf, layerType: layerType, prefs: prefs };
+  if ($.global.DSH_BRIDGE_HEADLESS === true) return;
+
+  /* ===================== 面板（模态对话框） =====================
+     实测（2026-09-18，PS 2025）：palette 窗口在脚本结束后立即被 Photoshop 关闭，#targetengine 也留不住
+     —— PS 不支持 ExtendScript 常驻面板（InDesign 才支持），因此与 Illustrator 一样用模态 dialog：
+     用完点「关闭」，下次从 文件 → 脚本 再开；发件箱靠「刷新」，没有后台轮询。 */
+  var win = B.makeWindow('dialog', 'DSH 画布桥接 · Photoshop');
   var g1 = win.add('group');
   g1.orientation = 'row';
   var btnSend = g1.add('button', undefined, '发送选中图层 → 画布');
@@ -296,6 +302,7 @@
   var note = win.add('statictext', undefined, ' ', { multiline: true });
   note.characters = 42;
   win.__note = note;
+  var btnClose = win.add('button', undefined, '关闭', { name: 'cancel' });
 
   function refresh() {
     var s = B.status();
@@ -325,25 +332,10 @@
   btnRefresh.onClick = function () { try { refresh(); B.setNote(win, '已刷新'); } catch (e) { B.setNote(win, '⚠ ' + e); } };
   cbMerged.onClick = function () { prefs.merged = cbMerged.value; B.savePrefs(APP, prefs); };
   cbHome.onClick = function () { prefs.alwaysHome = cbHome.value; B.savePrefs(APP, prefs); };
-
-  /* 自动轮询：Photoshop 有 app.scheduleTask；面板关闭后自然停止（tick 里检查 visible） */
-  function tick() {
-    var w = $.global.DSH_BRIDGE_PS_WIN;
-    if (!w) return;
-    try { if (!w.visible) { $.global.DSH_BRIDGE_PS_WIN = null; return; } } catch (e) { $.global.DSH_BRIDGE_PS_WIN = null; return; }
-    try { refresh(); } catch (e1) {}
-    schedule();
-  }
-  function schedule() {
-    try { app.scheduleTask('if ($.global.DSH_BRIDGE_PS_TICK) $.global.DSH_BRIDGE_PS_TICK();', POLL_MS, false); } catch (e) {}
-  }
-  $.global.DSH_BRIDGE_PS_TICK = tick;
-  $.global.DSH_BRIDGE_PS_WIN = win;
-  win.onClose = function () { $.global.DSH_BRIDGE_PS_WIN = null; return true; };
+  btnClose.onClick = function () { win.close(); };
 
   refresh();
+  B.log(APP, '面板已打开（core ' + B.CORE_VERSION + '）');
   win.center();
   win.show();
-  schedule();
-  B.log(APP, '面板已打开（core ' + B.CORE_VERSION + '）');
 })();

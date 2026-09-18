@@ -2012,7 +2012,7 @@ window.__ModuleLoader__.load({
           if (!result.ok || !result.data || !result.data.ok) throw new Error((result.data && result.data.error) || '写入发件箱失败');
           const d = result.data;
           const originName = d.origin ? ((d.origin.layer && d.origin.layer.name) || (d.origin.document && d.origin.document.name) || '') : '';
-          const hint = app === 'photoshop' ? 'PS 面板会自动检测，点「置入为图层」或「打开为新文档」' : 'AI 面板点「刷新」后「置入」或「打开」';
+          const hint = '在 ' + label + ' 里打开「文件 → 脚本 → DSH画布桥接」面板，点「刷新」后「置入」或「打开」';
           setFeedback('✓ 已放入 ' + label + ' 发件箱 #' + d.seq + '（' + (d.files || []).length + ' 个文件' + (originName ? '，可归位到「' + originName + '」' : '') + '）；' + hint);
         })
         .catch((err) => setFeedback('⚠ 返回 ' + label + ' 失败：' + String((err && err.message) || err)));

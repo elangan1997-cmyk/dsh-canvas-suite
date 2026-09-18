@@ -236,6 +236,10 @@
     });
   }
 
+  /* 对外暴露（无界面自动化测试 / 其它脚本复用）。$.global.DSH_BRIDGE_HEADLESS === true 时只挂函数、不开对话框。 */
+  B.ai = { sendSelection: sendSelection, sendArtboard: sendArtboard, importPending: importPending, placeInto: placeInto, activeArtboard: activeArtboard, selectionItems: selectionItems, unionVisibleBounds: unionVisibleBounds, toManifestBounds: toManifestBounds, exportSelectionPNG: exportSelectionPNG, prefs: prefs };
+  if ($.global.DSH_BRIDGE_HEADLESS === true) return;
+
   /* ===================== 面板（模态对话框） ===================== */
   var win = B.makeWindow('dialog', 'DSH 画布桥接 · Illustrator');
   var g1 = win.add('group');

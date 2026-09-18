@@ -192,13 +192,17 @@ host 只认清单，且要求清单里列出的每个文件都存在、非空、
   Adobe 会扫描的目录（用户副本不算）。
 - 面板偏好（合并/归位/分辨率）存 `~/.dsh/canvas-workbench/adobe-bridge/panel-prefs.json`。
 
-### 面板形态差异
+### 面板形态（两端相同）
 
 | | Photoshop | Illustrator |
 |---|---|---|
-| 窗口类型 | `palette`（常驻，可边操作边开着） | `dialog`（模态；AI 的 ExtendScript 不支持常驻面板） |
-| 发件箱检测 | `app.scheduleTask` 每 2.5s 自动刷新 | 手动点「刷新」 |
-| 单实例 | `$.global.DSH_BRIDGE_PS_WIN` 已开则前置 | 每次从菜单打开 |
+| 窗口类型 | `dialog`（模态） | `dialog`（模态） |
+| 为什么不是常驻 palette | **实测 PS 2025**：palette 在脚本结束时被 Photoshop 立即关闭，`#targetengine` 也留不住（PS 不支持 ExtendScript 常驻面板，InDesign 才支持） | AI 的 ExtendScript 同样不支持常驻 palette |
+| 发件箱检测 | 打开面板时自动读一次；之后点「刷新」 | 同左 |
+| 使用节奏 | 选好图层 → 菜单打开面板 → 点按钮 → 「关闭」；返回时再开一次 | 同左 |
+| 无界面测试 | `$.global.DSH_BRIDGE_HEADLESS = true` 后 `$.evalFile`，调 `DSH_BRIDGE.ps.*` | 同左，`DSH_BRIDGE.ai.*` |
+
+面板打开时会阻塞该应用（模态），不影响 DSH 与另一款 Adobe 应用。真机验收记录见 AGENT-HANDOFF §16。
 
 ## 7. 状态机与时序
 
@@ -208,12 +212,13 @@ host 只认清单，且要求清单里列出的每个文件都存在、非空、
       → 客户端 add-image（带 bridge 元数据）→ POST ack → host 改名 .done.json
 发件：画布选中 → 「返回 Ps/Ai」→ 父页面解析源文件（无源文件则先落盘 dataURL）
       → POST return → host 复制到发件箱 + 写 <seq>.json
-      → 脚本「刷新」（PS 自动 2.5s 轮询 / AI 手动）→ 置入/打开 → 改名 .done.json
+      → 脚本面板「刷新」（打开面板时自动读一次）→ 置入/打开 → 改名 .done.json
 ```
 
 防重复：客户端只添加画布上尚未链接该路径（`dshSourcePath`）的文件；host 只返回未 ack 的清单。
-防半截文件：脚本 `.part` + rename；host 要求 mtime ≥ 1s。
-防误判离线：心跳 60s 容忍（PS 面板 2.5s 轮询、通用轮询 8s 都远小于它）。
+防半截文件：脚本先导出到临时目录再整体复制；host 要求 mtime ≥ 1s。
+防误判离线：心跳 60s 容忍（客户端 3s 心跳、通用轮询 8s 都远小于它）；面板离线时只禁用「发送」，
+「置入/打开」仍可用（发件箱里已有的返回件不需要 DSH 在线）。
 
 ## 8. 排障速查
 
@@ -221,6 +226,6 @@ host 只认清单，且要求清单里列出的每个文件都存在、非空、
 |---|---|
 | 面板显示"离线" | `bridge.json` 是否存在、`updatedAt` 是否在更新（DSH 开着？画布可见？项目已绑？） |
 | 发送了但画布没长出来 | `来自Photoshop/` 里有没有 `.json`（没有 = 脚本导出失败，看 `script-log.txt`）；有 `.json` 但没变 `.done.json` = 客户端没轮询到（画布可见？`bridge-log.jsonl` 有 inbound 记录？） |
-| 返回后面板没反应 | `发件箱/` 有没有新的 `NNNN.json`；PS 面板是否在轮询（面板打开着？）；AI 需手动点刷新 |
+| 返回后面板没反应 | `发件箱/` 有没有新的 `NNNN.json`；面板是模态的、不会自己刷新——点「刷新」或关掉重开 |
 | 置入位置不对 | 清单 `origin.bounds` 是否 y 向下；AI 画板换算见 §3；文档名不一致会居中而不归位 |
 | 脚本菜单里没有 | 三个 .jsx 是否在同一 Scripts 目录；是否重启了 PS/AI；`scripts-installed.json` 记录了哪些目录 |

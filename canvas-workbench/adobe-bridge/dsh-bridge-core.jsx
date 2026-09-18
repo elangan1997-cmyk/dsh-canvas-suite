@@ -39,10 +39,11 @@ var DSH_BRIDGE = (typeof DSH_BRIDGE !== 'undefined' && DSH_BRIDGE) ? DSH_BRIDGE 
   B.extOf = function (name) { var s = String(name || ''); var i = s.lastIndexOf('.'); return i > 0 ? s.substring(i + 1).toLowerCase() : ''; };
   B.round = function (v) { return Math.round(Number(v) * 100) / 100; };
 
-  /* ---------- 文本文件（UTF-8） ---------- */
+  /* ---------- 文本文件（UTF-8，统一 LF：ExtendScript 在 macOS 默认把 \n 写成 CR） ---------- */
   B.readText = function (file) {
     if (!file || !file.exists) return null;
     file.encoding = 'UTF-8';
+    file.lineFeed = 'Unix';
     if (!file.open('r')) return null;
     var t = file.read();
     file.close();
@@ -50,6 +51,7 @@ var DSH_BRIDGE = (typeof DSH_BRIDGE !== 'undefined' && DSH_BRIDGE) ? DSH_BRIDGE 
   };
   B.writeText = function (file, text) {
     file.encoding = 'UTF-8';
+    file.lineFeed = 'Unix';
     if (!file.open('w')) throw new Error('无法写入：' + file.fsName);
     file.write(text);
     file.close();
@@ -107,6 +109,7 @@ var DSH_BRIDGE = (typeof DSH_BRIDGE !== 'undefined' && DSH_BRIDGE) ? DSH_BRIDGE 
     try {
       var f = new File(B.rootFolder().fsName + '/script-log.txt');
       f.encoding = 'UTF-8';
+      f.lineFeed = 'Unix';
       if (f.open('a')) { f.writeln(new Date().toString() + ' [' + app + '] ' + msg); f.close(); }
     } catch (e) {}
   };

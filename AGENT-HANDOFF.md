@@ -582,7 +582,7 @@ git diff --check：通过
 - 新增常驻排查通道：`$TMPDIR/dsh-canvas-ai-diag.json`（最近 8 条，含 `close/warn/msJsx/z=实际/期望`）。
 - **接手第一件事**：真机验收最后两轮（见报告 §5）。已知闸门是"文件正开在 Illustrator 里会被反向覆盖"，目前只靠弹窗规避。**未提交、未验收前不要打 tag、不要发布。**
 
-## 16. 2026-09-17 夜：Adobe 桥接（Photoshop / Illustrator ⇄ 画布）落地（分支 `refactor/v1.8`，**未真机验收**）
+## 16. 2026-09-17 夜 → 09-18 晨：Adobe 桥接（Photoshop / Illustrator ⇄ 画布）落地并**真机验收通过**（分支 `refactor/v1.8`）
 
 > 契约文档：**[`canvas-workbench/adobe-bridge/PROTOCOL.md`](canvas-workbench/adobe-bridge/PROTOCOL.md)**——目录、清单字段、状态机、安装、排障速查全在那里。改任何一端先读它、改字段同步改它。
 
@@ -601,8 +601,8 @@ git diff --check：通过
 | 客户端接入 | `src/client/app/02-CanvasOverlay.js` | 轮询 effect；`request-bridge-return` 消息；通用自动上画布**跳过 `ADOBE桥接/`**（`isAdobeBridgePath`，否则重复添加）；`flushPending` 透传 `customData`；「更多 → 🔗 安装 Adobe 桥接脚本」 |
 | iframe | `src/client/core/canvas/frame/00-srcdoc.js` | 选中工具栏「→Ps」「→Ai」按钮 + `requestBridgeReturn`（有源文件传路径，否则传 dataURL）+ CSS |
 | Adobe 脚本 | `adobe-bridge/dsh-bridge-core.jsx` | ES3 工具：JSON 手写序列化/eval 解析、UTF-8 文件读写、握手/清单/日志/偏好、ScriptUI 骨架 |
-| | `adobe-bridge/DSH画布桥接-Photoshop.jsx` | palette 常驻；AM `targetLayers` 取多选 → 隔离可见性 → `duplicate(合并可见)` → crop → PNG 副本；`Plc ` 置入 + 按 origin.bounds 归位；`scheduleTask` 2.5s 轮询发件箱 |
-| | `adobe-bridge/DSH画布桥接-Illustrator.jsx` | dialog 模态（AI 不支持常驻 palette）；复制选区到临时文档导出 PNG24；**y 向上→y 向下换算**（画板左上为原点）写清单，置入时反向；整画板另存 .ai 副本不动原文档 |
+| | `adobe-bridge/DSH画布桥接-Photoshop.jsx` | **模态 dialog**（实测 PS 2025 不支持常驻 palette，见下）；AM `targetLayers` 取多选 → 隔离可见性 → `duplicate(合并可见)` → crop → PNG 副本；`Plc ` 置入 + 按 origin.bounds 归位；打开面板时读一次发件箱，之后手动「刷新」；`$.global.DSH_BRIDGE_HEADLESS=true` 时只挂 `DSH_BRIDGE.ps.*` 供无头测试 |
+| | `adobe-bridge/DSH画布桥接-Illustrator.jsx` | dialog 模态；复制选区到临时文档导出 PNG24；**y 向上→y 向下换算**（画板左上为原点）写清单，置入时反向；整画板另存 .ai 副本不动原文档；`DSH_BRIDGE.ai.*` 无头接口 |
 | 检查 | `scripts/check-adobe-bridge-jsx.mjs`（已入 `npm run check`） | BOM 必须有 / 去 `#` 指令后 `node --check` / ES5+ 特性扫描（箭头、const、JSON、forEach、trim、尾逗号…） |
 | 安装 CLI | `scripts/install-adobe-bridge.mjs`（`npm run install:adobe-bridge`，`--list`） | 与画布按钮共用 `installScripts()` |
 | 测试 | `tests/unit/adobe-bridge.test.mjs` | 纯函数 + 临时目录跑完整收→列→ack→返回流程（5 项） |
@@ -612,15 +612,27 @@ git diff --check：通过
 - Node 打桩 `File/Folder` 跑 core：手写 `toJSON` 输出能被 Node `JSON.parse` 解析、`parseJSON` 回读一致、jobId 合规、`shouldHome` 四种分支正确；host `validateInboundManifest` 接受脚本格式清单。
 - 安装器真机：用户副本 + **PS 用户级目录 `~/Library/Application Support/Adobe/Adobe Photoshop 2025/Presets/Scripts` 写入成功**（该目录已有用户自装的 `BiRefNet-Remove-BG.jsx`，证明 PS 会扫描它，PS 面板不需要 sudo）；`/Applications` 下 PS/AI 目录 root 权限 → 返回可粘贴的 `sudo cp` / `sudo sh -c 'for …'` 命令；Illustrator 是 `Presets.localized/<25 个 locale>/Scripts`，合并为一条。
 
-**未验证（接手第一件事，按顺序）：**
-1. **真机跑 PS 面板**：文件 → 脚本 → DSH画布桥接-Photoshop，看 palette 是否常驻、状态灯是否读到 `bridge.json`（需 DSH 开着 + 画布可见 + 已绑项目；否则显示离线原因）。
-2. 发送一个文字图层 → 画布 3s 内长出来、反馈条显示「已从 Photoshop 接收」、清单变 `.done.json`。可能的坑：`targetLayers` 索引 ±1（有/无背景层）、`duplicate(name,true)` 在只有隐藏背景时的透明度、CMYK 文档转 RGB。
-3. 画布选中 → 「→Ps」→ 发件箱出现 `0001-*.png` + `0001.json` → PS 面板 2.5s 内亮「有 1 个返回件」→ 置入为图层 → 归位（文档名一致时）。可能的坑：`Plc ` 置入后 `activeLayer` 是否就是新图层、`resize` 百分比基准、PNG dpi 与文档分辨率不同导致的置入尺寸。
-4. AI：对话框能否在 2026 正常显示（`dialog` 应无问题）；`documents.add(space,w,h)` 的 artboardRect 是否如预期 `[0,0,w,-h]`（代码不假设、按实际 rect 对齐，但 `paste` 后 `selection` 是否等于粘贴项需确认）；`exportFile PNG24` 的 `artBoardClipping` 是否裁到我们的临时画板；`pasteInPlace` 在新文档的相对位置。
-5. Windows：`Folder('~')`、`%APPDATA%` 路径、`scheduleTask`；`PROTOCOL.md §6` 的 Windows 目录尚未实机验证。
+**真机验收（2026-09-18 08:20–08:48，Photoshop 2025 + Illustrator 2026；方法：host 服务写真实握手指向 `/tmp/dsh-bridge-e2e/project`，AppleScript `do javascript` 以文本方式跑无头测试脚本，`$.evalFile` 载入面板脚本后直接调 `DSH_BRIDGE.ps/.ai.*`，产物用 host 服务回读校验）：**
+
+| 步骤 | 结果 |
+|---|---|
+| PS 握手/在线判定 | ✓ 读到 bridge.json；超过 60s 未刷新时正确判「离线（心跳超时）」并拒绝发送 |
+| PS 多选图层 | ✓ `targetLayers` 单选 `[4]`、多选 `[2,4]` 与 `layer.id` 一致（有背景层分支） |
+| PS 发送：单层 / 合并 / 多层逐张 / 整文档 PSD | ✓ 4 个任务；每张 PNG 像素尺寸 == 边界（287×42、570×262、200×200）；RGBA 透明；可见性复原、临时文档已关、原文档仍激活 |
+| host 收件 → ack → 返回 | ✓ `listInbound` 4 任务通过校验；ack 改名 `.done.json`；`createReturn` seq 0001 出处解析出「标题 @ {383,88,670,130} doc=dsh-e2e」 |
+| PS 置入归位 | ✓ 智能对象「标题 ← 画布」bounds **精确** {383,88,670,130}；清单改 `0001.done.json` |
+| AI 坐标换算 | ✓ 新文档 `artboardRect=[0,600,800,0]`（y 向上、原点左下）；文字→top 88、矩形→{100,150,300,350} 与放置意图一致 |
+| AI 发送：选区 150dpi / 两对象 72dpi / 整画板 .ai | ✓ 150dpi PNG 548×94 == 263.08×45.36pt×150/72；72dpi 543×262；.ai 224KB；artboard 归一 {0,0,800,600} |
+| AI 置入归位 | ✓ `position=[380,512]`、263.08×45.36pt，反算回清单坐标 {380,88,643.08,133.36} 与出发一致；`0002.done.json` |
+| PS 面板窗口 | ✓ 经「文件 → 脚本 → 浏览…」（computer-use 走真实菜单+Cmd+Shift+G）加载，`DSH 画布桥接 · Photoshop` 对话框 336×317 出现、AX 能读到两个 checkbox、Esc 可关；**palette 版本实测脚本一结束就被关**（`#targetengine` 无效）→ 已改为 dialog |
+| 脚本日志 | 发现并修复：ExtendScript 在 macOS 默认 `lineFeed=Macintosh`（CR），已统一 `Unix` |
+
+**仍未验证：** ① 用户从菜单（重启 PS 后 `文件 → 脚本 → DSH画布桥接-Photoshop`）走完整交互——只差这一步是"人点按钮"，逻辑层已全绿；② Illustrator 对话框窗口本身的打开（逻辑层全绿，窗口与 PS 同一套 `B.makeWindow('dialog')`）；③ Windows（`Folder('~')`、`%APPDATA%`、Program Files 目录）；④ DSH 侧客户端轮询器与「→Ps」按钮的真实 UI 联调——需要把 `refactor/v1.8` 同步为运行副本（当前运行的是 1.7.0，没有桥接代码）。
+
+**自动化验收踩坑（复用）：** AppleScript `do javascript` 只接受**文本**（文件引用/alias 报 8800）→ 文本模式下 `#targetengine`/`#include` 都没有文件上下文，要用 `$.evalFile(File(绝对路径))` 载入面板脚本（其内部 `#include` 按被载入文件目录解析 ✓）；模态对话框会让 `do javascript` 阻塞到 AppleEvent 超时（-1712，约 2 分钟）→ 测面板窗口用后台 osascript + computer-use 观察/Esc 关闭；Photoshop 菜单 `脚本` 只在启动时扫描，新装脚本不重启不出现，可走 `浏览…`。
 
 **边界与决定：**
-- 当前机器插件处于**已卸载**状态（用户在做 1.7.0 干净重装测试），本节代码**没有同步到四层运行副本**——要试桥接需从 `refactor/v1.8` 运行 `./sync-local-plugins.sh`。
+- 当前机器运行的是另一 AI 从 GitHub 重装的 **1.7.0**（干净重装测试用），本节代码**没有同步到四层运行副本**——要联调画布侧需从 `refactor/v1.8` 运行 `./sync-local-plugins.sh` 并重启 DSH。Adobe 侧脚本已装到用户副本 + PS 用户级目录（重启 PS 后菜单可见）。
 - 发件箱文件**永不覆盖**（序号递增），用户要求保留历史；清理由用户手动。
 - 收件方向刻意**不复用通用自动上画布**（要打出处印、要 ack、要独立反馈），因此通用逻辑跳过 `ADOBE桥接/`；如果桥接轮询器坏了，文件仍在素材库可手动加。
 - `.jsx` 必须带 UTF-8 BOM、必须 ES3（检查器会拦）；`#include` 要求三个文件同目录。
