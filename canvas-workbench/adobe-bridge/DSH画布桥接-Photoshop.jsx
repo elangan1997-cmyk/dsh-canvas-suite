@@ -248,51 +248,91 @@
     if (!file.copy(temp)) throw new Error('无法读取文件：' + file.name + '（' + (firstError && firstError.message ? firstError.message : firstError) + '）');
     return app.open(temp);
   }
-  /* PSD → 图层：把 PSD 的全部顶层图层（组、文字层、智能对象原样）复制进当前文档的一个新组并归位。
-     文字层保持可编辑——这正是"发送整个文档(PSD)"回来的期望形态。 */
+  /* PSD → 图层。PS 脚本层的硬限制（2026-09-18 逐项实测）：图层组不能 move/duplicate 进另一个图层组
+     （"非法参数"/"您不能把一个图层组复制到另一个图层组中"）；Mk layerSection+From 描述符会卡死 PS；
+     groupLayersEvent 在 PS 2025 报"图层编组当前不可用"。因此分两层：
+     ① 顶层全是普通图层 → 真正包进「label ← 画布」组（已端到端验证）；
+     ② 顶层含图层组（如文字重建 PSD 的文字组）→ 逐层复制保持顺序、每项加「«画布»」前缀区分、整体平移归位。 */
   function importLayersFromPSD(doc, file, origin, alwaysHome, label) {
     var temp = new File(B.tempFolder().fsName + '/layers-' + B.rand4() + '-' + file.name);
     if (!file.copy(temp)) throw new Error('无法读取 PSD：' + file.name);
     var src = app.open(temp);
     if (!src) throw new Error('PSD 打开失败：' + file.name);
+    /* app.open 后 UI 前台状态需要短暂安定，立刻跨文档复制会报"要求目标文档是最前面的文档" */
+    $.sleep(250);
+    var srcW, srcH, imported = [], group = null;
     try {
-      try { if (src.backgroundLayer) { var bg = src.backgroundLayer, bgName = bg.name; bg.isBackgroundLayer = false; bg.name = bgName; } } catch (eBg) {}
-      var srcW = px(src.width), srcH = px(src.height);
-      var n = src.layers.length;
-      if (!n) throw new Error('PSD 里没有图层');
-      app.activeDocument = doc;
-      var group = doc.layerSets.add();
-      group.name = label + ' ← 画布';
-      /* 复制要在源文档激活时做（PS 对非活动文档的图层操作不可靠）；自底向上复制到目标顶部，再逐个放进组顶部 → 原顺序保持 */
-      app.activeDocument = src;
-      var dups = [];
-      for (var i = n - 1; i >= 0; i--) dups.push(src.layers[i].duplicate(doc, ElementPlacement.PLACEATBEGINNING));
-      app.activeDocument = doc;
-      for (var k = 0; k < dups.length; k++) dups[k].move(group, ElementPlacement.INSIDE);
+      srcW = px(src.width); srcH = px(src.height);
+      /* 注意：不要把 src.layers 缓存进变量再用——过期集合引用会让 duplicate 报
+         "要求目标文档是最前面的文档"；每次都实时取 src.layers[i]。 */
+      var hasSet = false, i;
+      for (i = 0; i < src.layers.length; i++) if (src.layers[i].typename === 'LayerSet') { hasSet = true; break; }
+      if (!hasSet) {
+        /* ① 全普通层 → 一个组 */
+        app.activeDocument = doc;
+        $.sleep(120);
+        group = doc.layerSets.add();
+        group.name = label + ' ← 画布';
+        app.activeDocument = src;
+        $.sleep(120);
+        var dups = [];
+        for (i = src.layers.length - 1; i >= 0; i--) dups.push(src.layers[i].duplicate(doc, ElementPlacement.PLACEATBEGINNING));
+        app.activeDocument = doc;
+        for (i = 0; i < dups.length; i++) { dups[i].move(group, ElementPlacement.INSIDE); imported.push(dups[i]); }
+      } else {
+        /* ② 含图层组 → 逐层复制 + 前缀（PS 不允许组进组，见函数头注释）。源文档须在最前才能复制出层。 */
+        app.activeDocument = src;
+        $.sleep(120);
+        for (i = src.layers.length - 1; i >= 0; i--) imported.push(src.layers[i].duplicate(doc, ElementPlacement.PLACEATBEGINNING));
+        app.activeDocument = doc;
+        B.log(APP, 'PSD 顶层含图层组，无法组中组（PS 限制），改为前缀标注：' + file.name);
+      }
     } finally {
       try { src.close(SaveOptions.DONOTSAVECHANGES); } catch (eClose) {}
       app.activeDocument = doc;
     }
-    /* 归位：PSD 画布(0,0,W,H) 对应出处矩形。先绕内容左上角缩放，再平移。
-       文字重建等整幅 PSD 的内容边界=(0,0,W,H)，此时即精确归位。 */
-    var gb = boundsOf(group);
+    /* 改名/平移等写操作要求目标文档在最前（diag8 实测：复制成功、紧接着给非活动文档图层改名报
+       "要求目标文档是最前面的文档"）——统一在这里（doc 已是活动文档）做前缀改名。 */
+    if (!group && imported.length) for (i = 0; i < imported.length; i++) imported[i].name = '«画布»' + imported[i].name;
+    /* 归位/居中：①路径（整组）可安全缩放；②路径（多项）只平移不缩放，避免各项各自缩放破坏相对布局。 */
+    var ub = null, b, k;
+    for (k = 0; k < imported.length; k++) {
+      b = boundsOf(imported[k]);
+      if (!ub) ub = { left: b.left, top: b.top, right: b.right, bottom: b.bottom };
+      else { ub.left = Math.min(ub.left, b.left); ub.top = Math.min(ub.top, b.top); ub.right = Math.max(ub.right, b.right); ub.bottom = Math.max(ub.bottom, b.bottom); }
+    }
+    if (ub) {
+      if (origin && B.shouldHome(origin, doc.name, alwaysHome)) {
+        var W = origin.bounds.right - origin.bounds.left, H = origin.bounds.bottom - origin.bounds.top;
+        if (group && ub.right - ub.left > 0 && Math.abs(srcW - W) > 0.5 && srcW > 0 && srcH > 0) {
+          group.resize(W / srcW * 100, H / srcH * 100, AnchorPosition.TOPLEFT);
+          ub = boundsOf(group);
+        }
+        for (k = 0; k < imported.length; k++) imported[k].translate(origin.bounds.left - ub.left, origin.bounds.top - ub.top);
+      } else {
+        var dw = px(doc.width), dh = px(doc.height);
+        var cdx = (dw - (ub.right + ub.left)) / 2, cdy = (dh - (ub.bottom + ub.top)) / 2;
+        for (k = 0; k < imported.length; k++) imported[k].translate(cdx, cdy);
+      }
+    }
+    try { doc.activeLayer = group || imported[imported.length - 1]; } catch (eActive) {}
+    return imported.length;
+  }
+  /* 图片置入后的组归位/居中（bounds 为已置入对象的边界）： */
+  function homeOrCenter(doc, layer, w, h, origin, alwaysHome) {
+    var gb = boundsOf(layer);
     if (B.shouldHome(origin, doc.name, alwaysHome)) {
       var W = origin.bounds.right - origin.bounds.left, H = origin.bounds.bottom - origin.bounds.top;
-      var sx = (srcW > 0 && W > 0) ? W / srcW : 1, sy = (srcH > 0 && H > 0) ? H / srcH : 1;
+      var sx = (Number(w) > 0 && W > 0) ? W / Number(w) : 1, sy = (Number(h) > 0 && H > 0) ? H / Number(h) : 1;
       if ((Math.abs(sx - 1) > 0.005 || Math.abs(sy - 1) > 0.005) && gb.right > gb.left && gb.bottom > gb.top) {
-        group.resize(sx * 100, sy * 100, AnchorPosition.TOPLEFT);
-        gb = boundsOf(group);
+        layer.resize(sx * 100, sy * 100, AnchorPosition.TOPLEFT);
+        gb = boundsOf(layer);
       }
-      var wantL = origin.bounds.left + gb.left * sx, wantT = origin.bounds.top + gb.top * sy;
-      group.translate(wantL - gb.left, wantT - gb.top);
-      gb = boundsOf(group);
+      layer.translate(origin.bounds.left - gb.left, origin.bounds.top - gb.top);
     } else {
       var dw = px(doc.width), dh = px(doc.height);
-      group.translate((dw - (gb.right + gb.left)) / 2, (dh - (gb.bottom + gb.top)) / 2);
-      gb = boundsOf(group);
+      layer.translate((dw - (gb.right + gb.left)) / 2, (dh - (gb.bottom + gb.top)) / 2);
     }
-    try { doc.activeLayer = group; } catch (eActive) {}
-    return 1;
   }
   function importPending(mode) {
     var s = B.status();
@@ -323,8 +363,13 @@
                 importLayersFromPSD(doc, f, origin, prefs.alwaysHome, label);
               } else {
                 var layer = placeFile(f);
-                layer.name = label + ' ← 画布';
-                if (B.shouldHome(origin, doc.name, prefs.alwaysHome)) homeLayer(layer, origin);
+                layer.name = label;
+                /* 图片也装进「label ← 画布」组，和原文件内容区分（普通层 move INSIDE 可行，只有组进组不行） */
+                var imgGroup = doc.layerSets.add();
+                imgGroup.name = label + ' ← 画布';
+                layer.move(imgGroup, ElementPlacement.INSIDE);
+                homeOrCenter(doc, imgGroup, boundsOf(layer).right - boundsOf(layer).left, boundsOf(layer).bottom - boundsOf(layer).top, origin, prefs.alwaysHome);
+                try { doc.activeLayer = imgGroup; } catch (eGroup) {}
               }
             }
             count++;

@@ -439,13 +439,8 @@ export function createAdobeBridge({ pluginVersion, pluginRoot, previewUrl, home,
     const sourceDir = join(pluginRoot, 'adobe-bridge');
     const userCopyDir = join(root, 'scripts');
     await mkdir(userCopyDir, { recursive: true });
-    for (const file of SCRIPT_FILES) {
-      const source = join(sourceDir, file);
-      const target = join(userCopyDir, file);
-      let same = false;
-      try { const [a, b] = await Promise.all([stat(source), stat(target)]); same = a.size === b.size && Math.abs(a.mtimeMs - b.mtimeMs) < 1; } catch {}
-      if (!same) { await copyFile(source, target); try { const info = await stat(source); await utimes(target, info.atime, info.mtime); } catch {} }
-    }
+    /* 无条件覆盖：7 个小文件，别用 size/mtime 判断——曾出现“判定已同步、实际是旧版”导致排查绕大弯 */
+    for (const file of SCRIPT_FILES) await copyFile(join(sourceDir, file), join(userCopyDir, file));
     return userCopyDir;
   };
 
@@ -500,7 +495,9 @@ export function createAdobeBridge({ pluginVersion, pluginRoot, previewUrl, home,
         const osascript = await resolveExecutable('osascript');
         const applescriptPath = jsxPath + '.applescript';
         cleanup.push(applescriptPath);
-        await writeFile(applescriptPath, 'with timeout of ' + Math.ceil(limit / 1000) + ' seconds\ntell application id "' + APP_BUNDLE[app] + '"\ndo javascript (read POSIX file ' + JSON.stringify(jsxPath) + ' as «class utf8»)\nend tell\nend timeout\n', 'utf8');
+        /* activate：跨文档复制/置入类操作要求目标应用在前台（后台远程驱动会报"要求目标文档是最前面的文档"）；
+           用户从画布点「→Ps/取图层」时把 Adobe 带到前台本来也是预期行为 */
+        await writeFile(applescriptPath, 'with timeout of ' + Math.ceil(limit / 1000) + ' seconds\ntell application id "' + APP_BUNDLE[app] + '"\nactivate\ndo javascript (read POSIX file ' + JSON.stringify(jsxPath) + ' as «class utf8»)\nend tell\nend timeout\n', 'utf8');
         result = await runProcess(osascript, [applescriptPath], workDir, limit + 5000);
       }
     } finally {
