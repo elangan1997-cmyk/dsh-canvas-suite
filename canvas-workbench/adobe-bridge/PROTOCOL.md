@@ -149,11 +149,15 @@ host 只认清单，且要求清单里列出的每个文件都存在、非空、
   出处解析顺序：元素 `customData.dshBridge.jobId` → 读 `来自*/<jobId>.done.json`；
   找不到再按文件名与清单 items 匹配；都没有 → `null`。
 - 脚本处理结果：成功改名 `<seq>.done.json`；失败改名 `<seq>.failed.json` 并把 `error` 字段写进去。
-- `placement: auto` 语义（脚本实现）：
-  - **置入为图层**：以智能对象/置入对象放进当前文档。若 `origin.document.name` 与当前文档名一致
-    （或用户勾选"总是归位"），则缩放到 `origin.bounds` 尺寸并移动到该位置；否则居中。
-    图层命名 `"<origin.layer.name> ← 画布"`，无出处则用文件名。
-  - **打开为新文档**：`app.open(file)`，分层 PSD/AI 直接可编辑。
+- `placement: auto` 语义（脚本实现，**按 files[].kind 分流**）：
+  - **置入为图层——PSD → Photoshop**：PSD 的全部顶层图层（组/文字层/智能对象，文字层保持可编辑）复制进当前文档的
+    一个新组 `<名> ← 画布`；源画布(0,0,W,H) 映射到 `origin.bounds`（缩放+平移，PS 坐标同向）；无出处居中。
+  - **置入为图层——.ai/.svg → Illustrator**：打开源文件全选复制，回当前文档原位粘贴为**对象**（文字仍可编辑）；
+    源画板映射到 `origin.bounds`（`resize(..., Transformation.DOCUMENTORIGIN)` 后平移）；无出处居中。
+    已知限制：AI 2026 跨文档粘贴未按 pasteRemembersLayers 拆同名图层，对象落在当前图层。
+  - **置入为图层——其它格式（png/jpg/webp/pdf…）**：按图片心智模型——PS 智能对象 / AI 置入对象；
+    归位条件同前（`origin.document.name` 一致或勾选"总是归位"→ 缩放平移到 `origin.bounds`，否则居中）。
+  - **打开为新文档**：`openDocSafe`（中文目录失败时退 ASCII 临时副本），分层 PSD/AI/SVG 直接可编辑。
 
 ## 5. HTTP 路由（客户端 ⇄ host，仅本机 127.0.0.1:43120）
 

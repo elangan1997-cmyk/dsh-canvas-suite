@@ -203,6 +203,71 @@
     }
     return pi;
   }
+  /* 打开文档：先试原路径，失败则复制到 ASCII 临时目录再开（Adobe 对中文目录偶发失败）。 */
+  function openDocSafe(file) {
+    var firstError = null;
+    try { return app.open(file); } catch (e1) { firstError = e1; }
+    var temp = new File(B.tempFolder().fsName + '/open-' + B.rand4() + '-' + file.name);
+    if (!file.copy(temp)) throw new Error('无法读取文件：' + file.name + '（' + (firstError && firstError.message ? firstError.message : firstError) + '）');
+    return app.open(temp);
+  }
+  function unlockAll(doc) {
+    var i;
+    for (i = 0; i < doc.layers.length; i++) { try { doc.layers[i].locked = false; doc.layers[i].visible = true; } catch (e) {} }
+    for (i = 0; i < doc.pageItems.length; i++) { try { if (doc.pageItems[i].locked) doc.pageItems[i].locked = false; if (doc.pageItems[i].hidden) doc.pageItems[i].hidden = false; } catch (e2) {} }
+  }
+  /* .ai / .svg → 对象：打开源文件 → 全选复制 → 回当前文档原位粘贴（pasteRemembersLayers 保留图层归属）→ 缩放/平移归位。
+     语义与 PS 的 PSD→图层一致：源文件的画板对应出处矩形；无出处则居中到当前画板。返回导入对象数。 */
+  function importObjectsFromFile(doc, file, origin, alwaysHome, label) {
+    var oldRemember = true;
+    try { oldRemember = app.preferences.getBooleanPreference('pasteRemembersLayers'); } catch (e0) {}
+    var temp = new File(B.tempFolder().fsName + '/objects-' + B.rand4() + '-' + file.name);
+    if (!file.copy(temp)) throw new Error('无法读取文件：' + file.name);
+    var src = null;
+    try {
+      try { app.preferences.setBooleanPreference('pasteRemembersLayers', true); } catch (e1) {}
+      src = app.open(temp);
+      if (!src) throw new Error('文件打开失败：' + file.name);
+      unlockAll(src);
+      src.selection = null;
+      app.executeMenuCommand('selectall');
+      var items = selectionItems(src);
+      if (!items.length) throw new Error('文件里没有可导入的对象：' + file.name);
+      var sb = unionVisibleBounds(items), sab = activeArtboard(src);
+      app.executeMenuCommand('copy');
+      src.close(SaveOptions.DONOTSAVECHANGES);
+      src = null;
+      app.activeDocument = doc;
+      doc.selection = null;
+      app.executeMenuCommand('pasteInPlace');
+      var pasted = selectionItems(doc);
+      if (!pasted.length) throw new Error('粘贴到当前文档失败');
+      var tab = activeArtboard(doc), i;
+      var relL = sb[0] - sab.rect[0], relT = sab.rect[1] - sb[1];
+      var wantL = tab.rect[0] + relL, wantT = tab.rect[1] - relT;
+      if (B.shouldHome(origin, doc.name, alwaysHome)) {
+        var W = origin.bounds.right - origin.bounds.left, H = origin.bounds.bottom - origin.bounds.top;
+        var sx = (sab.width > 0 && W > 0) ? W / sab.width : 1, sy = (sab.height > 0 && H > 0) ? H / sab.height : 1;
+        if (Math.abs(sx - 1) > 0.005 || Math.abs(sy - 1) > 0.005) {
+          for (i = 0; i < pasted.length; i++) pasted[i].resize(sx * 100, sy * 100, true, true, true, true, sx * 100, Transformation.DOCUMENTORIGIN);
+        }
+        wantL = tab.rect[0] + origin.bounds.left + relL * sx;
+        wantT = tab.rect[1] - (origin.bounds.top + relT * sy);
+      } else if (!origin) {
+        var cw = sb[2] - sb[0], ch = sb[1] - sb[3];
+        wantL = tab.rect[0] + (tab.width - cw) / 2;
+        wantT = tab.rect[1] - (tab.height - ch) / 2;
+      }
+      var pb = unionVisibleBounds(pasted);
+      var dx = wantL - pb[0], dy = wantT - pb[1];
+      if (Math.abs(dx) > 0.001 || Math.abs(dy) > 0.001) for (i = 0; i < pasted.length; i++) pasted[i].translate(dx, dy);
+      return pasted.length;
+    } finally {
+      try { if (src) src.close(SaveOptions.DONOTSAVECHANGES); } catch (e2) {}
+      try { app.activeDocument = doc; } catch (e3) {}
+      try { app.preferences.setBooleanPreference('pasteRemembersLayers', oldRemember); } catch (e4) {}
+    }
+  }
   function importPending(mode) {
     var s = B.status();
     var h = s.handshake;
@@ -219,13 +284,16 @@
           for (j = 0; j < m.files.length; j++) {
             var f = new File(jobs[i].file.parent.fsName + '/' + m.files[j].file);
             if (!f.exists) throw new Error('文件不存在：' + m.files[j].file);
+            var origin = m.origin;
+            var label = origin && origin.layer && origin.layer.name ? origin.layer.name : B.baseName(m.files[j].name || m.files[j].file);
+            var kind = String(m.files[j].kind || B.extOf(m.files[j].file)).toLowerCase();
             if (mode === 'open') {
-              app.open(f);
+              openDocSafe(f);
             } else {
               if (!app.documents.length) throw new Error('没有打开的文档可置入，请先打开文档或改用「打开」');
-              var origin = m.origin;
-              var label = origin && origin.layer && origin.layer.name ? origin.layer.name : B.baseName(m.files[j].name || m.files[j].file);
-              placeInto(app.activeDocument, f, origin, prefs.alwaysHome, label);
+              /* 按格式分流：.ai / .svg → 对象进当前文档（保留图层归属）；其它 → 置入对象（图片心智模型） */
+              if (kind === 'ai' || kind === 'svg') importObjectsFromFile(app.activeDocument, f, origin, prefs.alwaysHome, label);
+              else placeInto(app.activeDocument, f, origin, prefs.alwaysHome, label);
             }
             count++;
           }
@@ -239,7 +307,7 @@
   }
 
   /* 对外暴露（无界面自动化测试 / 其它脚本复用）。$.global.DSH_BRIDGE_HEADLESS === true 时只挂函数、不开对话框。 */
-  B.ai = { sendSelection: sendSelection, sendArtboard: sendArtboard, importPending: importPending, placeInto: placeInto, activeArtboard: activeArtboard, selectionItems: selectionItems, unionVisibleBounds: unionVisibleBounds, toManifestBounds: toManifestBounds, exportSelectionPNG: exportSelectionPNG, prefs: prefs };
+  B.ai = { sendSelection: sendSelection, sendArtboard: sendArtboard, importPending: importPending, placeInto: placeInto, importObjectsFromFile: importObjectsFromFile, openDocSafe: openDocSafe, activeArtboard: activeArtboard, selectionItems: selectionItems, unionVisibleBounds: unionVisibleBounds, toManifestBounds: toManifestBounds, exportSelectionPNG: exportSelectionPNG, prefs: prefs };
   if ($.global.DSH_BRIDGE_HEADLESS === true) return;
 
   /* ===================== 面板（模态对话框） ===================== */

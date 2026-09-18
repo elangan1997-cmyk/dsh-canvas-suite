@@ -239,6 +239,61 @@
     }
     layer.translate(origin.bounds.left - b.left, origin.bounds.top - b.top);
   }
+  /* 打开文档。PS 的 app.open 对中文目录会报"打开选项不正确"（发件箱路径含中文）——
+     先试原路径，失败则复制到 ASCII 临时目录再开。「打开为新文档」优先原路径（保存落回发件箱）。 */
+  function openDocSafe(file) {
+    var firstError = null;
+    try { return app.open(file); } catch (e1) { firstError = e1; }
+    var temp = new File(B.tempFolder().fsName + '/open-' + B.rand4() + '-' + file.name);
+    if (!file.copy(temp)) throw new Error('无法读取文件：' + file.name + '（' + (firstError && firstError.message ? firstError.message : firstError) + '）');
+    return app.open(temp);
+  }
+  /* PSD → 图层：把 PSD 的全部顶层图层（组、文字层、智能对象原样）复制进当前文档的一个新组并归位。
+     文字层保持可编辑——这正是"发送整个文档(PSD)"回来的期望形态。 */
+  function importLayersFromPSD(doc, file, origin, alwaysHome, label) {
+    var temp = new File(B.tempFolder().fsName + '/layers-' + B.rand4() + '-' + file.name);
+    if (!file.copy(temp)) throw new Error('无法读取 PSD：' + file.name);
+    var src = app.open(temp);
+    if (!src) throw new Error('PSD 打开失败：' + file.name);
+    try {
+      try { if (src.backgroundLayer) { var bg = src.backgroundLayer, bgName = bg.name; bg.isBackgroundLayer = false; bg.name = bgName; } } catch (eBg) {}
+      var srcW = px(src.width), srcH = px(src.height);
+      var n = src.layers.length;
+      if (!n) throw new Error('PSD 里没有图层');
+      app.activeDocument = doc;
+      var group = doc.layerSets.add();
+      group.name = label + ' ← 画布';
+      /* 复制要在源文档激活时做（PS 对非活动文档的图层操作不可靠）；自底向上复制到目标顶部，再逐个放进组顶部 → 原顺序保持 */
+      app.activeDocument = src;
+      var dups = [];
+      for (var i = n - 1; i >= 0; i--) dups.push(src.layers[i].duplicate(doc, ElementPlacement.PLACEATBEGINNING));
+      app.activeDocument = doc;
+      for (var k = 0; k < dups.length; k++) dups[k].move(group, ElementPlacement.INSIDE);
+    } finally {
+      try { src.close(SaveOptions.DONOTSAVECHANGES); } catch (eClose) {}
+      app.activeDocument = doc;
+    }
+    /* 归位：PSD 画布(0,0,W,H) 对应出处矩形。先绕内容左上角缩放，再平移。
+       文字重建等整幅 PSD 的内容边界=(0,0,W,H)，此时即精确归位。 */
+    var gb = boundsOf(group);
+    if (B.shouldHome(origin, doc.name, alwaysHome)) {
+      var W = origin.bounds.right - origin.bounds.left, H = origin.bounds.bottom - origin.bounds.top;
+      var sx = (srcW > 0 && W > 0) ? W / srcW : 1, sy = (srcH > 0 && H > 0) ? H / srcH : 1;
+      if ((Math.abs(sx - 1) > 0.005 || Math.abs(sy - 1) > 0.005) && gb.right > gb.left && gb.bottom > gb.top) {
+        group.resize(sx * 100, sy * 100, AnchorPosition.TOPLEFT);
+        gb = boundsOf(group);
+      }
+      var wantL = origin.bounds.left + gb.left * sx, wantT = origin.bounds.top + gb.top * sy;
+      group.translate(wantL - gb.left, wantT - gb.top);
+      gb = boundsOf(group);
+    } else {
+      var dw = px(doc.width), dh = px(doc.height);
+      group.translate((dw - (gb.right + gb.left)) / 2, (dh - (gb.bottom + gb.top)) / 2);
+      gb = boundsOf(group);
+    }
+    try { doc.activeLayer = group; } catch (eActive) {}
+    return 1;
+  }
   function importPending(mode) {
     var s = B.status();
     var h = s.handshake;
@@ -255,15 +310,22 @@
           for (j = 0; j < m.files.length; j++) {
             var f = new File(jobs[i].file.parent.fsName + '/' + m.files[j].file);
             if (!f.exists) throw new Error('文件不存在：' + m.files[j].file);
+            var origin = m.origin;
+            var label = origin && origin.layer && origin.layer.name ? origin.layer.name : B.baseName(m.files[j].name || m.files[j].file);
+            var kind = String(m.files[j].kind || B.extOf(m.files[j].file)).toLowerCase();
             if (mode === 'open') {
-              app.open(f);
+              openDocSafe(f);
             } else {
               if (!app.documents.length) throw new Error('没有打开的文档可置入，请先打开文档或改用「打开为新文档」');
               var doc = app.activeDocument;
-              var layer = placeFile(f);
-              var origin = m.origin;
-              layer.name = (origin && origin.layer && origin.layer.name ? origin.layer.name : B.baseName(m.files[j].name || m.files[j].file)) + ' ← 画布';
-              if (B.shouldHome(origin, doc.name, prefs.alwaysHome)) homeLayer(layer, origin);
+              /* 按格式分流：PSD → 图层进当前文档（组承接）；其它 → 智能对象（图片心智模型） */
+              if (kind === 'psd') {
+                importLayersFromPSD(doc, f, origin, prefs.alwaysHome, label);
+              } else {
+                var layer = placeFile(f);
+                layer.name = label + ' ← 画布';
+                if (B.shouldHome(origin, doc.name, prefs.alwaysHome)) homeLayer(layer, origin);
+              }
             }
             count++;
           }
@@ -278,7 +340,7 @@
 
   /* 对外暴露（无界面自动化测试 / 其它脚本复用）。$.global.DSH_BRIDGE_HEADLESS === true 时只挂函数、不开面板：
      测试脚本先设该标志，再 $.evalFile 本文件，然后直接调 DSH_BRIDGE.ps.sendSelection(false) 等。 */
-  B.ps = { sendSelection: sendSelection, sendDocument: sendDocument, importPending: importPending, selectedLayerIds: selectedLayerIds, selectLayerById: selectLayerById, exportLayersPNG: exportLayersPNG, placeFile: placeFile, homeLayer: homeLayer, boundsOf: boundsOf, layerType: layerType, prefs: prefs };
+  B.ps = { sendSelection: sendSelection, sendDocument: sendDocument, importPending: importPending, selectedLayerIds: selectedLayerIds, selectLayerById: selectLayerById, exportLayersPNG: exportLayersPNG, placeFile: placeFile, homeLayer: homeLayer, importLayersFromPSD: importLayersFromPSD, openDocSafe: openDocSafe, boundsOf: boundsOf, layerType: layerType, prefs: prefs };
   if ($.global.DSH_BRIDGE_HEADLESS === true) return;
 
   /* ===================== 面板（模态对话框） =====================

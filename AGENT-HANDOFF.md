@@ -675,3 +675,16 @@ PS 应用目录 + AI 25 个 locale（含 zh_CN），`scripts-installed.json` 记
   （PS 菜单不出现 AI 脚本）；`installScriptsElevated` 按应用文件列表复制。**本机应用目录里的一键脚本尚未装**（需再点一次 🔐），CEP 面板不依赖它们。
 - 踩坑：AppleScript `quit` Illustrator 返回 -128「用户已取消」但进程随后自行重启（用户操作）；`open_application(activate)` 对 AI 报"零 AX 窗口"，用
   `osascript activate` 替代；CEP 面板的 HTML 控件 AX 不可见，用坐标点击 + zoom 截图读文本。
+
+**09-18 下午追加：返回按格式分流——PSD/AI 要"整个图层"，其它仍按图片（用户反馈）**
+
+- `importPending` 按 `files[].kind` 分流（CEP/模态/一键/远程四个入口共用，只改两个 jsx）：
+  - **PSD → PS `importLayersFromPSD`**：ASCII 临时副本 `app.open`（中文目录坑）→ 背景层转普通层并保名 → 源文档激活下
+    自底向上 `duplicate(doc, PLACEATBEGINNING)` 再逐个 `move(group, INSIDE)`（顺序保持、跨文档复制必须源激活）→ 新组 `<名> ← 画布`
+    → 源画布(0,0,W,H) 映射 origin.bounds（缩放锚内容左上角 + 平移，整幅 PSD 时=精确归位）。
+  - **.ai/.svg → AI `importObjectsFromFile`**：临时副本打开 → unlockAll → 全选 copy → 回目标 `pasteInPlace` →
+    `resize(…, Transformation.DOCUMENTORIGIN)` 统一缩放 → 平移；源画板映射 origin.bounds。
+  - 其它 kind：原 placeFile/placeInto（智能对象/置入对象）。`openDocSafe`：原路径失败退 ASCII 副本。
+- **真机（PS 2025 + AI 2026）数值全中**：PS ①无出处居中 {200,150,600,450} ②归位 {100,50,500,350} ③0.5 缩放归位 {600,400,800,550}，
+  文字层可编辑（「图层测试」）、背景层保名、源 PSD 关闭；AI ①居中 ②归位 {140,90,464,290.82} ③0.5 缩放 {620,420,782,520.41} 全部与理论值一致，
+  ④手写 SVG 以对象导入（TextFrame+PathItem）。**已知限制**：AI 2026 跨文档粘贴未按 pasteRemembersLayers 拆同名图层（对象落在当前图层，可编辑）。
