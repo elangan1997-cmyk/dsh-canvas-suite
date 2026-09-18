@@ -71,11 +71,28 @@ async function main() {
   } finally {
     await rm(temp, { recursive: true, force: true });
   }
+  // CEP 常驻面板：main.js 语法（面板跑在旧 Chromium 上，但 node --check 至少挡住低级错误）+ manifest.xml 结构
+  const cepDir = join(dir, 'cep');
+  try {
+    execFileSync(process.execPath, ['--check', join(cepDir, 'main.js')], { stdio: 'pipe' });
+  } catch (err) { problems.push('cep/main.js: 语法错误\n' + String(err.stderr || err.message).split('\n').slice(0, 6).join('\n')); }
+  try {
+    const xml = await readFile(join(cepDir, 'CSXS', 'manifest.xml'), 'utf8');
+    for (const must of ['<ExtensionManifest', 'ExtensionBundleId="com.dsh.canvasbridge"', '<Host Name="PHXS"', '<Host Name="ILST"', '<MainPath>./index.html</MainPath>', '</ExtensionManifest>']) {
+      if (!xml.includes(must)) problems.push('cep/CSXS/manifest.xml: 缺少 ' + must);
+    }
+    const opens = (xml.match(/<Extension\b[^>]*>/g) || []).length, closes = (xml.match(/<\/Extension>/g) || []).length, selfClosed = (xml.match(/<Extension\b[^>]*\/>/g) || []).length;
+    if (opens - selfClosed !== closes) problems.push('cep/CSXS/manifest.xml: <Extension> 标签不配对');
+  } catch (err) { problems.push('cep/CSXS/manifest.xml: 无法读取 ' + err.message); }
+  const cepMain = await readFile(join(cepDir, 'main.js'), 'utf8').catch(() => '');
+  for (const [re, why] of [[/=>/, '箭头函数'], [/\b(const|let)\s+[A-Za-z_$]/, 'const/let'], [/`/, '模板字符串'], [/\bPromise\b/, 'Promise'], [/\basync\s+function|\bawait\s/, 'async/await']]) {
+    if (re.test(stripNonCode(cepMain))) problems.push('cep/main.js: 用了 ' + why + '（CEP 5 的 Chromium 27 不支持，请写 ES5 + 回调）');
+  }
   if (problems.length) {
-    console.error('adobe-bridge jsx 检查失败：\n' + problems.map((p) => '  - ' + p).join('\n'));
+    console.error('adobe-bridge 检查失败：\n' + problems.map((p) => '  - ' + p).join('\n'));
     process.exit(1);
   }
-  console.log(`adobe-bridge jsx ok: ${files.length} 个脚本（BOM / 语法 / ES3 特性）`);
+  console.log(`adobe-bridge ok: ${files.length} 个 jsx（BOM / 语法 / ES3）+ CEP 面板（main.js ES5 / manifest.xml）`);
 }
 
 main().catch((err) => { console.error(err); process.exit(1); });

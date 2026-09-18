@@ -1,7 +1,7 @@
 // Adobe 桥接 Host 服务：握手文件、收件清单校验、发件箱写入、出处解析、脚本安装、日志。
 // 协议契约见 adobe-bridge/PROTOCOL.md；纯函数在 ../../shared/utils/adobe-bridge.js（有单测）。
 // 本文件只做文件系统 I/O，不依赖 DSH ctx（便于 tests/unit 用临时目录直接测）。
-import { access, appendFile, copyFile, mkdir, readdir, readFile, rename, stat, unlink, utimes, writeFile } from 'node:fs/promises';
+import { access, appendFile, copyFile, cp, mkdir, readdir, readFile, rename, stat, unlink, utimes, writeFile } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
@@ -14,7 +14,14 @@ import {
 const HANDSHAKE_FILE = 'bridge.json';
 const LOG_FILE = 'bridge-log.jsonl';
 const INSTALLED_FILE = 'scripts-installed.json';
-const SCRIPT_FILES = ['dsh-bridge-core.jsx', 'DSH画布桥接-Photoshop.jsx', 'DSH画布桥接-Illustrator.jsx'];
+// 每个应用装进菜单的文件集（面板 + 无界面一键脚本 + 共享核心）；用户副本 = 两者并集。
+// PS 菜单里不该出现 AI 的脚本，所以按应用分开。
+const SCRIPT_FILES_BY_APP = {
+  photoshop: ['dsh-bridge-core.jsx', 'DSH画布桥接-Photoshop.jsx', 'DSH桥接-发送选中图层-Photoshop.jsx', 'DSH桥接-置入返回件-Photoshop.jsx'],
+  illustrator: ['dsh-bridge-core.jsx', 'DSH画布桥接-Illustrator.jsx', 'DSH桥接-发送选中对象-Illustrator.jsx', 'DSH桥接-置入返回件-Illustrator.jsx']
+};
+const SCRIPT_FILES = [...new Set([...SCRIPT_FILES_BY_APP.photoshop, ...SCRIPT_FILES_BY_APP.illustrator])];
+const filesForApp = (app) => SCRIPT_FILES_BY_APP[app] || SCRIPT_FILES;
 // 心跳：客户端 3s 一次 activate；握手文件最多 20s 重写一次（项目变化时立即写）。
 const HANDSHAKE_REWRITE_MS = 20000;
 // 收件文件写完 ≥ 1s 才算稳定（脚本用 .part+rename，这里再兜一层）。
@@ -277,7 +284,7 @@ export function createAdobeBridge({ pluginVersion, pluginRoot, previewUrl, home,
     try { handshake = await readJson(join(root, HANDSHAKE_FILE)); } catch {}
     let installed = null;
     try { installed = await readJson(join(root, INSTALLED_FILE)); } catch {}
-    return { root, handshakePath: join(root, HANDSHAKE_FILE), handshake, scriptsInstalled: await scriptsInstalled(), installed, active: { ...active }, recentLog: await recentLog(20), scriptFiles: SCRIPT_FILES };
+    return { root, handshakePath: join(root, HANDSHAKE_FILE), handshake, scriptsInstalled: await scriptsInstalled(), cepInstalled: await cepInstalled(), cepDir: cepTargetDir(), installed, active: { ...active }, recentLog: await recentLog(20), scriptFiles: SCRIPT_FILES };
   };
 
   /**
@@ -327,14 +334,15 @@ export function createAdobeBridge({ pluginVersion, pluginRoot, previewUrl, home,
     const targets = await findAdobeScriptDirs();
     const installed = [];
     const errors = [];
-    const allScriptsPresent = async (dir) => {
-      for (const file of SCRIPT_FILES) { try { await access(join(dir, file)); } catch { return false; } }
+    const allScriptsPresent = async (dir, files) => {
+      for (const file of files) { try { await access(join(dir, file)); } catch { return false; } }
       return true;
     };
     const sudoHint = (target) => {
       if (isWindows) return '以管理员身份运行：node scripts/install-adobe-bridge.mjs，或手动把 ' + userCopyDir + ' 下三个 .jsx 复制到 ' + target.dirs[0];
-      if (target.presets) return "终端执行：sudo sh -c 'for d in \"" + target.presets + "\"/*/; do mkdir -p \"$d/Scripts\" && cp \"" + userCopyDir + "/\"*.jsx \"$d/Scripts/\"; done'";
-      return '终端执行：sudo cp "' + userCopyDir + '/"*.jsx "' + target.dirs[0] + '/"';
+      const files = filesForApp(target.app).map((f) => '"' + userCopyDir + '/' + f + '"').join(' ');
+      if (target.presets) return "终端执行：sudo sh -c 'for d in \"" + target.presets + "\"/*/; do mkdir -p \"$d/Scripts\" && cp " + files.replace(/"/g, '\\"') + " \"$d/Scripts/\"; done'";
+      return '终端执行：sudo cp ' + files + ' "' + target.dirs[0] + '/"';
     };
     for (const target of targets) {
       const done = [];
@@ -343,11 +351,11 @@ export function createAdobeBridge({ pluginVersion, pluginRoot, previewUrl, home,
         try {
           await mkdir(dir, { recursive: true });
           await access(dir, fsConstants.W_OK);
-          for (const file of SCRIPT_FILES) await copyFile(join(sourceDir, file), join(dir, file));
+          for (const file of filesForApp(target.app)) await copyFile(join(sourceDir, file), join(dir, file));
           done.push(dir);
         } catch (err) {
-          // 目录不可写但三个脚本已在（之前用管理员装过）→ 视为已安装，不算失败
-          if (await allScriptsPresent(dir)) { done.push(dir); continue; }
+          // 目录不可写但该应用的脚本已全部在位（之前用管理员装过）→ 视为已安装，不算失败
+          if (await allScriptsPresent(dir, filesForApp(target.app))) { done.push(dir); continue; }
           failure = err;
         }
       }
@@ -364,6 +372,56 @@ export function createAdobeBridge({ pluginVersion, pluginRoot, previewUrl, home,
     if (!targets.length) errors.push({ app: '', level: '', name: '', dir: '', error: '未找到已安装的 Photoshop / Illustrator', hint: manualHint });
     return { installed, errors, sourceDir, userCopyDir, manualHint, scriptFiles: SCRIPT_FILES };
   };
+
+  /* ===================== CEP 常驻面板（PS/AI CC 2014+ 通用，用户级安装，免管理员） =====================
+     扩展目录：macOS ~/Library/Application Support/Adobe/CEP/extensions/<id>；Windows %APPDATA%\Adobe\CEP\extensions\<id>。
+     未签名扩展要打开 Adobe 的用户级开关 PlayerDebugMode=1（CSXS 6~12 各设一次；macOS `defaults write`，Windows 注册表 HKCU）。
+     面板本身不含业务逻辑：按钮 evalScript 调用用户副本里的 jsx（ensureUserCopy 保证与插件同版）。 */
+  const CEP_ID = 'com.dsh.canvasbridge';
+  const CEP_CSXS_VERSIONS = [6, 7, 8, 9, 10, 11, 12];
+  const cepExtensionsDir = () => {
+    const homeDir = home || userHome();
+    return isWindows ? join(process.env.APPDATA || join(homeDir, 'AppData', 'Roaming'), 'Adobe', 'CEP', 'extensions') : join(homeDir, 'Library', 'Application Support', 'Adobe', 'CEP', 'extensions');
+  };
+  const cepTargetDir = () => join(cepExtensionsDir(), CEP_ID);
+
+  /** 设置 PlayerDebugMode=1（允许加载未签名扩展）。没有 runProcess 的环境（单测）跳过并返回 false。 */
+  const enableCepDebugMode = async () => {
+    if (typeof runProcess !== 'function' || typeof resolveExecutable !== 'function') return { set: false, reason: '当前环境无法执行系统命令' };
+    const failures = [];
+    for (const v of CEP_CSXS_VERSIONS) {
+      try {
+        if (isWindows) {
+          const reg = await resolveExecutable('reg');
+          const r = await runProcess(reg, ['add', 'HKCU\\Software\\Adobe\\CSXS.' + v, '/v', 'PlayerDebugMode', '/t', 'REG_SZ', '/d', '1', '/f'], remoteWorkDir(), 15000);
+          if (r.exitCode !== 0) failures.push('CSXS.' + v);
+        } else {
+          const defaults = await resolveExecutable('defaults');
+          const r = await runProcess(defaults, ['write', 'com.adobe.CSXS.' + v, 'PlayerDebugMode', '1'], remoteWorkDir(), 15000);
+          if (r.exitCode !== 0) failures.push('CSXS.' + v);
+        }
+      } catch (err) { failures.push('CSXS.' + v); }
+    }
+    return { set: failures.length < CEP_CSXS_VERSIONS.length, failures };
+  };
+
+  /** 安装/更新 CEP 面板到用户级扩展目录（幂等：每次整目录覆盖，文件很小）。重启 PS/AI 后在「窗口 → 扩展(旧版)」里出现。 */
+  const installCep = async () => {
+    const sourceDir = join(pluginRoot, 'adobe-bridge', 'cep');
+    if (!(await exists(join(sourceDir, 'CSXS', 'manifest.xml')))) throw new Error('插件缺少 CEP 面板源码：adobe-bridge/cep');
+    await ensureUserCopy();
+    const target = cepTargetDir();
+    await mkdir(target, { recursive: true });
+    await cp(sourceDir, target, { recursive: true, force: true });
+    const debug = await enableCepDebugMode();
+    const record = { id: CEP_ID, dir: target, installedAt: new Date().toISOString(), version: await version(), debugMode: debug };
+    let installedRecord = {};
+    try { installedRecord = await readJson(join(root, INSTALLED_FILE)); } catch {}
+    await writeJsonAtomic(join(root, INSTALLED_FILE), { ...installedRecord, cep: record });
+    await log('install-cep', { dir: target, debugMode: debug.set });
+    return record;
+  };
+  const cepInstalled = async () => exists(join(cepTargetDir(), 'CSXS', 'manifest.xml'));
 
   /* ===================== 远程驱动（DSH → Adobe，用户不必打开面板） =====================
      原理：面板脚本支持无头模式（$.global.DSH_BRIDGE_HEADLESS=true 时只挂 DSH_BRIDGE.ps/.ai 函数），
@@ -476,19 +534,23 @@ export function createAdobeBridge({ pluginVersion, pluginRoot, previewUrl, home,
     return { placed, running: true };
   };
 
-  /** DSH 启动时静默调用：版本一致且文件在位就跳过，否则重装（不弹任何窗口、不提权）。 */
+  /** DSH 启动时静默调用（不弹任何窗口、不提权）：
+      ① 用户副本与 CEP 常驻面板每次都同步（用户级目录，幂等、极快）；
+      ② 菜单脚本（应用目录，root）版本一致且文件在位就跳过，否则尝试一次（通常因权限失败并记录 hint）。 */
   const ensureInstalled = async () => {
     try {
       await ensureUserCopy();
+      let cep = null;
+      try { cep = await installCep(); } catch (err) { await log('ensure-cep-failed', { error: String(err && err.message || err) }); }
       let record = null;
       try { record = await readJson(join(root, INSTALLED_FILE)); } catch {}
       if (record && record.version === await version() && Array.isArray(record.installed) && record.installed.length) {
         const first = record.installed[0];
         const dir = Array.isArray(first.dirs) && first.dirs.length ? first.dirs[0] : first.dir;
-        if (dir && await exists(join(dir, SCRIPT_FILES[0]))) return { skipped: true, installed: record.installed };
+        if (dir && await exists(join(dir, SCRIPT_FILES[0]))) return { skipped: true, installed: record.installed, cep };
       }
       const result = await installScripts();
-      return { skipped: false, installed: result.installed, errors: result.errors };
+      return { skipped: false, installed: result.installed, errors: result.errors, cep };
     } catch (err) {
       await log('ensure-installed-failed', { error: String(err && err.message || err) });
       return { skipped: false, error: String(err && err.message || err) };
@@ -505,23 +567,23 @@ export function createAdobeBridge({ pluginVersion, pluginRoot, previewUrl, home,
     const denied = [];
     for (const target of targets) {
       for (const dir of target.dirs) {
-        try { await mkdir(dir, { recursive: true }); await access(dir, fsConstants.W_OK); } catch (err) { if (err && (err.code === 'EACCES' || err.code === 'EPERM')) denied.push(dir); }
+        try { await mkdir(dir, { recursive: true }); await access(dir, fsConstants.W_OK); } catch (err) { if (err && (err.code === 'EACCES' || err.code === 'EPERM')) denied.push({ dir, app: target.app }); }
       }
     }
     if (!denied.length) return { elevated: false, ...(await installScripts()) };
-    const shell = denied.map((dir) => 'mkdir -p ' + shellQuote(dir) + ' && cp ' + shellQuote(userCopyDir + '/') + '*.jsx ' + shellQuote(dir + '/')).join(' && ');
+    const shell = denied.map(({ dir, app }) => 'mkdir -p ' + shellQuote(dir) + ' && cp ' + filesForApp(app).map((f) => shellQuote(join(userCopyDir, f))).join(' ') + ' ' + shellQuote(dir + '/')).join(' && ');
     const osascript = await resolveExecutable('osascript');
     const result = await runProcess(osascript, ['-e', 'do shell script ' + JSON.stringify(shell) + ' with administrator privileges'], remoteWorkDir(), 180000);
     if (result.exitCode !== 0) {
       const message = String(result.stderr || '').trim();
       throw new Error(/-128|取消|cancel/i.test(message) ? '已取消授权' : (message || '授权安装失败'));
     }
-    await log('install-scripts-elevated', { dirs: denied });
+    await log('install-scripts-elevated', { dirs: denied.map((d) => d.dir) });
     return { elevated: true, ...(await installScripts()) };
   };
   const shellQuote = (value) => "'" + String(value).replace(/'/g, "'\\''") + "'";
 
-  return { root, bridgeDirsFor, activate, writeHandshake, listInbound, ackInbound, resolveOrigin, createReturn, status, installScripts, installScriptsElevated, ensureInstalled, ensureUserCopy, findAdobeScriptDirs, appRunning, remoteEval, pullSelection, placePending, log };
+  return { root, bridgeDirsFor, activate, writeHandshake, listInbound, ackInbound, resolveOrigin, createReturn, status, installScripts, installScriptsElevated, installCep, cepInstalled, cepTargetDir, ensureInstalled, ensureUserCopy, findAdobeScriptDirs, appRunning, remoteEval, pullSelection, placePending, log };
 }
 
-export { bridgeRootDir, bridgeDirsFor, SCRIPT_FILES as ADOBE_BRIDGE_SCRIPT_FILES };
+export { bridgeRootDir, bridgeDirsFor, SCRIPT_FILES as ADOBE_BRIDGE_SCRIPT_FILES, SCRIPT_FILES_BY_APP as ADOBE_BRIDGE_SCRIPT_FILES_BY_APP };

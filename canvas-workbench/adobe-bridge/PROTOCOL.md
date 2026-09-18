@@ -176,6 +176,25 @@ host 只认清单，且要求清单里列出的每个文件都存在、非空、
 `src/host/services/adobe-bridge.js`）；入口：画布「更多 → 🔐 安装 PS / AI 菜单面板（需 Mac 密码）」「🔗 刷新桥接脚本副本」，
 或 `npm run install:adobe-bridge`（`node scripts/install-adobe-bridge.mjs`，`--list` 只看不装；root 目录会给出 sudo 命令）。
 
+### 常驻面板（CEP 扩展，推荐；PS/AI CC 2014+ 通用）
+
+`adobe-bridge/cep/`（`CSXS/manifest.xml` + `index.html` + `main.js`，ES5）是一个 CEP HTML 面板：可停靠、非模态、每 3s 自动检测发件箱，
+**一个扩展同时声明 PHXS/PHSP（Photoshop）与 ILST（Illustrator）**。它没有业务逻辑——按钮通过 `evalScript` 调用用户副本里的
+`DSH_BRIDGE.ps/.ai.*`（无头模式），状态和发件箱用 `cep.fs` 直接读文件夹协议，所以改 bug 只改 `.jsx`。
+
+- 安装（`installCep()`，DSH 启动时 `ensureInstalled()` 自动做，画布「更多 → 🧩 安装常驻面板」可手动）：整目录复制到用户级扩展目录
+  macOS `~/Library/Application Support/Adobe/CEP/extensions/com.dsh.canvasbridge/`、Windows `%APPDATA%\Adobe\CEP\extensions\com.dsh.canvasbridge\`，
+  **不需要管理员**；并为 CSXS 6~12 设置用户级开关 `PlayerDebugMode=1`（macOS `defaults write com.adobe.CSXS.N PlayerDebugMode 1`，
+  Windows `HKCU\Software\Adobe\CSXS.N`），否则未签名扩展不加载。
+- 入口：重启应用后 Photoshop「窗口 → 扩展（旧版）→ DSH 画布桥接」、Illustrator「窗口 → 扩展功能 → DSH 画布桥接」（应用只在启动时扫描扩展目录）。
+- 真机（2026-09-18，Illustrator 2026）：菜单出现、面板加载、读到真实 DSH 心跳（项目名正确）、按钮 → evalScript → jsx → 错误回显链路通。
+  PS 2025 内置 `CEPHtmlEngine.app`，同一扩展重启后可用。
+- 为什么不是 UXP：用户要求"什么版本都可以"，UXP 只覆盖 PS 2022+；CEP 覆盖 CC 2014 → 2025/2026（Adobe 已宣布未来移除，届时再迁 UXP，
+  面板逻辑仍在 jsx 里不受影响）。CS6 没有 CEP，用下面的模态面板 / 一键脚本兜底。
+- 面板 `main.js` 必须 **ES5 + 回调**（CEP 5 的 Chromium 27 没有 Promise/箭头函数）；`check-adobe-bridge-jsx.mjs` 会拦。
+
+### 菜单脚本（ExtendScript：模态面板 + 一键脚本，任何有 ExtendScript 的版本）
+
 安装顺序与目标：
 
 1. **用户副本**（永远成功，DSH 启动时 `ensureInstalled()` 自动同步）：`~/.dsh/canvas-workbench/adobe-bridge/scripts/`。
@@ -207,8 +226,11 @@ host 只认清单，且要求清单里列出的每个文件都存在、非空、
 | 发件箱检测 | 打开面板时自动读一次；之后点「刷新」 | 同左 |
 | 使用节奏 | 选好图层 → 菜单打开面板 → 点按钮 → 「关闭」；返回时再开一次 | 同左 |
 | 无界面测试 | `$.global.DSH_BRIDGE_HEADLESS = true` 后 `$.evalFile`，调 `DSH_BRIDGE.ps.*` | 同左，`DSH_BRIDGE.ai.*` |
+| 成功后 | 自动关闭对话框（用户反馈模态窗挡住应用） | 同左 |
+| 一键脚本 | `DSH桥接-发送选中图层-Photoshop.jsx` / `DSH桥接-置入返回件-Photoshop.jsx`：无界面，只在失败时弹一句；可在「动作」面板录成 F 键 | `DSH桥接-发送选中对象-Illustrator.jsx` / `DSH桥接-置入返回件-Illustrator.jsx` |
+| 常驻替代 | **CEP 面板**（上一节）——可停靠、不挡应用、自动检测 | 同左 |
 
-面板打开时会阻塞该应用（模态），不影响 DSH 与另一款 Adobe 应用。真机验收记录见 AGENT-HANDOFF §16。
+模态面板打开时会阻塞该应用；日常请用 CEP 常驻面板或 DSH 画布按钮。真机验收记录见 AGENT-HANDOFF §16。
 
 ## 7. 状态机与时序
 

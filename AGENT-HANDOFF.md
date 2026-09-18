@@ -660,3 +660,18 @@ git diff --check：通过
 处理：`findAdobeScriptDirs` 删掉用户级目标（mac/win 都删）；清除误装到用户级目录的三个文件；用 `installScriptsElevated()` 真机装进
 PS 应用目录 + AI 25 个 locale（含 zh_CN），`scripts-installed.json` 记录 errors=0；文案/README/PROTOCOL/CHANGELOG 全部改口。
 方法论：**"某目录里有第三方脚本"不等于"应用扫描该目录"，要拿反例（同目录另一个脚本是否显示）或直接对照应用目录来证明。**
+
+**09-18 中午 → 下午：CEP 常驻面板（用户："打开脚本后 PS 无法做任何操作，能否常驻？UXP 兼容性太差，最好什么版本都可以"）**
+
+- 三条路的取舍：ExtendScript palette（PS 不支持，真机否定）/ UXP（只 PS 2022+，用户否决）/ **CEP**（CC 2014→2026，可停靠非模态，用户级安装免密码）→ 选 CEP。
+- `adobe-bridge/cep/`：manifest 同时声明 PHXS/PHSP/ILST；`main.js` **ES5 + 回调**（CEP 5 = Chromium 27，无 Promise）；面板零业务逻辑——
+  `cep.fs` 读 bridge.json/发件箱做状态，按钮 `evalScript` 调用户副本 jsx 的 `DSH_BRIDGE.ps/.ai.*`（无头模式）。`installCep()`：整目录复制到
+  `~/Library/Application Support/Adobe/CEP/extensions/com.dsh.canvasbridge` + `defaults write com.adobe.CSXS.{6..12} PlayerDebugMode 1`；
+  `ensureInstalled()` 每次 DSH 启动都跑它（幂等）。路由 `/install-scripts {cep:true}`；更多菜单「🧩 安装常驻面板（推荐，免密码）」。
+- **真机（Illustrator 2026，11:40 重启后）**：「窗口 → 扩展功能 → DSH 画布桥接」出现并打开（242×280 浮动面板）；状态行读到**真实 DSH**
+  的心跳（项目「白底图」——用户已重启 DSH 到 v1.8）；无文档时点「发送选中对象」面板底部回显「⚠ …请先打开一个文档」→ 按钮→evalScript→jsx 链路通。
+  Photoshop 2025 内置 `CEPHtmlEngine.app`；当时 PS 进程 11:01 启动早于 11:39 安装，重启后即有「窗口 → 扩展（旧版）」。
+- 同时：ExtendScript 面板成功后自动 `win.close()`；新增 4 个无界面一键脚本（PS/AI 各 发送/置入），`SCRIPT_FILES_BY_APP` 按应用分文件集
+  （PS 菜单不出现 AI 脚本）；`installScriptsElevated` 按应用文件列表复制。**本机应用目录里的一键脚本尚未装**（需再点一次 🔐），CEP 面板不依赖它们。
+- 踩坑：AppleScript `quit` Illustrator 返回 -128「用户已取消」但进程随后自行重启（用户操作）；`open_application(activate)` 对 AI 报"零 AX 窗口"，用
+  `osascript activate` 替代；CEP 面板的 HTML 控件 AX 不可见，用坐标点击 + zoom 截图读文本。

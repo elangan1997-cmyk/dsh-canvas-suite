@@ -2057,6 +2057,20 @@ window.__ModuleLoader__.load({
         })
         .catch((err) => setFeedback('⚠ ' + (elevate ? '安装菜单面板' : '刷新脚本副本') + '失败：' + String((err && err.message) || err)));
     }
+
+    /** 「更多 → 🧩 安装常驻面板」：CEP 扩展装进用户级目录（免管理员），重启 PS/AI 后
+     *  「窗口 → 扩展(旧版) → DSH 画布桥接」出现——可停靠、不挡应用、自动轮询发件箱。DSH 启动时也会自动装。 */
+    function installAdobeBridgeCepPanel(setFeedback) {
+      setFeedback('正在安装 CEP 常驻面板（用户级目录，不需要密码）…');
+      return adobeBridgeJson('/dsh-canvas/adobe-bridge/install-scripts', { cep: true })
+        .then((result) => {
+          const d = result.data || {};
+          if (!result.ok || !d.ok) throw new Error(d.error || '安装失败');
+          const debug = d.debugMode && d.debugMode.set ? '' : '；未能自动打开"允许未签名扩展"开关（' + ((d.debugMode && d.debugMode.failures || []).join('、') || '原因未知') + '），面板可能不显示';
+          setFeedback('✓ 常驻面板已安装：' + d.dir + '。重启 Photoshop / Illustrator 后在「窗口 → 扩展（旧版）」里打开「DSH 画布桥接」' + debug);
+        })
+        .catch((err) => setFeedback('⚠ 安装常驻面板失败：' + String((err && err.message) || err)));
+    }
 // Excalidraw (MIT, 完全开源商用) 版 iframe：替代 tldraw，保留相同 postMessage 协议。
 // 从 CDN 加载 React + Excalidraw UMD；离线/内网环境可能加载失败。
 const EXCALIDRAW_SRCDOC = `<!doctype html><html><head><meta charset="utf-8"><style>
@@ -4743,6 +4757,7 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
             React.createElement('button', { onClick: () => { setMoreMenuOpen(false); openProjectFolder(); }, disabled: !projectInfo.project }, '📁 打开项目文件夹'),
             React.createElement('button', { onClick: openImageSettings }, '⚙ 图像引擎设置'),
             React.createElement('button', { title: '把桥接脚本装进 Photoshop / Illustrator 的「文件 → 脚本」菜单。两款应用的脚本目录都属于系统管理员，会弹出 macOS 密码对话框（密码由系统收集，插件接触不到），只需一次；装完重启 PS/AI 生效。不装也不影响画布里的「取 Ps 图层」「→Ps」', onClick: () => { setMoreMenuOpen(false); void installAdobeBridgeScripts(setFeedback, true); } }, '🔐 安装 PS / AI 菜单面板（需 Mac 密码）'),
+            React.createElement('button', { title: '推荐：可停靠的常驻桥接面板（Photoshop / Illustrator CC 2014+ 通用），装在用户级目录不需要管理员密码。重启 PS/AI 后在「窗口 → 扩展（旧版）」里打开「DSH 画布桥接」；可停靠、不挡应用、自动检测返回件。DSH 启动时也会自动安装', onClick: () => { setMoreMenuOpen(false); void installAdobeBridgeCepPanel(setFeedback); } }, '🧩 安装常驻面板（推荐，免密码）'),
             React.createElement('button', { title: '只刷新 ~/.dsh/canvas-workbench/adobe-bridge/scripts 里的脚本副本（远程驱动与「文件 → 脚本 → 浏览…」用它），不需要密码；DSH 启动时也会自动做', onClick: () => { setMoreMenuOpen(false); void installAdobeBridgeScripts(setFeedback, false); } }, '🔗 刷新桥接脚本副本'),
             React.createElement('button', { onClick: () => { setMoreMenuOpen(false); saveNow(); setFeedback('✓ 已保存当前画布'); }, disabled: !projectInfo.project }, '保存当前画布'),
             React.createElement('button', { className: 'dsh-canvas-more-danger', title: '先备份画布，再把项目图片移入画布回收站', onClick: () => { setMoreMenuOpen(false); backupAndClear(); }, disabled: !projectInfo.project }, '清空当前画布')

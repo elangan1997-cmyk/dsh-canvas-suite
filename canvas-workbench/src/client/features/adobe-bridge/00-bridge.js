@@ -124,3 +124,17 @@
         })
         .catch((err) => setFeedback('⚠ ' + (elevate ? '安装菜单面板' : '刷新脚本副本') + '失败：' + String((err && err.message) || err)));
     }
+
+    /** 「更多 → 🧩 安装常驻面板」：CEP 扩展装进用户级目录（免管理员），重启 PS/AI 后
+     *  「窗口 → 扩展(旧版) → DSH 画布桥接」出现——可停靠、不挡应用、自动轮询发件箱。DSH 启动时也会自动装。 */
+    function installAdobeBridgeCepPanel(setFeedback) {
+      setFeedback('正在安装 CEP 常驻面板（用户级目录，不需要密码）…');
+      return adobeBridgeJson('/dsh-canvas/adobe-bridge/install-scripts', { cep: true })
+        .then((result) => {
+          const d = result.data || {};
+          if (!result.ok || !d.ok) throw new Error(d.error || '安装失败');
+          const debug = d.debugMode && d.debugMode.set ? '' : '；未能自动打开"允许未签名扩展"开关（' + ((d.debugMode && d.debugMode.failures || []).join('、') || '原因未知') + '），面板可能不显示';
+          setFeedback('✓ 常驻面板已安装：' + d.dir + '。重启 Photoshop / Illustrator 后在「窗口 → 扩展（旧版）」里打开「DSH 画布桥接」' + debug);
+        })
+        .catch((err) => setFeedback('⚠ 安装常驻面板失败：' + String((err && err.message) || err)));
+    }

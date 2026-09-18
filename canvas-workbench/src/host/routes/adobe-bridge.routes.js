@@ -88,11 +88,12 @@ export function register(router, h) {
     try { json(res, CORS, 200, { ok: true, ...(await adobeBridge.status()) }); } catch (err) { fail(res, CORS, err); }
   });
 
-  // { elevate: true }（macOS）：对 root 目录用系统管理员密码弹窗完成安装；否则普通安装（PS 用户级目录免密码）。
+  // { cep: true }：安装 CEP 常驻面板（用户级目录，免管理员，自动打开 PlayerDebugMode）。
+  // { elevate: true }（macOS）：对 root 目录用系统管理员密码弹窗装菜单脚本；否则普通安装（通常因权限记录 hint）。
   router.add({ method: 'POST', path: '/dsh-canvas/adobe-bridge/install-scripts', prefix: false }, async (req, res, { CORS }) => {
     try {
       const body = JSON.parse(await readBody(req) || '{}');
-      const result = body.elevate === true ? await adobeBridge.installScriptsElevated() : await adobeBridge.installScripts();
+      const result = body.cep === true ? await adobeBridge.installCep() : (body.elevate === true ? await adobeBridge.installScriptsElevated() : await adobeBridge.installScripts());
       json(res, CORS, 200, { ok: true, ...result });
     } catch (err) { fail(res, CORS, err); }
   });

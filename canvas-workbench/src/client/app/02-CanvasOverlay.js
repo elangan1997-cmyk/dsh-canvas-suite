@@ -2052,6 +2052,7 @@
             React.createElement('button', { onClick: () => { setMoreMenuOpen(false); openProjectFolder(); }, disabled: !projectInfo.project }, '📁 打开项目文件夹'),
             React.createElement('button', { onClick: openImageSettings }, '⚙ 图像引擎设置'),
             React.createElement('button', { title: '把桥接脚本装进 Photoshop / Illustrator 的「文件 → 脚本」菜单。两款应用的脚本目录都属于系统管理员，会弹出 macOS 密码对话框（密码由系统收集，插件接触不到），只需一次；装完重启 PS/AI 生效。不装也不影响画布里的「取 Ps 图层」「→Ps」', onClick: () => { setMoreMenuOpen(false); void installAdobeBridgeScripts(setFeedback, true); } }, '🔐 安装 PS / AI 菜单面板（需 Mac 密码）'),
+            React.createElement('button', { title: '推荐：可停靠的常驻桥接面板（Photoshop / Illustrator CC 2014+ 通用），装在用户级目录不需要管理员密码。重启 PS/AI 后在「窗口 → 扩展（旧版）」里打开「DSH 画布桥接」；可停靠、不挡应用、自动检测返回件。DSH 启动时也会自动安装', onClick: () => { setMoreMenuOpen(false); void installAdobeBridgeCepPanel(setFeedback); } }, '🧩 安装常驻面板（推荐，免密码）'),
             React.createElement('button', { title: '只刷新 ~/.dsh/canvas-workbench/adobe-bridge/scripts 里的脚本副本（远程驱动与「文件 → 脚本 → 浏览…」用它），不需要密码；DSH 启动时也会自动做', onClick: () => { setMoreMenuOpen(false); void installAdobeBridgeScripts(setFeedback, false); } }, '🔗 刷新桥接脚本副本'),
             React.createElement('button', { onClick: () => { setMoreMenuOpen(false); saveNow(); setFeedback('✓ 已保存当前画布'); }, disabled: !projectInfo.project }, '保存当前画布'),
             React.createElement('button', { className: 'dsh-canvas-more-danger', title: '先备份画布，再把项目图片移入画布回收站', onClick: () => { setMoreMenuOpen(false); backupAndClear(); }, disabled: !projectInfo.project }, '清空当前画布')

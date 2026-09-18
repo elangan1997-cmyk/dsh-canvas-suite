@@ -316,10 +316,13 @@
     btnPlace.enabled = btnOpen.enabled = n > 0;
     return s;
   }
+  /* 成功即自动关闭对话框（模态窗口开着会挡住应用，用户反馈过）；失败留在面板上显示原因 */
   function run(label, fn) {
     try {
       var n = fn();
-      B.setNote(win, '✓ ' + label + '：' + n + ' 项');
+      B.log(APP, label + '成功：' + n + ' 项，面板自动关闭');
+      win.close();
+      return;
     } catch (e) {
       var msg = String(e && e.message ? e.message : e);
       B.setNote(win, '⚠ ' + label + '失败：' + msg);

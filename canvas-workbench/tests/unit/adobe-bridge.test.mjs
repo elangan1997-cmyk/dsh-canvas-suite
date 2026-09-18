@@ -148,12 +148,37 @@ test('服务：远程驱动在无 runProcess 的环境下明确拒绝；用户�
     // ensureUserCopy：把插件 adobe-bridge/*.jsx 复制到 <桥接根>/scripts（这里 pluginRoot 指向临时目录，先造三个假脚本）
     const { mkdir: mk, writeFile: wf, readFile: rf } = await import('node:fs/promises');
     await mk(join(w.home, 'plugin', 'adobe-bridge'), { recursive: true });
-    for (const name of ['dsh-bridge-core.jsx', 'DSH画布桥接-Photoshop.jsx', 'DSH画布桥接-Illustrator.jsx']) await wf(join(w.home, 'plugin', 'adobe-bridge', name), '\uFEFF// ' + name);
+    const { ADOBE_BRIDGE_SCRIPT_FILES } = await import('../../src/host/services/adobe-bridge.js');
+    for (const name of ADOBE_BRIDGE_SCRIPT_FILES) await wf(join(w.home, 'plugin', 'adobe-bridge', name), '\uFEFF// ' + name);
     const dir = await w.bridge.ensureUserCopy();
     assert.equal(dir, join(w.bridge.root, 'scripts'));
     assert.equal(await rf(join(dir, 'dsh-bridge-core.jsx'), 'utf8'), '\uFEFF// dsh-bridge-core.jsx');
     await wf(join(w.home, 'plugin', 'adobe-bridge', 'dsh-bridge-core.jsx'), '\uFEFF// v2 longer content');
     await w.bridge.ensureUserCopy();
     assert.equal(await rf(join(dir, 'dsh-bridge-core.jsx'), 'utf8'), '\uFEFF// v2 longer content', '源变了要跟着更新');
+  } finally { await w.dispose(); }
+});
+
+test('服务：CEP 常驻面板装进用户级扩展目录；无 runProcess 时不设 PlayerDebugMode 但目录照常复制', async () => {
+  const w = await makeWorld();
+  try {
+    const { mkdir: mk, writeFile: wf, readFile: rf } = await import('node:fs/promises');
+    const src = join(w.home, 'plugin', 'adobe-bridge');
+    await mk(join(src, 'cep', 'CSXS'), { recursive: true });
+    for (const name of ['dsh-bridge-core.jsx', 'DSH画布桥接-Photoshop.jsx', 'DSH画布桥接-Illustrator.jsx', 'DSH桥接-发送选中图层-Photoshop.jsx', 'DSH桥接-置入返回件-Photoshop.jsx', 'DSH桥接-发送选中对象-Illustrator.jsx', 'DSH桥接-置入返回件-Illustrator.jsx']) await wf(join(src, name), '\uFEFF// ' + name);
+    await wf(join(src, 'cep', 'CSXS', 'manifest.xml'), '<ExtensionManifest ExtensionBundleId="com.dsh.canvasbridge"></ExtensionManifest>');
+    await wf(join(src, 'cep', 'index.html'), '<html></html>');
+    await wf(join(src, 'cep', 'main.js'), '// panel');
+    const record = await w.bridge.installCep();
+    assert.equal(record.id, 'com.dsh.canvasbridge');
+    assert.equal(record.dir, w.bridge.cepTargetDir());
+    assert.equal(record.debugMode.set, false, '单测环境没有 runProcess，不能声称开关已设');
+    assert.equal(await rf(join(record.dir, 'CSXS', 'manifest.xml'), 'utf8'), '<ExtensionManifest ExtensionBundleId="com.dsh.canvasbridge"></ExtensionManifest>');
+    assert.equal(await rf(join(record.dir, 'main.js'), 'utf8'), '// panel');
+    assert.equal(await w.bridge.cepInstalled(), true);
+    const status = await w.bridge.status();
+    assert.equal(status.cepInstalled, true);
+    const installed = JSON.parse(await rf(join(w.bridge.root, 'scripts-installed.json'), 'utf8'));
+    assert.equal(installed.cep.dir, record.dir);
   } finally { await w.dispose(); }
 });
