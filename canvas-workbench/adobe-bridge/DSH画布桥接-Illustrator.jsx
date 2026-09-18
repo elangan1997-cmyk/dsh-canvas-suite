@@ -209,6 +209,8 @@
     if (!h || !h.outbox) throw new Error(s.reason || '未找到发件箱');
     var jobs = B.pendingOutbox(h, APP);
     if (!jobs.length) throw new Error('发件箱没有新的返回件');
+    /* 先于任何清单改名之前检查：没有文档可置入时清单必须保持待处理，等用户打开文档再来 */
+    if (mode !== 'open' && !app.documents.length) throw new Error('没有打开的文档可置入，请先打开文档或改用「打开」');
     return withQuiet(function () {
       var count = 0, i, j;
       for (i = 0; i < jobs.length; i++) {

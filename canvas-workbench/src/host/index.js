@@ -300,7 +300,15 @@ function apply(ctx) {
   const jobs = createJobManager();
   const pythonTools = createPythonToolRegistry({ pluginRoot: PLUGIN_ROOT, resolvePython: (c) => resolvePython(c || ctx), run: runProcessWithTimeout });
   // Adobe 桥接（Photoshop/Illustrator 脚本面板 ⇄ 画布）：纯文件夹传输，协议见 adobe-bridge/PROTOCOL.md。
-  const adobeBridge = createAdobeBridge({ pluginRoot: PLUGIN_ROOT, previewUrl });
+  // runProcess/resolveExecutable 用于"远程驱动"（画布直接取 PS 图层 / 直接置入返回件），见服务内注释。
+  const adobeBridge = createAdobeBridge({
+    pluginRoot: PLUGIN_ROOT,
+    previewUrl,
+    runProcess: runProcessWithTimeout,
+    resolveExecutable: (name) => ctx.subprocess.resolveExecutable(name)
+  });
+  // 启动时静默确保 Adobe 脚本已安装（幂等：版本一致且文件在位就跳过；不会弹窗、不提权）。
+  adobeBridge.ensureInstalled().catch(() => {});
   const h = { adobeBridge, jobs, pythonTools, chatContexts, ctx, documentPreviewPath, flattenRecycleBin, previewUrl, progressPathFor, projectDirectory, projectStatePath, psdPreviewPath, runProcess, runProcessWithTimeout, scanProjectImagesShared, stateWriteChains, writeManagedImage, writeManagedSource, writeManagedSvg, writeProgressFile };
   const router = createRouter();
   router.use(jobTrackingMiddleware(jobs));

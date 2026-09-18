@@ -637,3 +637,18 @@ git diff --check：通过
 - 收件方向刻意**不复用通用自动上画布**（要打出处印、要 ack、要独立反馈），因此通用逻辑跳过 `ADOBE桥接/`；如果桥接轮询器坏了，文件仍在素材库可手动加。
 - `.jsx` 必须带 UTF-8 BOM、必须 ES3（检查器会拦）；`#include` 要求三个文件同目录。
 - 没有触碰图层级编辑（§15）的任何代码；两者只在 `customData` 上并存。
+
+**09-18 上午追加：远程驱动 + 零配置（用户反馈"不可能每次都去 PS 里打开面板"）**
+
+- 用户诉求：① 脚本要固定在菜单里；② 新用户不该手动安装；③ 不想每次进 PS 点面板。落地：
+  - `ensureInstalled()` 在 host `apply()` 静默运行（版本一致且文件在位即跳过，不弹窗不提权）；PS 用户级目录免密码所以真正零配置，
+    菜单需重启 PS 一次才出现（PS 只在启动时扫描 Scripts）。Illustrator 目录 root → 「更多 → 🔐 授权安装到 Illustrator 菜单」
+    走 `osascript … with administrator privileges`（系统密码框，插件接触不到密码），`installScripts` 把"目录不可写但三个脚本已在"视为已安装。
+  - **远程驱动**（PROTOCOL §9）：`remoteEval(app, call)` 写驾驭脚本 → `$.evalFile` 面板脚本（无头模式）→ 调 `DSH_BRIDGE.ps/.ai.*`；
+    macOS osascript 文本模式 + `with timeout`；Windows PowerShell COM `DoJavaScriptFile`（**未实机验证**）。
+    `POST /pull`（顶栏「取 Ps 图层 / 取 Ai 对象」）与 `/return` 自动置入（响应 `remote:{attempted,running,placed,error}`）。
+    `appRunning()` 用 System Events 查 bundle id（大小写不敏感；`com.adobe.illustrator` 实际是小写）——**必须先查再驱动**，否则 AppleScript 会把没开的 Adobe 拉起来（实测 11s）。
+  - 真机（独立 Host 基座 `tests/integration/host-harness.mjs` 假 ctx + 真 PS/AI，走 HTTP 路由）：pull 2s、return+置入 2s，
+    「HTTP标题 ← 画布」精确归位 [122,126,190,150]；错误路径友好（无文档「请先打开一个文档」）。
+  - 修了一个真机才暴露的 bug：`importPending` 在循环内检查"无打开文档"会把清单标成 `.failed`，用户之后打开文档就找不到返回件 → 改为改名任何清单之前先检查（两个脚本）。
+- 本机：DSH 仍跑 1.7.0（用户重启过 PS/AI/DSH，PS 菜单里现在应有「DSH画布桥接-Photoshop」）；要在画布看到「取 Ps 图层」「→Ps」需同步 `refactor/v1.8` 并重启 DSH。

@@ -138,3 +138,22 @@ test('服务：返回 → 发件箱序号递增、永不覆盖、清单最后写
     assert.ok(status.recentLog.some((line) => line.event === 'return'), '日志记录了 return');
   } finally { await w.dispose(); }
 });
+
+test('服务：远程驱动在无 runProcess 的环境下明确拒绝；用户副本按插件源同步', async () => {
+  const w = await makeWorld();
+  try {
+    await assert.rejects(w.bridge.pullSelection('photoshop', w.projectDir), /不支持远程驱动/);
+    await assert.rejects(w.bridge.placePending('photoshop', 'place'), /不支持远程驱动/);
+    await assert.rejects(w.bridge.remoteEval('photoshop', 'B.ps.sendSelection(false)'), /不支持远程驱动/);
+    // ensureUserCopy：把插件 adobe-bridge/*.jsx 复制到 <桥接根>/scripts（这里 pluginRoot 指向临时目录，先造三个假脚本）
+    const { mkdir: mk, writeFile: wf, readFile: rf } = await import('node:fs/promises');
+    await mk(join(w.home, 'plugin', 'adobe-bridge'), { recursive: true });
+    for (const name of ['dsh-bridge-core.jsx', 'DSH画布桥接-Photoshop.jsx', 'DSH画布桥接-Illustrator.jsx']) await wf(join(w.home, 'plugin', 'adobe-bridge', name), '\uFEFF// ' + name);
+    const dir = await w.bridge.ensureUserCopy();
+    assert.equal(dir, join(w.bridge.root, 'scripts'));
+    assert.equal(await rf(join(dir, 'dsh-bridge-core.jsx'), 'utf8'), '\uFEFF// dsh-bridge-core.jsx');
+    await wf(join(w.home, 'plugin', 'adobe-bridge', 'dsh-bridge-core.jsx'), '\uFEFF// v2 longer content');
+    await w.bridge.ensureUserCopy();
+    assert.equal(await rf(join(dir, 'dsh-bridge-core.jsx'), 'utf8'), '\uFEFF// v2 longer content', '源变了要跟着更新');
+  } finally { await w.dispose(); }
+});

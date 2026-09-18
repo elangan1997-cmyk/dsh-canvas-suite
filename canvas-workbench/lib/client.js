@@ -2001,37 +2001,57 @@ window.__ModuleLoader__.load({
       };
     }
 
-    /** srcdoc「→Ps / →Ai」→ 写发件箱。detail: { app, items:[{sourcePath, dataURL, name, bridge}] } */
+    /** srcdoc「→Ps / →Ai」→ 写发件箱；host 会顺手远程置入运行中的 PS/AI（用户不必开面板）。detail: { app, items:[…] } */
     function requestAdobeBridgeReturn(current, detail, setFeedback) {
       const app = ADOBE_BRIDGE_APPS.includes(detail && detail.app) ? detail.app : 'photoshop';
       const label = ADOBE_BRIDGE_APP_LABELS[app];
       const items = Array.isArray(detail && detail.items) ? detail.items : [];
-      setFeedback('正在把 ' + items.length + ' 张图片放入 ' + label + ' 发件箱…');
+      setFeedback('正在把 ' + items.length + ' 张图片送回 ' + label + '…');
       return adobeBridgeJson('/dsh-canvas/adobe-bridge/return', { cwd: current.cwd || '', project: current.project || '', app, items })
         .then((result) => {
           if (!result.ok || !result.data || !result.data.ok) throw new Error((result.data && result.data.error) || '写入发件箱失败');
           const d = result.data;
+          const remote = d.remote || {};
           const originName = d.origin ? ((d.origin.layer && d.origin.layer.name) || (d.origin.document && d.origin.document.name) || '') : '';
-          const hint = '在 ' + label + ' 里打开「文件 → 脚本 → DSH画布桥接」面板，点「刷新」后「置入」或「打开」';
-          setFeedback('✓ 已放入 ' + label + ' 发件箱 #' + d.seq + '（' + (d.files || []).length + ' 个文件' + (originName ? '，可归位到「' + originName + '」' : '') + '）；' + hint);
+          let tail;
+          if (Number(remote.placed) > 0) tail = '已直接置入 ' + label + (originName ? '并归位到「' + originName + '」' : '') + '（' + remote.placed + ' 项）';
+          else if (remote.attempted && !remote.running) tail = label + ' 未运行——打开它后在「文件 → 脚本 → DSH画布桥接」面板点「置入」';
+          else if (remote.error) tail = '自动置入失败：' + remote.error + '；可在 ' + label + ' 面板点「置入」';
+          else tail = '在 ' + label + ' 面板点「置入」';
+          setFeedback('✓ ' + tail + '（发件箱 #' + d.seq + '，' + (d.files || []).length + ' 个文件）');
         })
         .catch((err) => setFeedback('⚠ 返回 ' + label + ' 失败：' + String((err && err.message) || err)));
     }
 
-    /** 「更多 → 安装 Adobe 桥接脚本」：把 adobe-bridge/*.jsx 拷进本机 PS/AI 的 Scripts 目录。
-     *  权限不足的目录（macOS 的 /Applications 通常是 root）会给出 sudo 命令；用户副本永远可用「浏览…/其它脚本…」打开。 */
-    function installAdobeBridgeScripts(setFeedback) {
-      setFeedback('正在安装 Adobe 桥接脚本面板…');
-      return adobeBridgeJson('/dsh-canvas/adobe-bridge/install-scripts', {})
+    /** 顶栏「取 Ps 图层 / 取 Ai 对象」：远程让运行中的 PS/AI 把当前选区送进收件箱，轮询器随后自动上画布。 */
+    function pullFromAdobe(current, app, setFeedback, opts) {
+      const label = ADOBE_BRIDGE_APP_LABELS[app] || app;
+      const what = app === 'photoshop' ? '图层' : '对象';
+      setFeedback('正在从 ' + label + ' 取当前选中的' + what + '…');
+      return adobeBridgeJson('/dsh-canvas/adobe-bridge/pull', { cwd: current.cwd || '', project: current.project || '', sessionId: current.sessionId || '', app, merged: !!(opts && opts.merged), dpi: opts && opts.dpi })
+        .then((result) => {
+          const d = result.data || {};
+          if (!result.ok || !d.ok) throw new Error(d.error || '取回失败');
+          setFeedback('✓ 已从 ' + label + ' 取到 ' + d.count + ' 项' + what + '，几秒内出现在画布上');
+        })
+        .catch((err) => setFeedback('⚠ 从 ' + label + ' 取' + what + '失败：' + String((err && err.message) || err)));
+    }
+
+    /** 「更多 → 安装 Adobe 桥接脚本」。DSH 启动时已自动静默安装（PS 用户级目录免密码）；这里是手动重装入口。
+     *  elevate=true（macOS）：对 root 权限目录（Illustrator、/Applications 下的 PS）弹系统管理员密码框完成安装——
+     *  密码由 macOS 自己的对话框收集，插件接触不到。 */
+    function installAdobeBridgeScripts(setFeedback, elevate) {
+      setFeedback(elevate ? '请在系统弹出的对话框里输入 Mac 管理员密码…' : '正在安装 Adobe 桥接脚本…');
+      return adobeBridgeJson('/dsh-canvas/adobe-bridge/install-scripts', { elevate: !!elevate })
         .then((result) => {
           const d = result.data || {};
           if (!result.ok || !d.ok) throw new Error(d.error || '安装失败');
           const okNames = (d.installed || []).map((i) => i.name).join('、');
           const badText = (d.errors || []).map((e) => (e.name ? e.name + '：' : '') + e.error + (e.hint ? '（' + e.hint + '）' : '')).join('；');
           const head = okNames
-            ? '✓ 桥接脚本已安装到 ' + okNames + '。重启 PS/AI 后在「文件 → 脚本」打开「DSH画布桥接」面板'
+            ? '✓ 桥接脚本已安装到 ' + okNames + '。重启 PS/AI 后在「文件 → 脚本」里就有「DSH画布桥接」'
             : '⚠ 没有装进任何 Adobe 菜单目录。' + (d.manualHint || '');
-          setFeedback(head + (badText ? '。其余：' + badText : '') + (okNames && d.userCopyDir ? '。用户副本：' + d.userCopyDir : ''));
+          setFeedback(head + (badText ? '。其余：' + badText : ''));
         })
         .catch((err) => setFeedback('⚠ 安装桥接脚本失败：' + String((err && err.message) || err)));
     }
@@ -2373,8 +2393,8 @@ function Main(){
         toolbar.count===1?window.React.createElement('button',{className:'dsh-selection-action',title:'不经过主聊天，直接输入图片修改需求',onClick:function(){openImageEditor('edit',toolbar.ids[0]);}},'编辑图片'):null,
         toolbar.count===1?window.React.createElement('button',{className:'dsh-selection-action dsh-photoshop',title:'在 Photoshop 中打开链接文件；保存后自动刷新画布',onClick:function(){openInPhotoshop(toolbar.ids[0]);}},'Ps 编辑'):null,
         toolbar.count===1?window.React.createElement('button',{className:'dsh-selection-action dsh-illustrator',title:'在 Illustrator 中打开原文件；保存后自动刷新画布',onClick:function(){openInIllustrator(toolbar.ids[0]);}},'AI 编辑'):null,
-        window.React.createElement('button',{className:'dsh-selection-action dsh-bridge-ps',title:'返回 Photoshop：放入项目 ADOBE桥接/发件箱，在 PS 的「DSH画布桥接」面板点「置入为图层」即可回到原位（需先在「更多」里安装桥接脚本）',onClick:function(){requestBridgeReturn(toolbar.ids,"photoshop");}},'→Ps'),
-        window.React.createElement('button',{className:'dsh-selection-action dsh-bridge-ai',title:'返回 Illustrator：放入项目 ADOBE桥接/发件箱，在 AI 的「DSH画布桥接」面板点「刷新」后置入或打开（需先在「更多」里安装桥接脚本）',onClick:function(){requestBridgeReturn(toolbar.ids,"illustrator");}},'→Ai'),
+        window.React.createElement('button',{className:'dsh-selection-action dsh-bridge-ps',title:'返回 Photoshop：直接置入到正在运行的 PS（作为智能对象，来自 PS 的图层会回到原位）；PS 没开时先留在项目 ADOBE桥接/发件箱，打开 PS 后在「文件 → 脚本 → DSH画布桥接」点「置入」',onClick:function(){requestBridgeReturn(toolbar.ids,"photoshop");}},'→Ps'),
+        window.React.createElement('button',{className:'dsh-selection-action dsh-bridge-ai',title:'返回 Illustrator：直接置入到正在运行的 AI（来自 AI 的对象会回到原位）；AI 没开时先留在项目 ADOBE桥接/发件箱，打开 AI 后在「文件 → 脚本 → DSH画布桥接」点「置入」',onClick:function(){requestBridgeReturn(toolbar.ids,"illustrator");}},'→Ai'),
         toolbar.count===1&&/\.(psd|ai|svg)$/i.test(String(toolbar.singleName||""))?window.React.createElement('button',{className:'dsh-selection-action',title:'选择该文档的指定图层，交给画布引擎修改后原位写回（其余图层与排版保留）',onClick:function(){layerEdit(toolbar.ids[0]);}},'编辑图层'):null,
         toolbar.count===1&&["image","psd"].indexOf(toolbar.singleKind||"image")>=0?window.React.createElement('button',{className:'dsh-selection-action dsh-text-rebuild-action',title:'框选后由当前聊天模型理解文字，并生成可在 Photoshop 中继续编辑的 PSD',onClick:function(){requestTextRebuild(toolbar.ids[0]);}},'编辑文字'):null,
         window.React.createElement('div',{className:'dsh-selection-more'},
@@ -4695,6 +4715,8 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
           ),
           React.createElement('button', { className: 'dsh-canvas-tb', onClick: () => post({ type: 'export' }) }, '导出 PNG'),
           React.createElement('button', { className: 'dsh-canvas-tb', title: '本地素材库：常用图片发送到画布或聊天', onClick: () => openMaterials() }, '素材库'),
+          React.createElement('button', { className: 'dsh-canvas-tb dsh-canvas-tb-adobe', title: '把 Photoshop 里当前选中的图层拉到画布（PS 需已打开文档并选中图层；不用在 PS 里点任何面板）', disabled: !projectInfo.project, onClick: () => { void pullFromAdobe(projectRef.current, 'photoshop', setFeedback); } }, '取 Ps 图层'),
+          React.createElement('button', { className: 'dsh-canvas-tb dsh-canvas-tb-adobe', title: '把 Illustrator 里当前选中的对象拉到画布（AI 需已打开文档并选中对象；150 dpi 透明 PNG）', disabled: !projectInfo.project, onClick: () => { void pullFromAdobe(projectRef.current, 'illustrator', setFeedback, { dpi: 150 }); } }, '取 Ai 对象'),
           React.createElement('button', {
             className: 'dsh-canvas-tb dsh-canvas-more',
             title: '更多画布操作',
@@ -4718,7 +4740,8 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
             }, (canvasBgFollowSystem ? '☑' : '☐') + ' 画布背景跟随系统'),
             React.createElement('button', { onClick: () => { setMoreMenuOpen(false); openProjectFolder(); }, disabled: !projectInfo.project }, '📁 打开项目文件夹'),
             React.createElement('button', { onClick: openImageSettings }, '⚙ 图像引擎设置'),
-            React.createElement('button', { title: '把 DSH画布桥接 脚本面板装进本机 Photoshop / Illustrator（文件 → 脚本），实现图层送到画布、编辑后一键返回', onClick: () => { setMoreMenuOpen(false); void installAdobeBridgeScripts(setFeedback); } }, '🔗 安装 Adobe 桥接脚本'),
+            React.createElement('button', { title: 'DSH 启动时已自动安装到 Photoshop 用户级脚本目录（不需要密码）；这里可手动重装。重启 PS 后菜单「文件 → 脚本」里出现「DSH画布桥接」', onClick: () => { setMoreMenuOpen(false); void installAdobeBridgeScripts(setFeedback, false); } }, '🔗 重新安装 Adobe 桥接脚本'),
+            React.createElement('button', { title: 'Illustrator（以及 /Applications 下的 Photoshop）的脚本目录属于系统管理员，这一步会弹出 macOS 的密码对话框，输入后把脚本装进它们的菜单。密码由系统收集，插件接触不到', onClick: () => { setMoreMenuOpen(false); void installAdobeBridgeScripts(setFeedback, true); } }, '🔐 授权安装到 Illustrator 菜单'),
             React.createElement('button', { onClick: () => { setMoreMenuOpen(false); saveNow(); setFeedback('✓ 已保存当前画布'); }, disabled: !projectInfo.project }, '保存当前画布'),
             React.createElement('button', { className: 'dsh-canvas-more-danger', title: '先备份画布，再把项目图片移入画布回收站', onClick: () => { setMoreMenuOpen(false); backupAndClear(); }, disabled: !projectInfo.project }, '清空当前画布')
           ) : null

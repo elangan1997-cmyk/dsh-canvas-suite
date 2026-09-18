@@ -68,37 +68,57 @@
       };
     }
 
-    /** srcdoc「→Ps / →Ai」→ 写发件箱。detail: { app, items:[{sourcePath, dataURL, name, bridge}] } */
+    /** srcdoc「→Ps / →Ai」→ 写发件箱；host 会顺手远程置入运行中的 PS/AI（用户不必开面板）。detail: { app, items:[…] } */
     function requestAdobeBridgeReturn(current, detail, setFeedback) {
       const app = ADOBE_BRIDGE_APPS.includes(detail && detail.app) ? detail.app : 'photoshop';
       const label = ADOBE_BRIDGE_APP_LABELS[app];
       const items = Array.isArray(detail && detail.items) ? detail.items : [];
-      setFeedback('正在把 ' + items.length + ' 张图片放入 ' + label + ' 发件箱…');
+      setFeedback('正在把 ' + items.length + ' 张图片送回 ' + label + '…');
       return adobeBridgeJson('/dsh-canvas/adobe-bridge/return', { cwd: current.cwd || '', project: current.project || '', app, items })
         .then((result) => {
           if (!result.ok || !result.data || !result.data.ok) throw new Error((result.data && result.data.error) || '写入发件箱失败');
           const d = result.data;
+          const remote = d.remote || {};
           const originName = d.origin ? ((d.origin.layer && d.origin.layer.name) || (d.origin.document && d.origin.document.name) || '') : '';
-          const hint = '在 ' + label + ' 里打开「文件 → 脚本 → DSH画布桥接」面板，点「刷新」后「置入」或「打开」';
-          setFeedback('✓ 已放入 ' + label + ' 发件箱 #' + d.seq + '（' + (d.files || []).length + ' 个文件' + (originName ? '，可归位到「' + originName + '」' : '') + '）；' + hint);
+          let tail;
+          if (Number(remote.placed) > 0) tail = '已直接置入 ' + label + (originName ? '并归位到「' + originName + '」' : '') + '（' + remote.placed + ' 项）';
+          else if (remote.attempted && !remote.running) tail = label + ' 未运行——打开它后在「文件 → 脚本 → DSH画布桥接」面板点「置入」';
+          else if (remote.error) tail = '自动置入失败：' + remote.error + '；可在 ' + label + ' 面板点「置入」';
+          else tail = '在 ' + label + ' 面板点「置入」';
+          setFeedback('✓ ' + tail + '（发件箱 #' + d.seq + '，' + (d.files || []).length + ' 个文件）');
         })
         .catch((err) => setFeedback('⚠ 返回 ' + label + ' 失败：' + String((err && err.message) || err)));
     }
 
-    /** 「更多 → 安装 Adobe 桥接脚本」：把 adobe-bridge/*.jsx 拷进本机 PS/AI 的 Scripts 目录。
-     *  权限不足的目录（macOS 的 /Applications 通常是 root）会给出 sudo 命令；用户副本永远可用「浏览…/其它脚本…」打开。 */
-    function installAdobeBridgeScripts(setFeedback) {
-      setFeedback('正在安装 Adobe 桥接脚本面板…');
-      return adobeBridgeJson('/dsh-canvas/adobe-bridge/install-scripts', {})
+    /** 顶栏「取 Ps 图层 / 取 Ai 对象」：远程让运行中的 PS/AI 把当前选区送进收件箱，轮询器随后自动上画布。 */
+    function pullFromAdobe(current, app, setFeedback, opts) {
+      const label = ADOBE_BRIDGE_APP_LABELS[app] || app;
+      const what = app === 'photoshop' ? '图层' : '对象';
+      setFeedback('正在从 ' + label + ' 取当前选中的' + what + '…');
+      return adobeBridgeJson('/dsh-canvas/adobe-bridge/pull', { cwd: current.cwd || '', project: current.project || '', sessionId: current.sessionId || '', app, merged: !!(opts && opts.merged), dpi: opts && opts.dpi })
+        .then((result) => {
+          const d = result.data || {};
+          if (!result.ok || !d.ok) throw new Error(d.error || '取回失败');
+          setFeedback('✓ 已从 ' + label + ' 取到 ' + d.count + ' 项' + what + '，几秒内出现在画布上');
+        })
+        .catch((err) => setFeedback('⚠ 从 ' + label + ' 取' + what + '失败：' + String((err && err.message) || err)));
+    }
+
+    /** 「更多 → 安装 Adobe 桥接脚本」。DSH 启动时已自动静默安装（PS 用户级目录免密码）；这里是手动重装入口。
+     *  elevate=true（macOS）：对 root 权限目录（Illustrator、/Applications 下的 PS）弹系统管理员密码框完成安装——
+     *  密码由 macOS 自己的对话框收集，插件接触不到。 */
+    function installAdobeBridgeScripts(setFeedback, elevate) {
+      setFeedback(elevate ? '请在系统弹出的对话框里输入 Mac 管理员密码…' : '正在安装 Adobe 桥接脚本…');
+      return adobeBridgeJson('/dsh-canvas/adobe-bridge/install-scripts', { elevate: !!elevate })
         .then((result) => {
           const d = result.data || {};
           if (!result.ok || !d.ok) throw new Error(d.error || '安装失败');
           const okNames = (d.installed || []).map((i) => i.name).join('、');
           const badText = (d.errors || []).map((e) => (e.name ? e.name + '：' : '') + e.error + (e.hint ? '（' + e.hint + '）' : '')).join('；');
           const head = okNames
-            ? '✓ 桥接脚本已安装到 ' + okNames + '。重启 PS/AI 后在「文件 → 脚本」打开「DSH画布桥接」面板'
+            ? '✓ 桥接脚本已安装到 ' + okNames + '。重启 PS/AI 后在「文件 → 脚本」里就有「DSH画布桥接」'
             : '⚠ 没有装进任何 Adobe 菜单目录。' + (d.manualHint || '');
-          setFeedback(head + (badText ? '。其余：' + badText : '') + (okNames && d.userCopyDir ? '。用户副本：' + d.userCopyDir : ''));
+          setFeedback(head + (badText ? '。其余：' + badText : ''));
         })
         .catch((err) => setFeedback('⚠ 安装桥接脚本失败：' + String((err && err.message) || err)));
     }

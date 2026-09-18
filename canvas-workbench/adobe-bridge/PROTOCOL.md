@@ -6,8 +6,10 @@
 ## 0. 一句话架构
 
 传输层只有**文件夹**：没有网络、没有端口、没有 UXP。Adobe 脚本把文件写进项目目录，
-画布轮询发现后自动上画布；画布把返回件写进发件箱，Adobe 面板点一下置入。
+画布轮询发现后自动上画布；画布把返回件写进发件箱，脚本置入回 Adobe。
 握手/心跳靠一个固定位置的 `bridge.json`。
+**两个入口共用同一套脚本**：日常主路径是画布里的按钮远程驱动 PS/AI（「取 Ps 图层」「→Ps」，用户不进 Adobe 点任何东西，§9）；
+PS/AI 里的「文件 → 脚本 → DSH画布桥接」面板是备用入口（应用没开、想从 Adobe 侧发起时用）。
 
 ```
 Photoshop / Illustrator（ExtendScript 面板）          DSH 画布插件（host + 客户端）
@@ -160,9 +162,10 @@ host 只认清单，且要求清单里列出的每个文件都存在、非空、
 | POST | `/dsh-canvas/adobe-bridge/activate` | 心跳：`{cwd, project, sessionId}` → 更新活动项目、按需重写 bridge.json |
 | GET | `/dsh-canvas/adobe-bridge/inbound?cwd&project` | 列出未处理收件清单（已校验文件稳定），附预览 url |
 | POST | `/dsh-canvas/adobe-bridge/ack` | `{cwd, project, manifest}` → 清单改名 `.done.json` |
-| POST | `/dsh-canvas/adobe-bridge/return` | `{cwd, project, app, items:[{sourcePath?, dataURL?, name, kind, bridge?}]}` → 写发件箱 |
+| POST | `/dsh-canvas/adobe-bridge/return` | `{cwd, project, app, items:[{sourcePath?, dataURL?, name, kind, bridge?}], auto?, mode?}` → 写发件箱；`auto !== false` 时随即远程置入运行中的应用，响应带 `remote:{attempted, running, placed, error}`（§9） |
+| POST | `/dsh-canvas/adobe-bridge/pull` | `{cwd, project, sessionId, app, merged?, dpi?}` → 远程让运行中的 PS/AI 把当前选区送进收件箱（§9），响应 `{count}` |
 | GET | `/dsh-canvas/adobe-bridge/status` | 桥接根路径、脚本是否安装、最近日志 20 条（排障面板用） |
-| POST | `/dsh-canvas/adobe-bridge/install-scripts` | 把 `adobe-bridge/*.jsx` 拷进本机 PS/AI 的 Scripts 目录 |
+| POST | `/dsh-canvas/adobe-bridge/install-scripts` | `{elevate?}`：普通安装（PS 用户级目录免密码）；`elevate:true` 走 macOS 管理员密码弹窗装进 root 目录（§6） |
 
 所有响应 `{ ok: boolean, error?: string, ... }`。
 
@@ -229,3 +232,32 @@ host 只认清单，且要求清单里列出的每个文件都存在、非空、
 | 返回后面板没反应 | `发件箱/` 有没有新的 `NNNN.json`；面板是模态的、不会自己刷新——点「刷新」或关掉重开 |
 | 置入位置不对 | 清单 `origin.bounds` 是否 y 向下；AI 画板换算见 §3；文档名不一致会居中而不归位 |
 | 脚本菜单里没有 | 三个 .jsx 是否在同一 Scripts 目录；是否重启了 PS/AI；`scripts-installed.json` 记录了哪些目录 |
+| 「取 Ps 图层」报「没有在运行」 | 目标应用确实没开（host 不会替用户拉起 Adobe）；开着却误报时看 `osascript -e 'tell application "System Events" to exists (first process whose bundle identifier is "com.adobe.Photoshop")'` |
+| 「→Ps」提示自动置入失败 | 看 `remote.error`：常见是 PS 没有打开的文档（返回件仍在发件箱、清单保持待处理，打开文档后面板「置入」即可）；PS 有弹窗挡着会超时 |
+
+## 9. 远程驱动（DSH → Adobe；日常主路径，用户不必打开面板）
+
+面板脚本支持**无头模式**：`$.global.DSH_BRIDGE_HEADLESS = true` 时只把函数挂到 `DSH_BRIDGE.ps` / `DSH_BRIDGE.ai`、不开窗口。
+host（`services/adobe-bridge.js` 的 `remoteEval`）据此从外面驾驭运行中的 PS/AI：
+
+```
+写驾驭脚本（ASCII 临时目录）：
+  $.global.DSH_BRIDGE_HEADLESS = true;
+  $.evalFile(new File("<用户副本>/DSH画布桥接-Photoshop.jsx"));   ← 其内部 #include 按该文件目录解析
+  try { "OK:" + (B.ps.sendSelection(false)) } catch (e) { "ERR:" + e.message }
+执行：
+  macOS   osascript → tell application id "com.adobe.Photoshop" to do javascript (read POSIX file … as «class utf8»)
+          （PS 2025 的 do javascript 只接受文本、不接受文件引用；外层 with timeout 防 AppleEvent -1712）
+  Windows powershell → (New-Object -ComObject Photoshop.Application).DoJavaScriptFile(路径)  ← 尚未实机验证
+解析：stdout 以 OK:/ERR: 开头；否则视为执行失败（stderr 最后一行）。
+```
+
+- **取图层**（画布顶栏「取 Ps 图层 / 取 Ai 对象」→ `POST /pull`）：`appRunning` 为真才驱动（AppleScript 会拉起未运行的应用，
+  所以必须先查）；写握手 → `B.ps.sendSelection(merged)` / `B.ai.sendSelection(dpi)` → 文件进收件箱 → 客户端轮询 3s 内上画布。
+- **返回**（选中工具栏「→Ps / →Ai」→ `POST /return`）：写发件箱后立即 `B.*.importPending('place')`；应用未运行或失败时
+  返回件留在发件箱、清单保持待处理，用户之后在面板「置入」。**脚本在改任何清单前先检查有无打开的文档**——
+  否则会把清单标成 `.failed`（2026-09-18 真机发现并修复）。
+- 实测（PS 2025 / AI 2026）：取图层 ≈2s，返回并置入 ≈2s，全程零次进 Adobe 点击；归位精确到像素。
+- 已知怪癖：通过 `do javascript` 关闭 Illustrator 的**当前**文档，文档会关但 AppleEvent 回执不返回（超时）。
+  产品流程不关用户文档，只有测试清理会碰到。
+- 启动即用：`ensureInstalled()` 在 host `apply()` 时静默运行（版本一致且文件在位就跳过），用户副本随插件版本自动同步。
