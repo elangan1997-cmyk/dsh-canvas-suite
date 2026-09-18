@@ -172,27 +172,30 @@ host 只认清单，且要求清单里列出的每个文件都存在、非空、
 ## 6. 脚本安装
 
 安装 = 把 `adobe-bridge/dsh-bridge-core.jsx`、`DSH画布桥接-Photoshop.jsx`、`DSH画布桥接-Illustrator.jsx`
-三个文件拷进 Adobe 会扫描的 Scripts 目录。入口两个，逻辑只有一处（`installScripts()`，
-`src/host/services/adobe-bridge.js`）：画布「更多 → 🔗 安装 Adobe 桥接脚本」，或 `npm run install:adobe-bridge`
-（`node scripts/install-adobe-bridge.mjs`，`--list` 只看不装）。
+三个文件拷进 Adobe 会扫描的 Scripts 目录。逻辑只有一处（`installScripts()` / `installScriptsElevated()`，
+`src/host/services/adobe-bridge.js`）；入口：画布「更多 → 🔐 安装 PS / AI 菜单面板（需 Mac 密码）」「🔗 刷新桥接脚本副本」，
+或 `npm run install:adobe-bridge`（`node scripts/install-adobe-bridge.mjs`，`--list` 只看不装；root 目录会给出 sudo 命令）。
 
 安装顺序与目标：
 
-1. **用户副本**（永远成功）：`~/.dsh/canvas-workbench/adobe-bridge/scripts/`。任何时候都能用
-   Photoshop「文件 → 脚本 → 浏览…」/ Illustrator「文件 → 脚本 → 其它脚本…」直接打开，它也是 sudo 命令的来源。
-2. **Photoshop 用户级**（macOS `~/Library/Application Support/Adobe/Adobe Photoshop <年>/Presets/Scripts`，
-   Windows `%APPDATA%\Adobe\Adobe Photoshop <年>\Presets\Scripts`）：普通权限可写，PS 会扫描 → 菜单里出现。
-   只对 /Applications（Program Files）里真实存在的版本安装，忽略残留的旧版本目录。
-3. **应用目录**（macOS `/Applications/Adobe Photoshop <年>/Presets/Scripts`、
+1. **用户副本**（永远成功，DSH 启动时 `ensureInstalled()` 自动同步）：`~/.dsh/canvas-workbench/adobe-bridge/scripts/`。
+   远程驱动（§9）从这里 `evalFile`——所以**日常主路径完全不需要下面的菜单安装**。任何时候也能用
+   Photoshop「文件 → 脚本 → 浏览…」/ Illustrator「文件 → 脚本 → 其它脚本…」直接打开它。
+2. **应用目录 = 菜单入口**（macOS `/Applications/Adobe Photoshop <年>/Presets/Scripts`、
    `/Applications/Adobe Illustrator <年>/Presets.localized/<每个 locale>/Scripts`；Windows 对应 Program Files）：
-   通常 root/管理员权限，写不进时返回 `errors[].hint` —— macOS 是可直接粘贴的 `sudo cp` / `sudo sh -c 'for …'`
-   命令，Windows 是「以管理员身份运行」。Illustrator 一个版本合并为一条（所有 locale 一条命令装完）。
+   **两款应用都只扫描这里，且都是 root/管理员权限。** 走 `installScriptsElevated()`（画布「更多 → 🔐 安装 PS / AI 菜单面板」
+   → macOS 管理员密码弹窗，一次即可）；普通 `installScripts()` 写不进时返回 `errors[].hint`（可粘贴的 `sudo` 命令）。
+   Illustrator 一个版本合并为一条（所有 locale 一条命令装完；Scripts 子目录不存在的 locale 会一并创建，中文 UI 的 zh_CN 也在内）。
 
-- Illustrator **没有用户级脚本目录**：要么 sudo 一次，要么每次用「其它脚本…」打开用户副本。
-- 安装后需**重启** PS/AI，菜单 `文件 → 脚本 → DSH画布桥接-…` 打开面板。
+> **纠错记录（2026-09-18）**：早先误以为 Photoshop 会扫描用户级目录 `~/Library/Application Support/Adobe/Adobe Photoshop <年>/Presets/Scripts`
+> （因为那里有用户自装的 BiRefNet 脚本且菜单里能看到）。真机证明：菜单里那份来自 /Applications 的副本；用户级目录里的
+> `BiRefNet-Remove-BG_副本.jsx` 和我们的三个脚本从未出现。**PS 2025 不扫描用户级 Scripts 目录**，不要再往那里装。
+
+- 安装后需**重启** PS/AI（它们只在启动时扫描 Scripts），菜单 `文件 → 脚本 → DSH画布桥接-…` 打开面板。
 - `#include "dsh-bridge-core.jsx"` 按脚本所在目录解析，所以三个文件必须在同一目录。
-- `scripts-installed.json` 记录版本、时间、成功目录与失败目录；握手文件的 `scriptsInstalled` = 至少装进了一个
-  Adobe 会扫描的目录（用户副本不算）。
+- `scripts-installed.json` 记录版本、时间、成功目录与失败目录；握手文件的 `scriptsInstalled` = 至少装进了一个应用目录（用户副本不算）。
+  `installScripts` 把"目录不可写但三个脚本已在"视为已安装（管理员装过之后普通重装不会误报失败）。
+- 插件升级后菜单里的脚本不会自动更新（root 目录）：远程驱动不受影响（用用户副本）；面板若报「协议版本不匹配」就再点一次「🔐 安装」。
 - 面板偏好（合并/归位/分辨率）存 `~/.dsh/canvas-workbench/adobe-bridge/panel-prefs.json`。
 
 ### 面板形态（两端相同）

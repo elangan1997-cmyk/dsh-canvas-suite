@@ -2037,23 +2037,25 @@ window.__ModuleLoader__.load({
         .catch((err) => setFeedback('⚠ 从 ' + label + ' 取' + what + '失败：' + String((err && err.message) || err)));
     }
 
-    /** 「更多 → 安装 Adobe 桥接脚本」。DSH 启动时已自动静默安装（PS 用户级目录免密码）；这里是手动重装入口。
-     *  elevate=true（macOS）：对 root 权限目录（Illustrator、/Applications 下的 PS）弹系统管理员密码框完成安装——
-     *  密码由 macOS 自己的对话框收集，插件接触不到。 */
+    /** 「更多」里的两个安装入口。
+     *  elevate=false：只刷新用户副本（远程驱动 / 「浏览…」用它；DSH 启动时也自动做）。
+     *  elevate=true（macOS）：PS/AI 的应用脚本目录都是 root 权限，弹系统管理员密码框把脚本装进菜单——
+     *  密码由 macOS 自己的对话框收集，插件接触不到。实测 PS 2025 不扫描用户级目录，菜单入口只有这条路。 */
     function installAdobeBridgeScripts(setFeedback, elevate) {
-      setFeedback(elevate ? '请在系统弹出的对话框里输入 Mac 管理员密码…' : '正在安装 Adobe 桥接脚本…');
+      setFeedback(elevate ? '请在系统弹出的对话框里输入 Mac 管理员密码…' : '正在刷新桥接脚本副本…');
       return adobeBridgeJson('/dsh-canvas/adobe-bridge/install-scripts', { elevate: !!elevate })
         .then((result) => {
           const d = result.data || {};
           if (!result.ok || !d.ok) throw new Error(d.error || '安装失败');
           const okNames = (d.installed || []).map((i) => i.name).join('、');
-          const badText = (d.errors || []).map((e) => (e.name ? e.name + '：' : '') + e.error + (e.hint ? '（' + e.hint + '）' : '')).join('；');
-          const head = okNames
-            ? '✓ 桥接脚本已安装到 ' + okNames + '。重启 PS/AI 后在「文件 → 脚本」里就有「DSH画布桥接」'
-            : '⚠ 没有装进任何 Adobe 菜单目录。' + (d.manualHint || '');
-          setFeedback(head + (badText ? '。其余：' + badText : ''));
+          if (!elevate) {
+            setFeedback('✓ 脚本副本已刷新：' + (d.userCopyDir || '') + (okNames ? '；菜单目录也已更新（' + okNames + '）' : '；要进 PS/AI 菜单请点「🔐 安装 PS / AI 菜单面板」'));
+            return;
+          }
+          const badText = (d.errors || []).map((e) => (e.name ? e.name + '：' : '') + e.error).join('；');
+          setFeedback((okNames ? '✓ 已装进 ' + okNames + ' 的脚本菜单。重启 PS/AI 后在「文件 → 脚本」里就有「DSH画布桥接」' : '⚠ 没有装进任何 Adobe 菜单目录。' + (d.manualHint || '')) + (badText ? '。未成功：' + badText : ''));
         })
-        .catch((err) => setFeedback('⚠ 安装桥接脚本失败：' + String((err && err.message) || err)));
+        .catch((err) => setFeedback('⚠ ' + (elevate ? '安装菜单面板' : '刷新脚本副本') + '失败：' + String((err && err.message) || err)));
     }
 // Excalidraw (MIT, 完全开源商用) 版 iframe：替代 tldraw，保留相同 postMessage 协议。
 // 从 CDN 加载 React + Excalidraw UMD；离线/内网环境可能加载失败。
@@ -4740,8 +4742,8 @@ var toDataURL=function(u){return fetch(u).then(function(r){return r.blob()}).the
             }, (canvasBgFollowSystem ? '☑' : '☐') + ' 画布背景跟随系统'),
             React.createElement('button', { onClick: () => { setMoreMenuOpen(false); openProjectFolder(); }, disabled: !projectInfo.project }, '📁 打开项目文件夹'),
             React.createElement('button', { onClick: openImageSettings }, '⚙ 图像引擎设置'),
-            React.createElement('button', { title: 'DSH 启动时已自动安装到 Photoshop 用户级脚本目录（不需要密码）；这里可手动重装。重启 PS 后菜单「文件 → 脚本」里出现「DSH画布桥接」', onClick: () => { setMoreMenuOpen(false); void installAdobeBridgeScripts(setFeedback, false); } }, '🔗 重新安装 Adobe 桥接脚本'),
-            React.createElement('button', { title: 'Illustrator（以及 /Applications 下的 Photoshop）的脚本目录属于系统管理员，这一步会弹出 macOS 的密码对话框，输入后把脚本装进它们的菜单。密码由系统收集，插件接触不到', onClick: () => { setMoreMenuOpen(false); void installAdobeBridgeScripts(setFeedback, true); } }, '🔐 授权安装到 Illustrator 菜单'),
+            React.createElement('button', { title: '把桥接脚本装进 Photoshop / Illustrator 的「文件 → 脚本」菜单。两款应用的脚本目录都属于系统管理员，会弹出 macOS 密码对话框（密码由系统收集，插件接触不到），只需一次；装完重启 PS/AI 生效。不装也不影响画布里的「取 Ps 图层」「→Ps」', onClick: () => { setMoreMenuOpen(false); void installAdobeBridgeScripts(setFeedback, true); } }, '🔐 安装 PS / AI 菜单面板（需 Mac 密码）'),
+            React.createElement('button', { title: '只刷新 ~/.dsh/canvas-workbench/adobe-bridge/scripts 里的脚本副本（远程驱动与「文件 → 脚本 → 浏览…」用它），不需要密码；DSH 启动时也会自动做', onClick: () => { setMoreMenuOpen(false); void installAdobeBridgeScripts(setFeedback, false); } }, '🔗 刷新桥接脚本副本'),
             React.createElement('button', { onClick: () => { setMoreMenuOpen(false); saveNow(); setFeedback('✓ 已保存当前画布'); }, disabled: !projectInfo.project }, '保存当前画布'),
             React.createElement('button', { className: 'dsh-canvas-more-danger', title: '先备份画布，再把项目图片移入画布回收站', onClick: () => { setMoreMenuOpen(false); backupAndClear(); }, disabled: !projectInfo.project }, '清空当前画布')
           ) : null

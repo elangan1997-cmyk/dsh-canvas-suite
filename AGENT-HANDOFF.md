@@ -610,7 +610,7 @@ git diff --check：通过
 **已验证（确定性证据）：**
 - `npm run check` 全绿（含新 jsx 检查：3 个脚本 BOM/语法/ES3）；`npm test` 40 通过（原 35 + 新 5）；`build --check` 一致。
 - Node 打桩 `File/Folder` 跑 core：手写 `toJSON` 输出能被 Node `JSON.parse` 解析、`parseJSON` 回读一致、jobId 合规、`shouldHome` 四种分支正确；host `validateInboundManifest` 接受脚本格式清单。
-- 安装器真机：用户副本 + **PS 用户级目录 `~/Library/Application Support/Adobe/Adobe Photoshop 2025/Presets/Scripts` 写入成功**（该目录已有用户自装的 `BiRefNet-Remove-BG.jsx`，证明 PS 会扫描它，PS 面板不需要 sudo）；`/Applications` 下 PS/AI 目录 root 权限 → 返回可粘贴的 `sudo cp` / `sudo sh -c 'for …'` 命令；Illustrator 是 `Presets.localized/<25 个 locale>/Scripts`，合并为一条。
+- 安装器真机：用户副本写入成功；`/Applications` 下 PS/AI 目录 root 权限 → 返回可粘贴的 `sudo cp` / `sudo sh -c 'for …'` 命令；Illustrator 是 `Presets.localized/<25 个 locale>/Scripts`，合并为一条。~~PS 用户级目录写入成功且 PS 会扫描它~~ ← **此结论后来被真机否定，见下方纠错**。
 
 **真机验收（2026-09-18 08:20–08:48，Photoshop 2025 + Illustrator 2026；方法：host 服务写真实握手指向 `/tmp/dsh-bridge-e2e/project`，AppleScript `do javascript` 以文本方式跑无头测试脚本，`$.evalFile` 载入面板脚本后直接调 `DSH_BRIDGE.ps/.ai.*`，产物用 host 服务回读校验）：**
 
@@ -641,9 +641,9 @@ git diff --check：通过
 **09-18 上午追加：远程驱动 + 零配置（用户反馈"不可能每次都去 PS 里打开面板"）**
 
 - 用户诉求：① 脚本要固定在菜单里；② 新用户不该手动安装；③ 不想每次进 PS 点面板。落地：
-  - `ensureInstalled()` 在 host `apply()` 静默运行（版本一致且文件在位即跳过，不弹窗不提权）；PS 用户级目录免密码所以真正零配置，
-    菜单需重启 PS 一次才出现（PS 只在启动时扫描 Scripts）。Illustrator 目录 root → 「更多 → 🔐 授权安装到 Illustrator 菜单」
-    走 `osascript … with administrator privileges`（系统密码框，插件接触不到密码），`installScripts` 把"目录不可写但三个脚本已在"视为已安装。
+  - `ensureInstalled()` 在 host `apply()` 静默运行（版本一致且文件在位即跳过，不弹窗不提权）——它能保证的是**用户副本**（远程驱动用），
+    菜单入口需要「更多 → 🔐 安装 PS / AI 菜单面板」走 `osascript … with administrator privileges`（系统密码框，插件接触不到密码），
+    `installScripts` 把"目录不可写但三个脚本已在"视为已安装。菜单需重启 PS/AI 一次才出现（只在启动时扫描 Scripts）。
   - **远程驱动**（PROTOCOL §9）：`remoteEval(app, call)` 写驾驭脚本 → `$.evalFile` 面板脚本（无头模式）→ 调 `DSH_BRIDGE.ps/.ai.*`；
     macOS osascript 文本模式 + `with timeout`；Windows PowerShell COM `DoJavaScriptFile`（**未实机验证**）。
     `POST /pull`（顶栏「取 Ps 图层 / 取 Ai 对象」）与 `/return` 自动置入（响应 `remote:{attempted,running,placed,error}`）。
@@ -652,3 +652,11 @@ git diff --check：通过
     「HTTP标题 ← 画布」精确归位 [122,126,190,150]；错误路径友好（无文档「请先打开一个文档」）。
   - 修了一个真机才暴露的 bug：`importPending` 在循环内检查"无打开文档"会把清单标成 `.failed`，用户之后打开文档就找不到返回件 → 改为改名任何清单之前先检查（两个脚本）。
 - 本机：DSH 仍跑 1.7.0（用户重启过 PS/AI/DSH，PS 菜单里现在应有「DSH画布桥接-Photoshop」）；要在画布看到「取 Ps 图层」「→Ps」需同步 `refactor/v1.8` 并重启 DSH。
+
+**09-18 中午纠错（重要，别再犯）：Photoshop 2025 不扫描用户级 Scripts 目录。**
+用户重启 PS 后「文件 → 脚本」里仍没有我们的脚本。排查：同目录（`~/Library/Application Support/Adobe/Adobe Photoshop 2025/Presets/Scripts`）
+里用户自己的 `BiRefNet-Remove-BG_副本.jsx` 也从未进过菜单；菜单里能看到的 `BiRefNet-Remove-BG` 其实来自 `/Applications/Adobe Photoshop 2025/Presets/Scripts/`
+（用户 5 月用 sudo 装的）。我早先把"用户级目录里有别的脚本 + 菜单里有同名项"误当成"用户级目录被扫描"的证据——两件事没有因果。
+处理：`findAdobeScriptDirs` 删掉用户级目标（mac/win 都删）；清除误装到用户级目录的三个文件；用 `installScriptsElevated()` 真机装进
+PS 应用目录 + AI 25 个 locale（含 zh_CN），`scripts-installed.json` 记录 errors=0；文案/README/PROTOCOL/CHANGELOG 全部改口。
+方法论：**"某目录里有第三方脚本"不等于"应用扫描该目录"，要拿反例（同目录另一个脚本是否显示）或直接对照应用目录来证明。**

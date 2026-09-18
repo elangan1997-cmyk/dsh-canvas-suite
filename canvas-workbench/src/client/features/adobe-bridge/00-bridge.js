@@ -104,21 +104,23 @@
         .catch((err) => setFeedback('⚠ 从 ' + label + ' 取' + what + '失败：' + String((err && err.message) || err)));
     }
 
-    /** 「更多 → 安装 Adobe 桥接脚本」。DSH 启动时已自动静默安装（PS 用户级目录免密码）；这里是手动重装入口。
-     *  elevate=true（macOS）：对 root 权限目录（Illustrator、/Applications 下的 PS）弹系统管理员密码框完成安装——
-     *  密码由 macOS 自己的对话框收集，插件接触不到。 */
+    /** 「更多」里的两个安装入口。
+     *  elevate=false：只刷新用户副本（远程驱动 / 「浏览…」用它；DSH 启动时也自动做）。
+     *  elevate=true（macOS）：PS/AI 的应用脚本目录都是 root 权限，弹系统管理员密码框把脚本装进菜单——
+     *  密码由 macOS 自己的对话框收集，插件接触不到。实测 PS 2025 不扫描用户级目录，菜单入口只有这条路。 */
     function installAdobeBridgeScripts(setFeedback, elevate) {
-      setFeedback(elevate ? '请在系统弹出的对话框里输入 Mac 管理员密码…' : '正在安装 Adobe 桥接脚本…');
+      setFeedback(elevate ? '请在系统弹出的对话框里输入 Mac 管理员密码…' : '正在刷新桥接脚本副本…');
       return adobeBridgeJson('/dsh-canvas/adobe-bridge/install-scripts', { elevate: !!elevate })
         .then((result) => {
           const d = result.data || {};
           if (!result.ok || !d.ok) throw new Error(d.error || '安装失败');
           const okNames = (d.installed || []).map((i) => i.name).join('、');
-          const badText = (d.errors || []).map((e) => (e.name ? e.name + '：' : '') + e.error + (e.hint ? '（' + e.hint + '）' : '')).join('；');
-          const head = okNames
-            ? '✓ 桥接脚本已安装到 ' + okNames + '。重启 PS/AI 后在「文件 → 脚本」里就有「DSH画布桥接」'
-            : '⚠ 没有装进任何 Adobe 菜单目录。' + (d.manualHint || '');
-          setFeedback(head + (badText ? '。其余：' + badText : ''));
+          if (!elevate) {
+            setFeedback('✓ 脚本副本已刷新：' + (d.userCopyDir || '') + (okNames ? '；菜单目录也已更新（' + okNames + '）' : '；要进 PS/AI 菜单请点「🔐 安装 PS / AI 菜单面板」'));
+            return;
+          }
+          const badText = (d.errors || []).map((e) => (e.name ? e.name + '：' : '') + e.error).join('；');
+          setFeedback((okNames ? '✓ 已装进 ' + okNames + ' 的脚本菜单。重启 PS/AI 后在「文件 → 脚本」里就有「DSH画布桥接」' : '⚠ 没有装进任何 Adobe 菜单目录。' + (d.manualHint || '')) + (badText ? '。未成功：' + badText : ''));
         })
-        .catch((err) => setFeedback('⚠ 安装桥接脚本失败：' + String((err && err.message) || err)));
+        .catch((err) => setFeedback('⚠ ' + (elevate ? '安装菜单面板' : '刷新脚本副本') + '失败：' + String((err && err.message) || err)));
     }

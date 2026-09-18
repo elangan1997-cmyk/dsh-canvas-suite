@@ -281,28 +281,24 @@ export function createAdobeBridge({ pluginVersion, pluginRoot, previewUrl, home,
   };
 
   /**
-   * 找本机 PS/AI 的 Scripts 目录。返回 [{ app, level:'app'|'user', name, dirs:[…], presets? }]。
+   * 找本机 PS/AI 的 Scripts 目录。返回 [{ app, level:'app', name, dirs:[…], presets? }]。
    *   macOS  PS：/Applications/Adobe Photoshop <年>/Presets/Scripts（root 权限）
-   *              ~/Library/Application Support/Adobe/Adobe Photoshop <年>/Presets/Scripts（用户级，PS 会扫描；只列已安装的版本）
    *          AI：/Applications/Adobe Illustrator <年>/Presets.localized/<每个 locale>/Scripts（root 权限；一个版本合并为一条）
-   *   Windows PS：%ProgramFiles%\Adobe\Adobe Photoshop <年>\Presets\Scripts；%APPDATA%\Adobe\Adobe Photoshop <年>\Presets\Scripts
-   *          AI：%ProgramFiles%\Adobe\Adobe Illustrator <年>\Presets\<每个 locale>\Scripts
-   * Illustrator 没有用户级脚本目录：装不进系统目录时用「文件 → 脚本 → 其它脚本…」指向用户副本。
+   *   Windows PS：%ProgramFiles%\Adobe\Adobe Photoshop <年>\Presets\Scripts；AI：…\Adobe Illustrator <年>\Presets\<每个 locale>\Scripts
+   * 实测（2026-09-18，PS 2025 macOS）：**Photoshop 不扫描 ~/Library/Application Support/Adobe/…/Presets/Scripts**
+   * （同目录里用户自己放的脚本从未进过菜单），Illustrator 也没有用户级脚本目录——所以两款应用的菜单入口都需要
+   * 一次管理员授权（installScriptsElevated）。日常主路径（远程驱动，§9）不依赖菜单。
    */
   const listDirs = async (directory) => {
     try { return (await readdir(directory, { withFileTypes: true })).filter((d) => d.isDirectory()).map((d) => d.name).sort(); } catch { return []; }
   };
   const findAdobeScriptDirs = async () => {
     const found = [];
-    const homeDir = home || userHome();
     const appsRoot = isWindows ? join(process.env.ProgramFiles || 'C:\\Program Files', 'Adobe') : '/Applications';
-    const userRoot = isWindows ? join(process.env.APPDATA || join(homeDir, 'AppData', 'Roaming'), 'Adobe') : join(homeDir, 'Library', 'Application Support', 'Adobe');
-    const installedNames = [];
     for (const entry of await listDirs(appsRoot)) {
       const appDir = join(appsRoot, entry);
       if (/^Adobe Photoshop/i.test(entry)) {
         if (!(await exists(join(appDir, 'Presets')))) continue;
-        installedNames.push(entry);
         found.push({ app: 'photoshop', level: 'app', name: entry, dirs: [join(appDir, 'Presets', 'Scripts')] });
       } else if (/^Adobe Illustrator/i.test(entry)) {
         for (const presetsName of ['Presets.localized', 'Presets']) {
@@ -314,16 +310,13 @@ export function createAdobeBridge({ pluginVersion, pluginRoot, previewUrl, home,
         }
       }
     }
-    for (const entry of await listDirs(userRoot)) {
-      if (!/^Adobe Photoshop/i.test(entry) || !installedNames.includes(entry)) continue;
-      found.push({ app: 'photoshop', level: 'user', name: entry + '（用户级）', dirs: [join(userRoot, entry, 'Presets', 'Scripts')] });
-    }
     return found;
   };
 
   /**
-   * 安装：① 永远先复制一份用户副本到 <桥接根>/scripts/（供「浏览 / 其它脚本…」与 sudo 命令使用）；
-   * ② 再尝试每个 Adobe 目录，权限不足的给出可直接执行的命令。host 路由与 CLI 共用。
+   * 安装：① 永远先复制一份用户副本到 <桥接根>/scripts/（远程驱动从这里 evalFile；也供「浏览 / 其它脚本…」与 sudo 命令使用）；
+   * ② 再尝试每个 Adobe 应用目录——macOS 下通常是 root 权限，写不进时返回 errors[].hint（可粘贴的 sudo 命令），
+   *    真正装进菜单请用 installScriptsElevated（系统管理员密码弹窗）。host 路由与 CLI 共用。
    */
   const installScripts = async () => {
     const sourceDir = join(pluginRoot, 'adobe-bridge');
