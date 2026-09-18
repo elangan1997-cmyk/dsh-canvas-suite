@@ -183,63 +183,63 @@
       "note": "Adobe 桥接客户端：收件轮询器 / 返回发件箱 / 安装脚本",
       "lines": [
         1934,
-        2037
+        2073
       ]
     },
     {
       "file": "core/canvas/frame/00-srcdoc.js",
       "note": "EXCALIDRAW_SRCDOC iframe 模板（HTML/CSS/转义 JS）",
       "lines": [
-        2038,
-        2576
+        2074,
+        2611
       ]
     },
     {
       "file": "core/canvas/frame/01-variants.js",
       "note": "EXCALIDRAW_VENDOR_BOOTSTRAP / SRCDOC_LOCAL / SRCDOC_CLEAN",
       "lines": [
-        2577,
-        2593
+        2612,
+        2628
       ]
     },
     {
       "file": "app/01-layout.js",
       "note": "分栏布局与宿主 iframe 定位",
       "lines": [
-        2594,
-        2669
+        2629,
+        2704
       ]
     },
     {
       "file": "app/02-CanvasOverlay.js",
       "note": "CanvasOverlay 主组件（素材库 / 引擎设置 / 编辑工具 / 主题同步）",
       "lines": [
-        2670,
-        5035
+        2705,
+        4904
       ]
     },
     {
       "file": "app/03-styles.js",
       "note": "父侧 CSS 字符串（DSH 设计令牌）",
       "lines": [
-        5036,
-        5185
+        4905,
+        5054
       ]
     },
     {
       "file": "core/capabilities/01-compat.js",
       "note": "compatibilityLogger / safeEffect / safeSlot",
       "lines": [
-        5186,
-        5222
+        5055,
+        5091
       ]
     },
     {
       "file": "main/99-apply.js",
       "note": "apply()：注册 slots / turnTail / overlay / input dock；工厂收尾",
       "lines": [
-        5223,
-        5349
+        5092,
+        5218
       ]
     }
   ]

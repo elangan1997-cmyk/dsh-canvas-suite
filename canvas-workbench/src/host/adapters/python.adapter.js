@@ -1,5 +1,5 @@
 // Python Tool Registry（执行文档 §20）：业务代码不再写死脚本路径，统一按 id 解析与调用。
-// 现有 10 个脚本仍在 scripts/ 根目录（物理重组见 §20.1，待路由改为经注册表调用后再搬，避免同一提交里
+// 现有 11 个脚本仍在 scripts/ 根目录（图层编辑的 psd_layers/svg_layers 已随功能移除）（物理重组见 §20.1，待路由改为经注册表调用后再搬，避免同一提交里
 // 既动路径又动调用方）。
 import { join } from 'node:path';
 
@@ -14,9 +14,7 @@ export const PYTHON_TOOLS = Object.freeze([
   { id: 'background.remove', script: 'scripts/remove_background.py', group: 'background' },
   { id: 'vector.vectorize', script: 'scripts/vectorize_image.py', group: 'vector' },
   { id: 'psd.export-text', script: 'scripts/export_text_psd.py', group: 'psd' },
-  { id: 'svg.export-text', script: 'scripts/export_text_svg.py', group: 'svg' },
-  { id: 'psd.layers', script: 'scripts/psd_layers.py', group: 'psd' },
-  { id: 'svg.layers', script: 'scripts/svg_layers.py', group: 'svg' }
+  { id: 'svg.export-text', script: 'scripts/export_text_svg.py', group: 'svg' }
 ]);
 
 /**

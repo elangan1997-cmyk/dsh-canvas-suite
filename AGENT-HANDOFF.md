@@ -716,3 +716,16 @@ PS 应用目录 + AI 25 个 locale（含 zh_CN），`scripts-installed.json` 记
 - `ensureUserCopy` 改为**无条件覆盖**（size/mtime 判断曾出现"判定已同步、实际是旧版"，排查绕了大弯）。
 - 真机验证：0012 原文件导入成功（«画布»组 1×7 文字层 + 2 前缀散层）；图片→组（智能对象）成功；用户交互路径
   （菜单一键脚本）当日已自测 4 单全过（PNG×3 + .ai×1）。0012 已恢复待处理待用户重试。
+
+**09-18 傍晚：按用户决定移除「编辑图层」（与 Adobe 桥接高度重合）**
+
+- 用户判断正确：图层编辑（选文档→选层→提取→引擎改→原位写回）与桥接（取图层→画布改→→Ps 归位）往返重合，且桥接覆盖
+  更广（不用选层、支持对象级、四入口同源）。**删除范围**：`src/host/routes/document.routes.js` 整文件（三个路由）+ 注册
+  （host/index.js）、`psd_layers.py`/`svg_layers.py` + 注册表两项（PYTHON_TOOLS 13→11，测试计数同步）、
+  srcdoc 的 layerEdit 函数/工具栏按钮/编辑器 layerEdit 透传、CanvasOverlay 的 LayerEditDialog（含文件头两行注释）/
+  layerEdit 状态 / openLayerEdit / pickLayerForEdit / layer-edit-request 分支 / request-image-edit 的 layerEdit 分支 / 渲染块。
+- **刻意保留**（防误伤）：「编辑文字」（文字重建）、「Ps 编辑/AI 编辑」（打开链接文件手动编辑+保存刷新，桥接不做这事）、
+  编辑占位图自愈与 image-edit-result 原子替换（服务普通编辑图片）、dshScratch 对账跳过（清理旧项目残留）、
+  psdPreviewPath/documentPreviewPath（素材预览在用）、normalize_image.py 等（generation.routes 在用）。
+- 旧项目影响：已有 `-图层编辑` 文件、`画布备份/`、customData 里历史的 dshLayerEdit 字段均无害残留。
+- client.js 482123→467876 bytes；单测 42 过（contracts 的 PYTHON_TOOLS 计数 13→11 已同步）。

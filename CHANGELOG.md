@@ -12,12 +12,9 @@
 - **Command / History**：共享 Command 基类、CommandBus、HistoryManager（undo/redo 双栈）；构建期内联进 bundle，挂 `window.__dshCanvas`。
 - **契约层**：CanvasObject（含 Excalidraw element 双向 adapter）、Asset（稳定 assetId、类型/来源推断）、Job、Feature；`project.json` schemaVersion 2（v1→v2 只加字段、幂等、旧插件可读）。
 - **Feature Registry / Capability**：12 项内置 Feature 声明，按 `/health` 推导 capability 启用；新增只读 `GET /dsh-canvas/capabilities`、`/assets`、`/python-tools`（§28 统一 `{ok,data}` 形状）。
-- **Python Tool Registry**：10 个脚本按 id 注册解析（物理目录重组待路由改经注册表后进行）。
+- **Python Tool Registry**：11 个脚本按 id 注册解析（物理目录重组待路由改经注册表后进行）。
 - **文字重建新增 AI（Illustrator）导出**：识别确认后面板提供「生成 AI（Illustrator）」，与 PSD 的「草稿 + 原生脚本」同构——先出 SVG 草稿，再由 Illustrator ExtendScript 建文档、放置并内嵌底图、逐块创建**原生点文字**（字体按本机 PostScript 名解析），saveAs 为**原生 .ai**（PDF 兼容）并自动加入画布。脚本不可用（未装 AI / 非 macOS / 权限）时退回可编辑 SVG 草稿（内嵌背景 + `<text>`，字体映射家族名+字重；背景清理成功时文字组可见，未清理时隐藏避免与原图重叠）。
-- **PSD 图层编辑同标准加固**：预检自动保存关闭开在 Photoshop 里的文件（保存失败不关，绝不丢未保存工作；realpath 归一与 activeDocument 前置都有实测依据）；脚本收尾只关自己打开的文档（废除会误关用户稿件的无差别清场）；写回对齐 .ai 语义——**原文件就地更新**（改前自动备份到「画布备份/」）、原图层保留、修改版作为新层叠加其上（itemIndex 自检）。
-- **PSD / AI 图层级编辑（新）**：画布选中 .psd/.ai → 工具栏「编辑图层」→ 列出图层（PSD 纯 Python 读层树；AI 经 Illustrator 脚本）→ 选定图层 + 描述修改 → 引擎只编辑该图层（整幅上下文提取，临时文件不进画布）→ Adobe 脚本**原位写回**（保留图层名、z 序与所有其它图层，含你手动排的文字层），另存新版本 `-图层编辑.psd/.ai` 加入画布。模型输出自动规范化（WEBP/JPEG→PNG）并缩放回画布尺寸；Adobe 交互全部走 ASCII 临时目录（规避中文目录 app.open 失败）；脚本禁用模态弹窗（规避错误弹窗卡死 AppleEvent）。
-- **SVG 也支持图层级编辑**：「编辑图层」对 .svg 同样可用——列出背景位图与各文字对象，选中背景位图描述修改后引擎编辑并**原位替换内嵌位图**（纯 Python，不需要 Adobe），文字对象原样保留。**三种格式统一写回原文件**（inplace + 画布备份），不再产生 `-图层编辑` 版本文件堆积；项目新文件自动上画布的基线持久化（重启不丢，重启前生成的新文件重启后仍会自动加入画布）。
-- **图层编辑升级为可视化两步式**：图层列表改为**缩略图网格**（PSD 逐层渲染预览、AI 位图项低分辨率截屏、SVG 解码内嵌位图；文字对象显示为文字卡）；点选图层后自动提取到画布并**打开与「编辑图片」完全相同的编辑器**（提示词 / 框选 / 擦除笔刷蒙版），提交后原位写回——蒙版走膨胀+羽化+合成保护管线，未选区域逐像素不变。
+- **Adobe 桥接（Photoshop / Illustrator ⇄ 画布）取代并移除「编辑图层」**：原 v1.8 开发的 PSD/AI/SVG 图层级编辑（列层树→提取→引擎改→原位写回）与桥接的「取 Ps 图层 → 画布编辑 → →Ps 归位」往返高度重合，按用户决定整体移除（删除路由 document-layers/edit-layer/extract-layer、LayerEditDialog、psd_layers.py/svg_layers.py 及注册项）。桥接的等价能力与更多形态见上方 Adobe 桥接条目；旧项目里历史 `-图层编辑` 文件与 `画布备份/` 不受影响。
 - **修复 .ai 生成后的“两个文件”与画布不同步**：根因一，Illustrator 2026 的 ExtendScript 没有 `CloseOptions`，脚本里的 `doc.close()` 两种写法都抛错——每次生成的**临时文档都留在 AI 里没关**，用户误把临时文件当正式文件编辑；根因二，脚本成功后跳过了“打开正式文件”步骤。修复：所有 Illustrator/Photoshop 脚本收尾统一用 AppleScript `close every document saving no` 清场（ExtendScript 关不掉的兜底），生成后**总是打开画布正式文件**（与交付到画布的是同一份），在 AI 里保存后画布按 mtime 轮询自动刷新预览。
 - **聊天图片输出回退链重做**：附件/本地条目改为**逐级尝试**的候选链（主机按名找回 → 原路径/条目 sourcePath → 当前项目归档同名 → 附件 blob），本地文件优先即时显示；DSH 旧会话附件解析悬而不决时 6 秒超时降级；新增 `GET /dsh-canvas/resolve-image` 按文件名在项目/工作区（含兄弟项目的 DSH聊天生成图片/、assets/）找回原图，`-N` 副本名回落原名；彻底找不到才显示整洁的失败卡（不再渲染浏览器碎图）。
 - **动态加载界面**：图片修改 / 去背景占位从静态 SVG 改为 iframe 内跟随位置与缩放的 DOM 覆盖层——转圈、流动斜纹、扫光进度条、引擎提示、已用时长；去背景显示真实百分比与阶段；小尺寸自动紧凑模式。
@@ -26,20 +23,9 @@
 - **测试与工具**：`npm test`（unit 32 + migration 3）、`npm run test:integration`（git 基线 vs 工作树 API 对等）、`npm run check`（portability + 递归语法 + 构建漂移守卫）；`tests/smoke/` CDP 客户端（页面内 fetch 绕过 DSH 网关 403、DOM 真值快照）；`tests/fixtures/` 零个人数据样例项目；npm 打包白名单加入 `src/`。
 - **生成脚本语法检查（新）**：`npm run check` 增加 `scripts/check-generated-jsx.mjs`——把 host 路由里用字符串拼出来的 Illustrator/Photoshop 脚本抽出来做独立 `node --check`，并检查 iframe 的 srcdoc 内联脚本（求值模板字面量后截取 `<script>`）。这类错误整文件 `node --check` 查不出来，本轮两个致命 bug（缩略图整段 JSX 解析失败、`/edit-layer` 提取必失败）都是这么漏掉的。
 
-### 图层编辑（.ai / .psd / .svg）修复与语义调整 — 未提交
+### 附：已移除的「图层编辑」功能（历史记录）
 
-- **修复 .ai 缩略图全空**：拼接 JSX 时生成了 `new File("…-""+i+".png")`（语法错误），整段脚本解析失败、一张都没截到，且错误被三层 try/catch 吞掉。重写为单次遍历同时产出图层清单与逐层缩略图，**文字对象也截屏**、`it.contents` 作为兜底名。
-- **只读流程不再打扰用户**：列图层/缩略图/提取改为打开 **ASCII 临时副本**、**不激活 Illustrator**、收尾按文件精确关闭。此前会打开用户正式文件并 `close every document saving no`（既闪一下又可能关掉用户自己打开的稿）。
-- **读取提速**：缩略图只渲染该元素自身 `visibleBounds`（±2pt）而非整块画板；`ImageCaptureOptions.resolution` 有下限（24 被拒），改为档位自适应 24→36→72→无参，并把实际生效档位记入诊断。
-- **修复点图层没反应**：`post({type:'add-image'})` 缺 `explicit: true`，被 iframe 守卫拒绝并连带把画布状态置为「加载失败」。
-- **修复编辑器不自动打开**：`openImageEditorById` 作用域写错（声明在 `Main()` 内）、`add-image` 两个监听器中带 `openEditor` 的那个是死代码、捕获阶段不透传 `customData`（`dshLayerEdit` 标记丢失）。现改为模块级桥接 + 透传 + 等元素真正进场景再打开。
-- **修复「原图已不在画布中」**：临时提取图落在 `outputs/` 而项目素材扫描在 depth 0 跳过 `outputs/`，被 2 秒一次的"访达删除对账"误判为已删除。新增 `dshScratch` 标记并同时跳过对账与归档两条路径。
-- **修复结果图丢失/占位图残留**：图层写回改用与「编辑图片」相同的**原子消息** `image-edit-result`（一次 `updateScene` 把占位图换成结果图），不再用"先删后加"两条消息竞态。
-- **修复写回后文字被盖住**：文字对象与字体一直在文件里，是 `pi.move(prev, PLACEAFTER)` 语义用错且不检查结果，把新图放到整叠最前面盖住了 7 个文字层。改为「锚点 + 索引读回自检」，四种 move 语义逐个试，只认索引真的到位；结果写入诊断。
-- **.ai 写回语义改为「直接写回原文件」**（用户选定）：原图层保留，修改结果作为**新的一层叠加在原图层正上方**，画布上那份 .ai 就地刷新；覆盖前自动备份到 `<项目>/画布备份/<名>-图层编辑前-<时间戳>.ai`。`.psd/.svg` 维持另存 `-图层编辑` 新版本（响应 `mode` 字段区分）。
-- **图层编辑前弹窗提醒**：`.ai` 在对话框顶部常驻提示 + 点图层那一刻确认「已在 Illustrator 里关闭这份稿」（同一文档确认过一次不再重复拦）——规避"AI 里开着旧稿，保存时反向覆盖写回结果"。
-- **占位图超时自愈**：「图片修改中…」此前没有超时且会被写进 `canvas.json`（重启后恢复出来继续转），现由 30 秒轮询把超过 25 分钟的占位图标成失败；`/edit-layer`、`/edit-image` 请求亦加 20 分钟超时。
-- **新增排查通道**：只读/写回流程的关键结果（关闭方式、实际档位、缩略图成败、耗时、层叠自检 `z=实际/期望`）追加到 `$TMPDIR/dsh-canvas-ai-diag.json`（保留最近 8 条）。
+该功能（含上面十余轮修复：.ai 缩略图、原子写回消息、z 序自检、临时副本与清场、占位图自愈、诊断通道）已整体随功能移除，详细历史见 git 历史与 AGENT-HANDOFF §15；其中沉淀的通用设施仍在服务其它功能：生成的 JSX 语法检查（check-generated-jsx）、编辑占位图 30 秒自愈、image-edit-result 原子替换消息、dshScratch 标记。
 
 ## 1.7.0
 

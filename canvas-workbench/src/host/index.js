@@ -8,7 +8,6 @@ import { isMac, resolvePython } from '../../lib/platform.js';
 import { PLUGIN_ROOT } from './vendor-assets.js';
 import { createPythonToolRegistry } from './adapters/python.adapter.js';
 import { register as registerContracts } from './routes/contracts.routes.js';
-import { register as registerDocument } from './routes/document.routes.js';
 import { installChatImageRouter } from '../../lib/chat-image-router.js';
 import { expandHome, isPathWithin } from '../shared/utils/paths.js';
 import { parseQuery, respond } from './server/http.js';
@@ -323,7 +322,6 @@ function apply(ctx) {
   registerAdobeBridge(router, h);
   registerJobs(router, h);
   registerContracts(router, h);
-  registerDocument(router, h);
 
   const dispose = ctx.webServer.register({
     kind: 'prefix',
