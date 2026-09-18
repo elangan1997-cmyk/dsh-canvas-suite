@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  DSH 画布桥接 · CEP 常驻面板（Photoshop CC 2014+ / Illustrator CC 2014+ 通用）
+  安装位置（用户级，不需要管理员）：
+    macOS   ~/Library/Application Support/Adobe/CEP/extensions/com.dsh.canvasbridge/
+    Windows %APPDATA%\Adobe\CEP\extensions\com.dsh.canvasbridge\
+  未签名扩展需要用户级开关 PlayerDebugMode=1（安装器对 CSXS 6~12 逐个设置）。
+  面板入口：Photoshop 「窗口 → 扩展（旧版）→ DSH 画布桥接」；Illustrator 「窗口 → 扩展 → DSH 画布桥接」。
+  面板只是壳：按钮通过 evalScript 调用 ~/.dsh/canvas-workbench/adobe-bridge/scripts/ 里的 ExtendScript 函数
+  （DSH_BRIDGE.ps.* / .ai.*），协议见 canvas-workbench/adobe-bridge/PROTOCOL.md。
+-->
+<ExtensionManifest Version="6.0" ExtensionBundleId="com.dsh.canvasbridge" ExtensionBundleVersion="1.0.0" ExtensionBundleName="DSH 画布桥接" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <ExtensionList>
+    <Extension Id="com.dsh.canvasbridge.panel" Version="1.0.0"/>
+  </ExtensionList>
+  <ExecutionEnvironment>
+    <HostList>
+      <Host Name="PHXS" Version="[14.0,99.9]"/>
+      <Host Name="PHSP" Version="[14.0,99.9]"/>
+      <Host Name="ILST" Version="[18.0,99.9]"/>
+    </HostList>
+    <LocaleList>
+      <Locale Code="All"/>
+    </LocaleList>
+    <RequiredRuntimeList>
+      <RequiredRuntime Name="CSXS" Version="6.0"/>
+    </RequiredRuntimeList>
+  </ExecutionEnvironment>
+  <DispatchInfoList>
+    <Extension Id="com.dsh.canvasbridge.panel">
+      <DispatchInfo>
+        <Resources>
+          <MainPath>./index.html</MainPath>
+          <CEFCommandLine>
+            <Parameter>--allow-file-access-from-files</Parameter>
+          </CEFCommandLine>
+        </Resources>
+        <Lifecycle>
+          <AutoVisible>true</AutoVisible>
+        </Lifecycle>
+        <UI>
+          <Type>Panel</Type>
+          <Menu>DSH 画布桥接</Menu>
+          <Geometry>
+            <Size>
+              <Height>440</Height>
+              <Width>300</Width>
+            </Size>
+            <MinSize>
+              <Height>220</Height>
+              <Width>230</Width>
+            </MinSize>
+            <MaxSize>
+              <Height>1400</Height>
+              <Width>640</Width>
+            </MaxSize>
+          </Geometry>
+          <Icons/>
+        </UI>
+      </DispatchInfo>
+    </Extension>
+  </DispatchInfoList>
+</ExtensionManifest>

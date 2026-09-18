@@ -1,0 +1,57 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>DSH 画布桥接</title>
+<style>
+  html,body{margin:0;padding:0;background:transparent;color:#e8eaf0;font:12px/1.5 -apple-system,"SF Pro Text","PingFang SC","Microsoft YaHei",sans-serif}
+  .wrap{padding:10px 12px}
+  .row{display:flex;align-items:center;gap:6px;margin:6px 0}
+  button{flex:1;min-height:26px;padding:5px 8px;border:1px solid #4b5563;border-radius:5px;background:#2b3242;color:#e8eaf0;font:600 12px/1.3 inherit;cursor:pointer;white-space:nowrap}
+  button:hover:enabled{background:#3a4356;border-color:#6b7686}
+  button:disabled{opacity:.42;cursor:default}
+  button.primary{background:#1d4ed8;border-color:#3b82f6}
+  button.primary:hover:enabled{background:#2563eb}
+  .status{display:flex;align-items:center;gap:6px;margin:2px 0 8px;font-weight:600}
+  .dot{width:8px;height:8px;border-radius:50%;background:#6b7280;flex:none}
+  .dot.on{background:#22c55e;box-shadow:0 0 6px rgba(34,197,94,.8)}
+  .dot.off{background:#ef4444}
+  .sub{color:#9aa3b2;font-weight:400}
+  .sep{border:none;border-top:1px solid #374151;margin:10px 0}
+  label.chk{display:flex;align-items:center;gap:6px;color:#c3cad6;cursor:pointer;margin:4px 0}
+  .note{margin-top:8px;min-height:30px;padding:6px 8px;border-radius:5px;background:rgba(148,163,184,.12);color:#cbd5e1;word-break:break-all}
+  .note.ok{color:#86efac}.note.err{color:#fca5a5}
+  .pending{margin:2px 0 8px;font-weight:600}
+  .pending.has{color:#fbbf24}
+  select{background:#2b3242;color:#e8eaf0;border:1px solid #4b5563;border-radius:4px;padding:3px 4px;font:inherit}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="status"><span class="dot" id="dot"></span><span id="status">正在连接 DSH…</span></div>
+  <div class="sub" id="project">项目：—</div>
+  <hr class="sep">
+  <div class="row">
+    <button class="primary" id="send" title="把当前选中的图层/对象发送到画布（透明 PNG，裁到边界，记住坐标）">发送选中 → 画布</button>
+  </div>
+  <div class="row">
+    <label class="chk" style="flex:1"><input type="checkbox" id="merged">合并为一张</label>
+  </div>
+  <div class="row"><button id="sendDoc" title="整个文档另存 PSD（PS）/ 整个画板另存 .ai 副本（AI）发送到画布">发送整个文档</button></div>
+  <div class="row" id="dpiRow" style="display:none">
+    <span class="sub">分辨率</span>
+    <select id="dpi"><option>72</option><option selected>150</option><option>300</option></select>
+    <span class="sub">dpi</span>
+  </div>
+  <hr class="sep">
+  <div class="pending" id="pending">发件箱：—</div>
+  <div class="row">
+    <button id="place" title="按格式分流：PSD 的图层并进当前文档（文字层可编辑）、.ai/.svg 的对象粘进当前文档、其它作为图片置入；来自 Adobe 的会回到出发位置">并入图层</button>
+    <button id="open" title="把画布返回的文件打开为新文档（分层 PSD/AI 直接可编辑）">打开</button>
+  </div>
+  <div class="row"><label class="chk"><input type="checkbox" id="alwaysHome">总是归位到出发位置</label></div>
+  <div class="note" id="note">就绪。选中图层后点「发送选中 → 画布」；本面板可停靠，不会挡住 Photoshop。</div>
+</div>
+<script src="main.js"></script>
+</body>
+</html>

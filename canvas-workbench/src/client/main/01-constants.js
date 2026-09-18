@@ -1,0 +1,8 @@
+    // ---- constants ----
+    const MODE_KEY = 'dsh-canvas-design-mode';
+    const PROJECT_CHOICES_KEY = 'dsh-canvas-project-choices-v2';
+    const LEGACY_PROJECT_CHOICES_KEY = 'dsh-canvas-project-choices';
+    const PROJECT_CHOICES_BY_CWD_KEY = 'dsh-canvas-project-last-by-cwd-v1';
+    const PANEL_WIDTH_KEY = 'dsh-canvas-panel-width';
+    const MATERIAL_LIBRARY_KEY = 'dsh-canvas-material-library-v1';
+    const MATERIAL_SORT_KEY = 'dsh-canvas-material-sort-v1';

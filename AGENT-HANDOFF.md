@@ -536,3 +536,209 @@ git diff --check：通过
 - 2026-09-17 画布背景模式开关（用户需求：除跟随 DSH 外也要能跟随系统外观）：顶栏「更多 ···」菜单首项新增「画布背景跟随系统」勾选项，存 localStorage（`dsh-canvas-bg-follow-system`）。关闭则跟随 DSH 的五元组推送。
   - 首版用页面 `matchMedia(prefers-color-scheme)` 判系统外观——**被实测证伪**：Electron 会按 DSH 应用主题覆盖 webview 的媒体查询（DSH 浅色 + 系统深色时读到 false，画布误保持白色）。追修：主机进程新增 `GET /dsh-canvas/system-appearance`（macOS `defaults read -g AppleInterfaceStyle` 含 Dark → 深色；Windows `reg query ...AppsUseLightTheme` 为 0x0 → 深色；`runProcess` 执行）；客户端系统模式下 3 秒轮询该接口，结果存 `realSystemDarkRef`，推送优先用它、未到时才退回页面媒体查询。系统切换的 matchMedia change 监听保留作即时触发。
 - 验证：srcdoc 模板内的 iframe 脚本抽出反转义后独立 `node --check` 通过（模板字符串内部的语法错误 node --check 整文件查不出，这条要保留在流程里）；静态检查全绿、四层副本已同步；**需完全重启 DSH 后真实验收**：标记→角标显示→按色整理；图片尺寸排序实际跑一次（观察排序结果与大图在前是否一致）。
+
+## 13. 2026-09-17 v1.8 架构重构启动：Phase 0 / 1（分支 `refactor/v1.8`）
+
+依据《DSH Canvas Suite v1.8 架构重构执行文档》（用户提供，`~/Downloads/DSH-Canvas-Suite-v1.8-Architecture-Refactor.md`），只做 Phase 0 + Phase 1，**未进入 Phase 2**。
+
+- **基线取 main `72bdc33` 而非 tag `v1.7.0`**：tag 实际指向 `05944ec`，落后两提交，缺 `bec5bd3`（Windows 字体目录修复，真实代码）。在 tag 上重构会制造假回归。分支 `refactor/v1.8` 自 `72bdc33` 创建。
+- **client.js 2.34 MB 的 82% 是一行**：第 1537 行 `TLDR_BUNDLE`（1,927,330 B，内嵌 Excalidraw 厂商包）。手写代码约 400 KB。God File 第一刀应是外置 vendor（`/dsh-canvas/vendor/` 路由与 `TLDR_BUNDLE_URL` 双路径雏形已存在），须先验证 srcdoc iframe 在 DSH CSP 下能否 `<script src>` 加载本地 vendor；验证不过则保持内嵌、改为构建期拼接。
+- **index.js 结构**：28 个顶层纯函数（55–428）+ 单个 `apply(ctx)`（429–2256）内联全部 41 条 `/dsh-canvas/*` 路由。拆分顺序：先按路由切 handler（代码逐字不动）→ 跑回归 → 再下沉 services。
+- 产物：`docs/refactor/BASELINE.md`（职责地图、41 路由清单、拆分建议、诚实缺项）、`docs/refactor/REGRESSION-v1.7.0.md`（A–K 共 60+ 项，静态 A1–A3 实跑 PASS，运行时项标 `PASS*`=开发期确认待正式复测 / `PENDING`）、`canvas-workbench/src/**` 与 `canvas-workbench/tests/{unit,integration,migration,smoke}` 共 27 个占位 README（**无任何入口加载，行为零变化**；Phase 1 后 A1–A3 复跑 PASS）。
+- **本阶段刻意没做**：未运行 `sync-local-plugins.sh`、未启动 DSH——用户正在进行 1.7.0「彻底卸载 → 另一 AI 从 GitHub 全新安装」干净测试（四份副本与 Codex 登录记录于 09-16 23:57 清空，备份在 `~/设计工作台/插件备份/uninstall-retest-20260916-235709/`），同步会污染该测试。UI 截图、API 响应样例、性能数据四项基线缺项待该测试完成后补（BASELINE.md §9），**补齐前不得开始 Phase 2**。
+- 注意：`package.json` 无 `files` 白名单、sync 脚本整目录 `cp -R`，src/ 的 README 会随副本一起复制（无害，几 KB）。Phase 5 引入构建管线时一并加白名单。
+- 下一步（Phase 2 Host 拆分）开工条件：① 干净重装测试 PASS 并回填 REGRESSION 基线列；② 六个核心端点真实响应 JSON 存档；③ 一个不含个人图片的小型样例项目放入 `tests/fixtures/`。
+
+## 14. 2026-09-17 凌晨：v1.8 重构 Phase 2–8 自主执行完成（分支 `refactor/v1.8`，未合 main、未发布）
+
+用户授权整夜自主执行执行文档全部阶段与测试。提交链（自 main 72bdc33）：aa36de7 fix system-appearance → ac702ff/9dd6ea6 基线取证工具 → d36b03e Phase 2 → a913d71 Phase 3 → ce2b2f3 Phase 4 → 2160dfd/fbf8c8b Phase 5a/5b → 46c78b9 运行时检查点 → 55d4f6b Phase 6 → 5a7ba41 Phase 7+8 → 文档收尾。权威进度 `docs/refactor/PROGRESS.md`，回归证据 `docs/refactor/REGRESSION-v1.7.0.md`「v1.8 重构验证证据」+ `docs/refactor/regression-1.8/`。
+
+**接手必读：**
+- **源码在 `canvas-workbench/src/`**；`lib/index.js`、`lib/image-engine.js` 是 re-export 薄壳，`lib/client.js` 是 `npm run build` 的产物（`src/client/build-manifest.json` 定顺序）。改 UI 改分段文件再 build；`npm run check` 有漂移守卫。
+- 分段是同一工厂函数闭包的连续片段（不是 ES 模块）；`order[].inline` 条目把 `src/shared/**` 共享模块构建期内联进 bundle（去 import/export，故共享模块之间不要互相 import）。
+- `scripts/refactor/split-{host,client}.mjs` 是一次性工具（从 `refactor-baseline` 标签读原文），**不要再运行**。
+- 验证纪律新增两条：① `node tests/integration/api-parity.mjs`（git 基线 vs 工作树 55 条逐字段 diff，非 0 即失败）；② 真实 DSH 用 `open -a "DSH Desktop" --args --remote-debugging-port=9222` 启动后 `tests/smoke/cdp-client.mjs` 在页面内 fetch（外部 curl 被 DSH 网关 403 是常态，不是插件问题）。
+- DSH 透明材质窗口下 CDP 像素截图与 DOM 不一致（渲染呈浅色、DOM 为深色），UI 对比以 `tests/smoke/ui-snapshot.mjs` 的 DOM 真值为准。
+- macOS 会对 ZCode 弹屏幕录制确认框，未代点；期间 screencapture/computer-use 只能截到壁纸。
+
+**当前运行副本 = 重构版**（sync 于 02:2x，DSH 保持运行以便用户查看）。回滚：`git checkout main && ./sync-local-plugins.sh` 并重启 DSH。
+
+**§40 发布条件（2026-09-18 更新）：** v1.8.0 已发布——用户明确指示"做好 Windows 环境适配和检查后上传 GitHub"，接受以 代码层适配（EncodedCommand / UAC 提权 / B.child 分隔符自适应）+ 4 项 isWindows 注入单测 + `check-windows-compat.mjs` 静态检查 + `WINDOWS-TEST-CHECKLIST.md` 实机清单 作为 Windows 门槛（无 Windows 真机可回归，清单留给有机器的用户/Agent）。仍未做（不阻塞使用，如实告知）：Windows 实机回归（J3/J4/E8 + 清单「Adobe 桥接」「源码安装器」两节）；scripts/ 物理重组；CanvasOverlay 分段再拆；Command 层接入 UI 操作；性能内存计时。
+
+## 15. 2026-09-17 白天：.ai 图层编辑全链路修复（**未提交**）
+
+> 详细交接报告：**[`docs/HANDOFF-2026-09-17-图层编辑修复.md`](docs/HANDOFF-2026-09-17-图层编辑修复.md)**（九轮问题 → 根因 → 证据 → 修法、验证配方、风险与下一步）。本节只放结论与接手要点。
+
+一天之内按用户反馈修了九轮，主题是「画布 → 编辑图层 → 在 .ai 上跑通」：
+
+- 起点 HEAD `c8537c2`（分支 `refactor/v1.8`，与 origin 同步）。**五改一新增，共 +622/−151 行，全部未提交**；
+  四层运行副本已同步一致。`canvas-workbench/scripts/check-generated-jsx.mjs` 为新增（已接入 `npm run check`）。
+- 修掉的关键 bug（每条都有确定性证据）：JSX 字符串拼接语法错误导致 .ai 缩略图全空；`'var states=[].'` 导致提取必失败；
+  只读流程误开用户正式文件并整体关闭（跳转 AI → 打开 → 秒关）；`add-image` 漏 `explicit:true`（点了没反应 + 画布"加载失败"）；
+  `openImageEditorById` 作用域错误 + 死监听器 + `customData` 丢失（编辑器不自动弹）；临时提取图被"访达删除对账"移除（"原图已不在画布中"）；
+  写回用"先删后加"两条消息竞态（结果丢失 + 占位图残留）；`pi.move(prev, PLACEAFTER)` 语义错误且不检查（新图盖住 7 个文字层，文字其实还在）。
+- 两处产品决策（用户拍板）：`.ai` 写回改为**覆盖原文件 + 原图层保留 + 修改版叠加在上 + 改前备份到「画布备份/」**（`.psd/.svg` 仍另存新版本，响应 `mode` 字段区分）；
+  图层编辑前**弹窗提醒先在 Illustrator 里关掉这份稿**。
+- 新增常驻排查通道：`$TMPDIR/dsh-canvas-ai-diag.json`（最近 8 条，含 `close/warn/msJsx/z=实际/期望`）。
+- **接手第一件事**：真机验收最后两轮（见报告 §5）。已知闸门是"文件正开在 Illustrator 里会被反向覆盖"，目前只靠弹窗规避。**未提交、未验收前不要打 tag、不要发布。**
+
+## 16. 2026-09-17 夜 → 09-18 晨：Adobe 桥接（Photoshop / Illustrator ⇄ 画布）落地并**真机验收通过**（分支 `refactor/v1.8`）
+
+> 契约文档：**[`canvas-workbench/adobe-bridge/PROTOCOL.md`](canvas-workbench/adobe-bridge/PROTOCOL.md)**——目录、清单字段、状态机、安装、排障速查全在那里。改任何一端先读它、改字段同步改它。
+
+用户需求原话："在 PS 或 AI 里加一个插件，把选中的图层发送到画板编辑，编辑好的图片或分离图层的 PSD/AI 文件返回到 PS/AI"。
+方案定为**脚本 + 文件夹传输**（不是 UXP / 不走 HTTP）：兼容 CS6→2026 全版本，装法就是拷 .jsx；没有端口、没有网络权限、没有签名。
+
+**做了什么（文件地图，全部以 `adobe-bridge` 命名便于 grep）：**
+
+| 层 | 文件 | 职责 |
+|---|---|---|
+| 契约 | `canvas-workbench/adobe-bridge/PROTOCOL.md` | 唯一契约 |
+| 共享纯函数 | `src/shared/utils/adobe-bridge.js` | 目录名常量、清单校验、序号、安全名（host import；客户端经 build-manifest `inline`） |
+| Host 服务 | `src/host/services/adobe-bridge.js` | 握手 `bridge.json`（心跳 ≤20s 重写）、收件清单校验（文件稳定 ≥1s）、ack 改名 `.done.json`、发件箱写入（序号永不覆盖、清单最后写）、出处解析、脚本安装、`bridge-log.jsonl` |
+| Host 路由 | `src/host/routes/adobe-bridge.routes.js` | `/dsh-canvas/adobe-bridge/{activate,inbound,ack,return,status,install-scripts}`；在 `src/host/index.js` 创建服务并注册 |
+| 客户端 | `src/client/features/adobe-bridge/00-bridge.js` | 3s 轮询器（心跳 + 收件上画布 + `customData.dshBridge` 打印 + ack）、`requestAdobeBridgeReturn`、`installAdobeBridgeScripts` |
+| 客户端接入 | `src/client/app/02-CanvasOverlay.js` | 轮询 effect；`request-bridge-return` 消息；通用自动上画布**跳过 `ADOBE桥接/`**（`isAdobeBridgePath`，否则重复添加）；`flushPending` 透传 `customData`；「更多 → 🔗 安装 Adobe 桥接脚本」 |
+| iframe | `src/client/core/canvas/frame/00-srcdoc.js` | 选中工具栏「→Ps」「→Ai」按钮 + `requestBridgeReturn`（有源文件传路径，否则传 dataURL）+ CSS |
+| Adobe 脚本 | `adobe-bridge/dsh-bridge-core.jsx` | ES3 工具：JSON 手写序列化/eval 解析、UTF-8 文件读写、握手/清单/日志/偏好、ScriptUI 骨架 |
+| | `adobe-bridge/DSH画布桥接-Photoshop.jsx` | **模态 dialog**（实测 PS 2025 不支持常驻 palette，见下）；AM `targetLayers` 取多选 → 隔离可见性 → `duplicate(合并可见)` → crop → PNG 副本；`Plc ` 置入 + 按 origin.bounds 归位；打开面板时读一次发件箱，之后手动「刷新」；`$.global.DSH_BRIDGE_HEADLESS=true` 时只挂 `DSH_BRIDGE.ps.*` 供无头测试 |
+| | `adobe-bridge/DSH画布桥接-Illustrator.jsx` | dialog 模态；复制选区到临时文档导出 PNG24；**y 向上→y 向下换算**（画板左上为原点）写清单，置入时反向；整画板另存 .ai 副本不动原文档；`DSH_BRIDGE.ai.*` 无头接口 |
+| 检查 | `scripts/check-adobe-bridge-jsx.mjs`（已入 `npm run check`） | BOM 必须有 / 去 `#` 指令后 `node --check` / ES5+ 特性扫描（箭头、const、JSON、forEach、trim、尾逗号…） |
+| 安装 CLI | `scripts/install-adobe-bridge.mjs`（`npm run install:adobe-bridge`，`--list`） | 与画布按钮共用 `installScripts()` |
+| 测试 | `tests/unit/adobe-bridge.test.mjs` | 纯函数 + 临时目录跑完整收→列→ack→返回流程（5 项） |
+
+**已验证（确定性证据）：**
+- `npm run check` 全绿（含新 jsx 检查：3 个脚本 BOM/语法/ES3）；`npm test` 40 通过（原 35 + 新 5）；`build --check` 一致。
+- Node 打桩 `File/Folder` 跑 core：手写 `toJSON` 输出能被 Node `JSON.parse` 解析、`parseJSON` 回读一致、jobId 合规、`shouldHome` 四种分支正确；host `validateInboundManifest` 接受脚本格式清单。
+- 安装器真机：用户副本写入成功；`/Applications` 下 PS/AI 目录 root 权限 → 返回可粘贴的 `sudo cp` / `sudo sh -c 'for …'` 命令；Illustrator 是 `Presets.localized/<25 个 locale>/Scripts`，合并为一条。~~PS 用户级目录写入成功且 PS 会扫描它~~ ← **此结论后来被真机否定，见下方纠错**。
+
+**真机验收（2026-09-18 08:20–08:48，Photoshop 2025 + Illustrator 2026；方法：host 服务写真实握手指向 `/tmp/dsh-bridge-e2e/project`，AppleScript `do javascript` 以文本方式跑无头测试脚本，`$.evalFile` 载入面板脚本后直接调 `DSH_BRIDGE.ps/.ai.*`，产物用 host 服务回读校验）：**
+
+| 步骤 | 结果 |
+|---|---|
+| PS 握手/在线判定 | ✓ 读到 bridge.json；超过 60s 未刷新时正确判「离线（心跳超时）」并拒绝发送 |
+| PS 多选图层 | ✓ `targetLayers` 单选 `[4]`、多选 `[2,4]` 与 `layer.id` 一致（有背景层分支） |
+| PS 发送：单层 / 合并 / 多层逐张 / 整文档 PSD | ✓ 4 个任务；每张 PNG 像素尺寸 == 边界（287×42、570×262、200×200）；RGBA 透明；可见性复原、临时文档已关、原文档仍激活 |
+| host 收件 → ack → 返回 | ✓ `listInbound` 4 任务通过校验；ack 改名 `.done.json`；`createReturn` seq 0001 出处解析出「标题 @ {383,88,670,130} doc=dsh-e2e」 |
+| PS 置入归位 | ✓ 智能对象「标题 ← 画布」bounds **精确** {383,88,670,130}；清单改 `0001.done.json` |
+| AI 坐标换算 | ✓ 新文档 `artboardRect=[0,600,800,0]`（y 向上、原点左下）；文字→top 88、矩形→{100,150,300,350} 与放置意图一致 |
+| AI 发送：选区 150dpi / 两对象 72dpi / 整画板 .ai | ✓ 150dpi PNG 548×94 == 263.08×45.36pt×150/72；72dpi 543×262；.ai 224KB；artboard 归一 {0,0,800,600} |
+| AI 置入归位 | ✓ `position=[380,512]`、263.08×45.36pt，反算回清单坐标 {380,88,643.08,133.36} 与出发一致；`0002.done.json` |
+| PS 面板窗口 | ✓ 经「文件 → 脚本 → 浏览…」（computer-use 走真实菜单+Cmd+Shift+G）加载，`DSH 画布桥接 · Photoshop` 对话框 336×317 出现、AX 能读到两个 checkbox、Esc 可关；**palette 版本实测脚本一结束就被关**（`#targetengine` 无效）→ 已改为 dialog |
+| 脚本日志 | 发现并修复：ExtendScript 在 macOS 默认 `lineFeed=Macintosh`（CR），已统一 `Unix` |
+
+**仍未验证：** ① 用户从菜单（重启 PS 后 `文件 → 脚本 → DSH画布桥接-Photoshop`）走完整交互——只差这一步是"人点按钮"，逻辑层已全绿；② Illustrator 对话框窗口本身的打开（逻辑层全绿，窗口与 PS 同一套 `B.makeWindow('dialog')`）；③ Windows（`Folder('~')`、`%APPDATA%`、Program Files 目录）；④ DSH 侧客户端轮询器与「→Ps」按钮的真实 UI 联调——需要把 `refactor/v1.8` 同步为运行副本（当前运行的是 1.7.0，没有桥接代码）。
+
+**自动化验收踩坑（复用）：** AppleScript `do javascript` 只接受**文本**（文件引用/alias 报 8800）→ 文本模式下 `#targetengine`/`#include` 都没有文件上下文，要用 `$.evalFile(File(绝对路径))` 载入面板脚本（其内部 `#include` 按被载入文件目录解析 ✓）；模态对话框会让 `do javascript` 阻塞到 AppleEvent 超时（-1712，约 2 分钟）→ 测面板窗口用后台 osascript + computer-use 观察/Esc 关闭；Photoshop 菜单 `脚本` 只在启动时扫描，新装脚本不重启不出现，可走 `浏览…`。
+
+**边界与决定：**
+- 当前机器运行的是另一 AI 从 GitHub 重装的 **1.7.0**（干净重装测试用），本节代码**没有同步到四层运行副本**——要联调画布侧需从 `refactor/v1.8` 运行 `./sync-local-plugins.sh` 并重启 DSH。Adobe 侧脚本已装到用户副本 + PS 用户级目录（重启 PS 后菜单可见）。
+- 发件箱文件**永不覆盖**（序号递增），用户要求保留历史；清理由用户手动。
+- 收件方向刻意**不复用通用自动上画布**（要打出处印、要 ack、要独立反馈），因此通用逻辑跳过 `ADOBE桥接/`；如果桥接轮询器坏了，文件仍在素材库可手动加。
+- `.jsx` 必须带 UTF-8 BOM、必须 ES3（检查器会拦）；`#include` 要求三个文件同目录。
+- 没有触碰图层级编辑（§15）的任何代码；两者只在 `customData` 上并存。
+
+**09-18 上午追加：远程驱动 + 零配置（用户反馈"不可能每次都去 PS 里打开面板"）**
+
+- 用户诉求：① 脚本要固定在菜单里；② 新用户不该手动安装；③ 不想每次进 PS 点面板。落地：
+  - `ensureInstalled()` 在 host `apply()` 静默运行（版本一致且文件在位即跳过，不弹窗不提权）——它能保证的是**用户副本**（远程驱动用），
+    菜单入口需要「更多 → 🔐 安装 PS / AI 菜单面板」走 `osascript … with administrator privileges`（系统密码框，插件接触不到密码），
+    `installScripts` 把"目录不可写但三个脚本已在"视为已安装。菜单需重启 PS/AI 一次才出现（只在启动时扫描 Scripts）。
+    2026-09-18 起这两个安装按钮**按需显示**：打开「更多」菜单时 `GET /status` 查 `scriptsInstalled`/`cepInstalled`，缺哪个才显示哪个，
+    装完按钮即隐（`fetchAdobeBridgeInstallStatus`，features/adobe-bridge/00-bridge.js）；「🔗 刷新脚本副本」按钮已删（启动 `ensureUserCopy()` 无条件覆盖已覆盖该场景）。
+  - **远程驱动**（PROTOCOL §9）：`remoteEval(app, call)` 写驾驭脚本 → `$.evalFile` 面板脚本（无头模式）→ 调 `DSH_BRIDGE.ps/.ai.*`；
+    macOS osascript 文本模式 + `with timeout`；Windows PowerShell COM `DoJavaScriptFile`（**未实机验证**）。
+    `POST /pull`（顶栏「取 Ps 图层 / 取 Ai 对象」）与 `/return` 自动置入（响应 `remote:{attempted,running,placed,error}`）。
+    `appRunning()` 用 System Events 查 bundle id（大小写不敏感；`com.adobe.illustrator` 实际是小写）——**必须先查再驱动**，否则 AppleScript 会把没开的 Adobe 拉起来（实测 11s）。
+  - 真机（独立 Host 基座 `tests/integration/host-harness.mjs` 假 ctx + 真 PS/AI，走 HTTP 路由）：pull 2s、return+置入 2s，
+    「HTTP标题 ← 画布」精确归位 [122,126,190,150]；错误路径友好（无文档「请先打开一个文档」）。
+  - 修了一个真机才暴露的 bug：`importPending` 在循环内检查"无打开文档"会把清单标成 `.failed`，用户之后打开文档就找不到返回件 → 改为改名任何清单之前先检查（两个脚本）。
+- 本机：DSH 仍跑 1.7.0（用户重启过 PS/AI/DSH，PS 菜单里现在应有「DSH画布桥接-Photoshop」）；要在画布看到「取 Ps 图层」「→Ps」需同步 `refactor/v1.8` 并重启 DSH。
+
+**09-18 中午纠错（重要，别再犯）：Photoshop 2025 不扫描用户级 Scripts 目录。**
+用户重启 PS 后「文件 → 脚本」里仍没有我们的脚本。排查：同目录（`~/Library/Application Support/Adobe/Adobe Photoshop 2025/Presets/Scripts`）
+里用户自己的 `BiRefNet-Remove-BG_副本.jsx` 也从未进过菜单；菜单里能看到的 `BiRefNet-Remove-BG` 其实来自 `/Applications/Adobe Photoshop 2025/Presets/Scripts/`
+（用户 5 月用 sudo 装的）。我早先把"用户级目录里有别的脚本 + 菜单里有同名项"误当成"用户级目录被扫描"的证据——两件事没有因果。
+处理：`findAdobeScriptDirs` 删掉用户级目标（mac/win 都删）；清除误装到用户级目录的三个文件；用 `installScriptsElevated()` 真机装进
+PS 应用目录 + AI 25 个 locale（含 zh_CN），`scripts-installed.json` 记录 errors=0；文案/README/PROTOCOL/CHANGELOG 全部改口。
+方法论：**"某目录里有第三方脚本"不等于"应用扫描该目录"，要拿反例（同目录另一个脚本是否显示）或直接对照应用目录来证明。**
+
+**09-18 中午 → 下午：CEP 常驻面板（用户："打开脚本后 PS 无法做任何操作，能否常驻？UXP 兼容性太差，最好什么版本都可以"）**
+
+- 三条路的取舍：ExtendScript palette（PS 不支持，真机否定）/ UXP（只 PS 2022+，用户否决）/ **CEP**（CC 2014→2026，可停靠非模态，用户级安装免密码）→ 选 CEP。
+- `adobe-bridge/cep/`：manifest 同时声明 PHXS/PHSP/ILST；`main.js` **ES5 + 回调**（CEP 5 = Chromium 27，无 Promise）；面板零业务逻辑——
+  `cep.fs` 读 bridge.json/发件箱做状态，按钮 `evalScript` 调用户副本 jsx 的 `DSH_BRIDGE.ps/.ai.*`（无头模式）。`installCep()`：整目录复制到
+  `~/Library/Application Support/Adobe/CEP/extensions/com.dsh.canvasbridge` + `defaults write com.adobe.CSXS.{6..12} PlayerDebugMode 1`；
+  `ensureInstalled()` 每次 DSH 启动都跑它（幂等）。路由 `/install-scripts {cep:true}`；「🧩 安装常驻面板」按钮按需显示（启动自动装失败时才出现）。
+- **真机（Illustrator 2026，11:40 重启后）**：「窗口 → 扩展功能 → DSH 画布桥接」出现并打开（242×280 浮动面板）；状态行读到**真实 DSH**
+  的心跳（项目「白底图」——用户已重启 DSH 到 v1.8）；无文档时点「发送选中对象」面板底部回显「⚠ …请先打开一个文档」→ 按钮→evalScript→jsx 链路通。
+  Photoshop 2025 内置 `CEPHtmlEngine.app`；当时 PS 进程 11:01 启动早于 11:39 安装，重启后即有「窗口 → 扩展（旧版）」。
+- 同时：ExtendScript 面板成功后自动 `win.close()`；新增 4 个无界面一键脚本（PS/AI 各 发送/置入），`SCRIPT_FILES_BY_APP` 按应用分文件集
+  （PS 菜单不出现 AI 脚本）；`installScriptsElevated` 按应用文件列表复制。**本机应用目录里的一键脚本尚未装**（需再点一次 🔐），CEP 面板不依赖它们。
+- 踩坑：AppleScript `quit` Illustrator 返回 -128「用户已取消」但进程随后自行重启（用户操作）；`open_application(activate)` 对 AI 报"零 AX 窗口"，用
+  `osascript activate` 替代；CEP 面板的 HTML 控件 AX 不可见，用坐标点击 + zoom 截图读文本。
+
+**09-18 下午追加：返回按格式分流——PSD/AI 要"整个图层"，其它仍按图片（用户反馈）**
+
+- `importPending` 按 `files[].kind` 分流（CEP/模态/一键/远程四个入口共用，只改两个 jsx）：
+  - **PSD → PS `importLayersFromPSD`**：ASCII 临时副本 `app.open`（中文目录坑）→ 背景层转普通层并保名 → 源文档激活下
+    自底向上 `duplicate(doc, PLACEATBEGINNING)` 再逐个 `move(group, INSIDE)`（顺序保持、跨文档复制必须源激活）→ 新组 `<名> ← 画布`
+    → 源画布(0,0,W,H) 映射 origin.bounds（缩放锚内容左上角 + 平移，整幅 PSD 时=精确归位）。
+  - **.ai/.svg → AI `importObjectsFromFile`**：临时副本打开 → unlockAll → 全选 copy → 回目标 `pasteInPlace` →
+    `resize(…, Transformation.DOCUMENTORIGIN)` 统一缩放 → 平移；源画板映射 origin.bounds。
+  - 其它 kind：原 placeFile/placeInto（智能对象/置入对象）。`openDocSafe`：原路径失败退 ASCII 副本。
+- **真机（PS 2025 + AI 2026）数值全中**：PS ①无出处居中 {200,150,600,450} ②归位 {100,50,500,350} ③0.5 缩放归位 {600,400,800,550}，
+  文字层可编辑（「图层测试」）、背景层保名、源 PSD 关闭；AI ①居中 ②归位 {140,90,464,290.82} ③0.5 缩放 {620,420,782,520.41} 全部与理论值一致，
+  ④手写 SVG 以对象导入（TextFrame+PathItem）。**已知限制**：AI 2026 跨文档粘贴未按 pasteRemembersLayers 拆同名图层（对象落在当前图层，可编辑）。
+
+**09-18 傍晚：PS 2025 移除 CEP 的确认与决策（用户："PS2026 没有扩展（旧版）"→ 实为 PS 2025 v26.2）**
+
+- 证据：用户已装多个 CEP 扩展（Overlord、字库助手、birefnet CEP 版），Illustrator 2026 菜单可见，**PS 2025 重启后菜单里毫无旧扩展入口**
+  → Adobe 已在 Photoshop 2025（26.x）移除 CEP（机器里 PS 2024 也未检出 CEP 引擎，以 ≤2024 论待验）。此前"CEP 覆盖到 PS 2025"的说法已全面更正
+  （PROTOCOL/README/按钮文案）。机器上存在旁加载 UXP 插件（birefnet，UXP/Plugins/External/直拷）证明 UXP 可装，但分发依赖 UDT/开发者模式/.ccx，
+  用户决定**不做 UXP**，保留脚本体系。
+- 最终面板/入口矩阵：**DSH 画布按钮（任何版本，零安装，主路径）**；CEP 常驻面板（Illustrator 各版本 + PS≤2024）；菜单模态面板（任何版本，成功自关）；
+  一键脚本（任何版本，可录 F 键）；远程驱动（macOS 已验证 / Windows COM 待验）。
+- 收尾：补装 4 个一键脚本进 PS/AI 应用目录（需再次授权）；文档与文案同步。
+
+**09-18 傍晚：PSD→PS 报"非法参数"的根因链与修复（用户真实文件 0012 文字重建 PSD 触发）**
+
+- 逐项实测的 PS 脚本层硬限制（**子代理改 PSD 导入前必读**）：
+  1. 图层组不能 `move(INSIDE)`/`duplicate` 进另一个图层组（"非法参数"/"您不能把一个图层组复制到另一个图层组中"）；
+  2. `groupLayersEvent`（Cmd+G 底层）在 PS 2025 报"图层编组当前不可用"（前台、有选择都一样）；
+  3. `Mk layerSection + From=索引列表` 描述符会**卡死 Photoshop**（AppleEvent -609，慎用！）；
+  4. **给非活动文档的图层改名/平移等写操作报"要求目标文档是最前面的文档"**——这是 0012 的直接死因：复制全部成功、
+     紧接着在源文档还活跃时给复制出的层改名即炸；修复=改名/归位统一挪到 `app.activeDocument = doc` 之后；
+  5. 跨文档 `duplicate(目标文档)` 要求源文档在最前（"您只能从最前面的文档复制图层"）；
+  6. `src.layers` 不要缓存进变量跨时点使用（过期集合引用会报 4 的同款错误）；`app.open` 后 `$.sleep(250)`、
+     切换 activeDocument 后 `$.sleep(120)` 让 UI 状态安定（诊断脚本因步骤间写日志而碰巧不触发，极易误判）；
+  7. remoteEval 的 AppleScript 加 `activate`（后台远程驱动跨文档复制也会撞 4/5）。
+- 最终分层策略：**顶层全是普通层 → 真正包进「label ← 画布」组**（整组缩放归位）；**顶层含图层组 → 逐层复制 + 全部
+  加「«画布»」前缀 + 联合边界平移归位**（只平移不缩放）。**图片置入也包进组**（用户要求"发送到文件的全部变成一个组"）。
+- `ensureUserCopy` 改为**无条件覆盖**（size/mtime 判断曾出现"判定已同步、实际是旧版"，排查绕了大弯）。
+- 真机验证：0012 原文件导入成功（«画布»组 1×7 文字层 + 2 前缀散层）；图片→组（智能对象）成功；用户交互路径
+  （菜单一键脚本）当日已自测 4 单全过（PNG×3 + .ai×1）。0012 已恢复待处理待用户重试。
+
+**09-18 傍晚：按用户决定移除「编辑图层」（与 Adobe 桥接高度重合）**
+
+- 用户判断正确：图层编辑（选文档→选层→提取→引擎改→原位写回）与桥接（取图层→画布改→→Ps 归位）往返重合，且桥接覆盖
+  更广（不用选层、支持对象级、四入口同源）。**删除范围**：`src/host/routes/document.routes.js` 整文件（三个路由）+ 注册
+  （host/index.js）、`psd_layers.py`/`svg_layers.py` + 注册表两项（PYTHON_TOOLS 13→11，测试计数同步）、
+  srcdoc 的 layerEdit 函数/工具栏按钮/编辑器 layerEdit 透传、CanvasOverlay 的 LayerEditDialog（含文件头两行注释）/
+  layerEdit 状态 / openLayerEdit / pickLayerForEdit / layer-edit-request 分支 / request-image-edit 的 layerEdit 分支 / 渲染块。
+- **刻意保留**（防误伤）：「编辑文字」（文字重建）、「Ps 编辑/AI 编辑」（打开链接文件手动编辑+保存刷新，桥接不做这事）、
+  编辑占位图自愈与 image-edit-result 原子替换（服务普通编辑图片）、dshScratch 对账跳过（清理旧项目残留）、
+  psdPreviewPath/documentPreviewPath（素材预览在用）、normalize_image.py 等（generation.routes 在用）。
+- 旧项目影响：已有 `-图层编辑` 文件、`画布备份/`、customData 里历史的 dshLayerEdit 字段均无害残留。
+- client.js 482123→467876 bytes；单测 42 过（contracts 的 PYTHON_TOOLS 计数 13→11 已同步）。
+
+**09-18 深夜：Windows 环境适配补齐 + v1.8.0 发布**
+
+- 承接 848bac5（jsx 21 处 `B.child()` 分隔符自适应 + 检查器禁混分隔），本轮补齐四处硬缺口：
+  1. **源码安装器**（仓库根 `install-windows.ps1` + `install-windows.cmd`）：README 一直让 Windows 用户"双击 install-windows.cmd"但**仓库里没有这个文件**（旧 ZIP 包产物）。现在有：同步 canvas-workbench（+dsh-codex）到 root/desktop/web/活动 Profile（读 `%APPDATA%\DSH Desktop\profile-selection\state.json`）、cordis.patch.yml 注入（`[]` 替换/追加，防重复插入）、替换前备份到 `.dsh\canvas-suite\plugin-backups\`、DSH 运行中拒绝执行（`-Force` 强制）、`-CheckOnly` 三项检查。PS 5.1 兼容（无 PS7 语法）、**UTF-8 带 BOM**（无 BOM 中文必乱码，检查器强制）、.cmd 无 BOM（cmd 把 BOM 当命令）。
+  2. **`-EncodedCommand` 统一**：`adobe-bridge.js` 里所有 PowerShell 调用（appRunning Get-Process / remoteEval COM DoJavaScriptFile / 提权外层）改为 Base64(UTF-16LE) 传输，绕开命令行引号/反斜杠转义与代码页问题（中文/空格路径直达）。`check-windows-compat.mjs` 禁止 src/host 再出现 `-Command'` 直拼；lib/platform.js 的"-Command 脚本 + 独立参数"形态（`$args[0]`）安全，保留。
+  3. **Windows UAC 提权安装**：`installScriptsElevated` 不再抛错——内层 .ps1（BOM + Copy-Item + 结果 JSON 回写临时目录）由外层 `Start-Process -Verb RunAs -Wait` 执行；退出码 0/1/2（2=UAC 取消→「已取消授权（UAC）」）。🔐 按钮在 Windows 从"不可用"变为可用。
+  4. **`createAdobeBridge({ isWindows })` 注入**：工厂内 shadow 平台真值，macOS 上可跑 Windows 分支。新增 `tests/unit/adobe-bridge-windows.test.mjs` 4 项：EncodedCommand 解码内容校验（含 BOM/无头模式驱动 jsx）、UAC 流程（假 runProcess 解码外层→读内层 ps1→落结果 JSON）、取消路径、Get-Process。
+- `check-windows-compat.mjs`（入 `npm run check`）：安装器 BOM/PS5.1/括号配平、禁 `-Command` 直拼、平台专属调用（osascript//Applications/~/Library/LaunchAgents）40 行内必须有 isWindows/isMac/darwin/win32 守卫（守卫确实存在但距离超窗时用 `// platform-guard-ok: 理由` 人工确认，text.routes 已用）、禁硬编码 /tmp。首跑即抓到 2 类真问题。
+- 回归：单测 46/46（+4 Windows 分支）；npm run check 全绿；mac 真机桥接 HTTP 级回归（host-harness + 真 PS）：pull 4s / return+远程置入 2.2s / 归位 [122,126,190,150] 逐位命中 / 组名「HTTP标题 ← 画布」/ 无文档错误信息友好。
+- **v1.8.0 发布**：版本三处一致（package.json=1.8.0、CHANGELOG 定稿、README 全面改口径）；refactor/v1.8 合并 main、tag v1.8.0、GitHub Release（源码版，Release 说明如实标注 Windows 未实机回归）。§40 发布门槛由用户确认放宽（见上）。

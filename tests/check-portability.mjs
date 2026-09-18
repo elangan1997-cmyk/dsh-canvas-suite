@@ -1,5 +1,17 @@
-import { access, readFile, stat } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { access, readFile, readdir, stat } from 'node:fs/promises';
+import { resolve, join } from 'node:path';
+
+// v1.8 起 Host 源码分布在 canvas-workbench/src/{host,shared}/**，lib/index.js 只是入口薄壳；
+// 针对 Host 的内容断言按整棵源码树检查。
+async function readTree(dir) {
+  const out = [];
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const p = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...await readTree(p));
+    else if (entry.name.endsWith('.js')) out.push(await readFile(p, 'utf8'));
+  }
+  return out;
+}
 
 const root = resolve(import.meta.dirname, '..');
 const required = [
@@ -28,7 +40,11 @@ for (const relative of required) {
   if (!info.isFile() || info.size <= 0) throw new Error(`missing: ${relative}`);
 }
 
-const host = await readFile(resolve(root, 'canvas-workbench/lib/index.js'), 'utf8');
+const host = [
+  await readFile(resolve(root, 'canvas-workbench/lib/index.js'), 'utf8'),
+  ...await readTree(resolve(root, 'canvas-workbench/src/host')),
+  ...await readTree(resolve(root, 'canvas-workbench/src/shared'))
+].join('\n');
 if (host.includes("if (!path.startsWith('/')) throw")) throw new Error('POSIX-only absolute path gate remains');
 if (host.includes("resolveExecutable('python3')")) throw new Error('unabstracted python3 lookup remains');
 if (!host.includes('platformCapabilities()')) throw new Error('health endpoint lacks platform capabilities');
@@ -99,7 +115,7 @@ for (const marker of ['profiles', 'node_modules\\@local', 'desktop\\node_modules
 }
 
 const npmBuilder = await readFile(resolve(root, 'scripts/build-npm-package.mjs'), 'utf8');
-for (const marker of ["const packageName = 'dsh-canvas-workbench'", "bundle: { patch: './cordis.patch.yml' }", "'lib', 'scripts', 'vendor', 'cordis.patch.yml', 'README.md', 'LICENSE'"]) {
+for (const marker of ["const packageName = 'dsh-canvas-workbench'", "bundle: { patch: './cordis.patch.yml' }", "'lib', 'src', 'scripts', 'vendor', 'cordis.patch.yml', 'README.md', 'LICENSE'"]) {
   if (!npmBuilder.includes(marker)) throw new Error(`npm package builder missing marker: ${marker}`);
 }
 if (!npmBuilder.includes("(?:auth\\.json|\\.env)")) throw new Error('npm package builder lacks credential exclusion');

@@ -1,0 +1,17 @@
+    // Excalidraw/React are pinned vendor assets served by the plugin host.
+    // Keeping these scripts off a public CDN prevents DSH srcdoc/CSP changes
+    // or domestic-network failures from leaving the canvas at "loading".
+    const EXCALIDRAW_VENDOR_BOOTSTRAP = '<script>(function(){var report=function(message){try{window.parent.postMessage({type:"error",message:message},"*")}catch(e){}try{var node=document.createElement("div");node.className="dsh-err";node.textContent=message;document.body.appendChild(node)}catch(e){}};window.__dshCanvasVendorError=function(name){report("画布本地资源加载失败："+name)};window.addEventListener("error",function(event){report("画布运行错误："+String(event&&event.message||event&&event.error||"未知错误"))});window.addEventListener("unhandledrejection",function(event){report("画布异步错误："+String(event&&event.reason&&event.reason.message||event&&event.reason||"未知错误"))});setTimeout(function(){if(!document.querySelector(".excalidraw"))report("画布初始化超时，请重新加载 DSH")},12000)})();<\/script><script src="/dsh-canvas/vendor/react.js" onerror="window.__dshCanvasVendorError(\'React\')"><\/script><script src="/dsh-canvas/vendor/react-dom.js" onerror="window.__dshCanvasVendorError(\'ReactDOM\')"><\/script><script src="/dsh-canvas/vendor/excalidraw.js" onerror="window.__dshCanvasVendorError(\'Excalidraw\')"><\/script>';
+    const EXCALIDRAW_SRCDOC_LOCAL = EXCALIDRAW_SRCDOC.replace(
+      '<script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script><script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script><script src="https://cdn.jsdelivr.net/npm/@excalidraw/excalidraw@0.17.6/dist/excalidraw.production.min.js"></script>',
+      EXCALIDRAW_VENDOR_BOOTSTRAP
+    );
+
+    // Excalidraw 默认菜单包含社交链接分组；画布是 DSH 内嵌工具，不需要这些入口。
+    // 文件名标签是画布自有的绝对定位层；菜单展开时暂时隐藏它，避免遮挡菜单内容。
+    // 两项均通过插件自有的轻量 MutationObserver 实现，不改动上游 UMD 包。
+    const EXCALIDRAW_SRCDOC_CLEAN = EXCALIDRAW_SRCDOC_LOCAL.replace(
+      '</body></html>',
+      '<script>(function(){var pending=false;function syncMenu(){pending=false;try{var menus=document.querySelectorAll(".dropdown-menu"),i,m,b,cs,open=false;for(i=0;i<menus.length;i+=1){m=menus[i];b=m.getBoundingClientRect();cs=window.getComputedStyle(m);if(cs.display!=="none"&&cs.visibility!=="hidden"&&b.width>0&&b.height>0){open=true;break}}if(document.body)document.body.classList.toggle("dsh-excalidraw-menu-open",open)}catch(e){}}function schedule(){if(pending)return;pending=true;if(window.requestAnimationFrame)window.requestAnimationFrame(syncMenu);else window.setTimeout(syncMenu,0)}function hide(){try{var groups=document.querySelectorAll(".dropdown-menu-group"),i,g,t,p,n;for(i=0;i<groups.length;i+=1){g=groups[i];t=g.querySelector(".dropdown-menu-group-title");if(!t||String(t.textContent||"").trim().toLowerCase()!=="excalidraw links")continue;g.classList.add("dsh-hidden-social-links");p=g.previousElementSibling;n=g.nextElementSibling;[p,n].forEach(function(el){if(el&&el.children&&el.children.length===0&&String(el.style&&el.style.height||"")==="1px")el.classList.add("dsh-hidden-social-links")})}}catch(e){}schedule()}if(window.MutationObserver){new MutationObserver(hide).observe(document.documentElement,{childList:true,subtree:true})}document.addEventListener("pointerdown",schedule,true);document.addEventListener("click",schedule,true);document.addEventListener("keydown",function(e){if(e&&e.key==="Escape")schedule()},true);hide()})();</script></body></html>'
+    );
+

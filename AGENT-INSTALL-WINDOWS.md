@@ -6,6 +6,34 @@
 
 请在当前 Windows 10/11 电脑上安装并验证 DSH Canvas Suite（Windows 定制版）。除非遇到需要用户登录 DSH、系统权限确认，否则不要只给出命令，请实际执行到健康检查通过。
 
+## 方式一（推荐）：源码安装最新版 v1.8.0
+
+适用于已安装 DSH Desktop 的机器（Adobe 桥接、架构重构等最新能力只有这条路径）。
+
+```powershell
+$ErrorActionPreference = 'Stop'
+git clone https://github.com/elangan1997-cmyk/dsh-canvas-suite.git "$env:USERPROFILE\dsh-canvas-suite"
+Set-Location "$env:USERPROFILE\dsh-canvas-suite"
+
+# 1) 用户先完全退出 DSH Desktop（含托盘），否则脚本会提示文件被锁
+# 2) 安装 + 健康检查（不需要管理员）
+powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\install-windows.ps1
+# 3) 只检查不改文件（可反复运行）
+powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\install-windows.ps1 -CheckOnly
+```
+
+验收标准（全部满足才算成功）：
+
+- 脚本输出「已同步 canvas-workbench → …」（至少 root/desktop/web 三份）且「[OK] 同步与健康检查完成」；
+- `-CheckOnly` 无 `[X]` 行：副本一致、profile 注入、（DSH 启动时）HTTP 检查通过；
+- 重启 DSH Desktop 后画布入口出现、版本为 1.8.0（画布「更多 → 图像引擎设置」旁的日志或 `canvas-workbench/package.json`）。
+
+Adobe 桥接（如装有 PS/AI）：启动 DSH 后自动就绪（用户副本 + CEP 面板自动装）；菜单脚本入口按需在画布「更多」里点「🔐 安装 PS / AI 菜单面板」走 UAC。逐项验收见仓库 `WINDOWS-TEST-CHECKLIST.md`「Adobe 桥接」节。
+
+## 方式二（历史基线）：整包 v1.4.0-windows-preview.4
+
+给没有 DSH Desktop 的电脑，或需要已实机验证的整包时使用。
+
 ### 固定安装源
 
 - GitHub 仓库：`https://github.com/elangan1997-cmyk/dsh-canvas-suite`

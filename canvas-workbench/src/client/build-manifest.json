@@ -1,0 +1,246 @@
+{
+  "_comment": "scripts/build-client.mjs 按 order 依次拼接为 lib/client.js。分段共享工厂函数闭包，顺序即作用域顺序，不可随意调换。",
+  "output": "lib/client.js",
+  "order": [
+    {
+      "file": "main/00-loader-prelude.js",
+      "note": "模块加载器包装：__ModuleLoader__.load({ id, factory }) 与 React 单例",
+      "lines": [
+        1,
+        19
+      ]
+    },
+    {
+      "file": "main/01-constants.js",
+      "note": "localStorage 键常量（含 tldraw 时代遗留的 CDN 常量）",
+      "lines": [
+        20,
+        27
+      ]
+    },
+    {
+      "inline": "shared/registry/feature-registry.js",
+      "note": "Feature Registry + capability 判定（共享模块内联）",
+      "lines": [
+        28,
+        105
+      ]
+    },
+    {
+      "inline": "shared/commands/history.js",
+      "note": "History Manager（共享模块内联）",
+      "lines": [
+        106,
+        141
+      ]
+    },
+    {
+      "inline": "shared/commands/command-bus.js",
+      "note": "Command Bus（共享模块内联）",
+      "lines": [
+        142,
+        168
+      ]
+    },
+    {
+      "inline": "shared/contracts/canvas-object.js",
+      "note": "CanvasObject 契约与 Excalidraw 适配（共享模块内联）",
+      "lines": [
+        169,
+        235
+      ]
+    },
+    {
+      "file": "registry/10-runtime.js",
+      "note": "创建注册表/命令总线/历史并挂到 window.__dshCanvas",
+      "lines": [
+        236,
+        251
+      ]
+    },
+    {
+      "file": "features/material-library/00-tag-colors.js",
+      "note": "MATERIAL_TAG_COLORS 七色标记",
+      "lines": [
+        252,
+        261
+      ]
+    },
+    {
+      "file": "features/text-edit/00-fonts.js",
+      "note": "TEXT_REBUILD_FONTS 免费商用字体白名单 / 默认字体 / textRebuildFontValue",
+      "lines": [
+        262,
+        339
+      ]
+    },
+    {
+      "file": "shared/utils/00-storage.js",
+      "note": "canvasDefaultBackground / PROJECT_SYNC_INTERVAL / localStorage 读写",
+      "lines": [
+        340,
+        366
+      ]
+    },
+    {
+      "file": "core/document/00-mode.js",
+      "note": "设计模式开关状态与订阅",
+      "lines": [
+        367,
+        389
+      ]
+    },
+    {
+      "file": "features/project-browser/00-choices.js",
+      "note": "项目选择记忆（按 cwd / session）",
+      "lines": [
+        390,
+        470
+      ]
+    },
+    {
+      "file": "shared/utils/01-url.js",
+      "note": "本地路径 → 同源 URL、Markdown 图片本地回退",
+      "lines": [
+        471,
+        552
+      ]
+    },
+    {
+      "file": "core/document/01-state.js",
+      "note": "画布状态版本化 / 去内联数据 / 读写项目",
+      "lines": [
+        553,
+        645
+      ]
+    },
+    {
+      "file": "shared/utils/02-asset.js",
+      "note": "附件与图片名工具、SVG 栅格化、路径解析",
+      "lines": [
+        646,
+        761
+      ]
+    },
+    {
+      "file": "features/chat-image-output/00-extract.js",
+      "note": "聊天事件 → 图片路径提取管线",
+      "lines": [
+        762,
+        1025
+      ]
+    },
+    {
+      "file": "features/chat-image-output/01-definition.js",
+      "note": "turnTail 事件节点定义、加入画布 / 定位文件",
+      "lines": [
+        1026,
+        1133
+      ]
+    },
+    {
+      "file": "features/chat-image-output/02-ImageTail.js",
+      "note": "聊天图片输出组件（时间过滤、三级回退、灯箱）",
+      "lines": [
+        1134,
+        1430
+      ]
+    },
+    {
+      "file": "features/text-edit/01-TextRebuildPanel.js",
+      "note": "文字重建面板组件",
+      "lines": [
+        1431,
+        1711
+      ]
+    },
+    {
+      "file": "core/capabilities/00-dsh-bridge.js",
+      "note": "与 DSH 会话服务桥接（模型 / cwd / session / 项目）",
+      "lines": [
+        1712,
+        1768
+      ]
+    },
+    {
+      "file": "app/00-DesignModeToggle.js",
+      "note": "设计模式开关按钮",
+      "lines": [
+        1769,
+        1840
+      ]
+    },
+    {
+      "inline": "shared/utils/adobe-bridge.js",
+      "note": "Adobe 桥接常量与纯函数（共享模块内联；协议 adobe-bridge/PROTOCOL.md）",
+      "lines": [
+        1841,
+        1933
+      ]
+    },
+    {
+      "file": "features/adobe-bridge/00-bridge.js",
+      "note": "Adobe 桥接客户端：收件轮询器 / 返回发件箱 / 安装脚本",
+      "lines": [
+        1934,
+        2073
+      ]
+    },
+    {
+      "file": "core/canvas/frame/00-srcdoc.js",
+      "note": "EXCALIDRAW_SRCDOC iframe 模板（HTML/CSS/转义 JS）",
+      "lines": [
+        2074,
+        2611
+      ]
+    },
+    {
+      "file": "core/canvas/frame/01-variants.js",
+      "note": "EXCALIDRAW_VENDOR_BOOTSTRAP / SRCDOC_LOCAL / SRCDOC_CLEAN",
+      "lines": [
+        2612,
+        2628
+      ]
+    },
+    {
+      "file": "app/01-layout.js",
+      "note": "分栏布局与宿主 iframe 定位",
+      "lines": [
+        2629,
+        2704
+      ]
+    },
+    {
+      "file": "app/02-CanvasOverlay.js",
+      "note": "CanvasOverlay 主组件（素材库 / 引擎设置 / 编辑工具 / 主题同步）",
+      "lines": [
+        2705,
+        4904
+      ]
+    },
+    {
+      "file": "app/03-styles.js",
+      "note": "父侧 CSS 字符串（DSH 设计令牌）",
+      "lines": [
+        4905,
+        5054
+      ]
+    },
+    {
+      "file": "core/capabilities/01-compat.js",
+      "note": "compatibilityLogger / safeEffect / safeSlot",
+      "lines": [
+        5055,
+        5091
+      ]
+    },
+    {
+      "file": "main/99-apply.js",
+      "note": "apply()：注册 slots / turnTail / overlay / input dock；工厂收尾",
+      "lines": [
+        5092,
+        5218
+      ]
+    }
+  ]
+}

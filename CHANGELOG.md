@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.8.0（2026-09-18）
+
+> 架构重构 + **Adobe 桥接**（Photoshop / Illustrator ⇄ 画布，macOS 真机验收通过）。核心画布行为与 1.7.0 一致（真实 DSH 回归：DOM 结构 0 差异、30 条 API 样例仅 1 处预期修复差异、Codex 端到端生成通过）。Windows：代码层适配 + 自动检查 + 源码安装器已就绪，实机验收清单见 `WINDOWS-TEST-CHECKLIST.md`（经用户确认按此门槛发布）。
+
+- **「更多」菜单安装入口按需显示**：桥接安装是一次性动作，不再常驻三个按钮——打开菜单时查 `GET /status`，菜单脚本 / CEP 面板缺哪个才显示对应安装按钮（装完即隐）；「刷新脚本副本」按钮删除（DSH 启动已自动同步）。
+- **Windows 适配与检查（本版本新增）**：① 仓库根新增 `install-windows.ps1` / `install-windows.cmd` 源码安装器（同步运行副本 + profile 注入 + 备份 + 健康检查，PowerShell 5.1 兼容、免管理员、UTF-8 BOM 防中文乱码，README 引用的这个文件此前并不存在）；② Adobe 桥接远程驱动的 PowerShell 命令全部改走 `-EncodedCommand`（Base64/UTF-16LE），绕开命令行引号/反斜杠转义与代码页问题，中文/空格路径直达；③ 🔐 菜单脚本安装在 Windows 走 `Start-Process -Verb RunAs` **UAC 提权**（内层 .ps1 带结果 JSON 回写，取消时明确报「已取消授权（UAC）」，此前 Windows 直接抛错不可用）；④ `createAdobeBridge` 支持 `isWindows` 注入，macOS 上即可单测 Windows 分支（新增 4 项单测：EncodedCommand 内容解码校验、UAC 提权流程、取消路径、Get-Process 探测）；⑤ 新增 `check-windows-compat.mjs` 入 `npm run check`：安装器 BOM/PS5.1 语法/括号配平、禁 `-Command` 直拼、平台专属调用必须 40 行内有 isWindows/isMac 守卫（支持 `platform-guard-ok` 人工确认注释）、禁硬编码 `/tmp`。
+
+- **Adobe 桥接（Photoshop / Illustrator ⇄ 画布，真机验收通过：PS 2025 / AI 2026 往返像素级归位）**：PS/AI 内的 **CEP 常驻面板**（可停靠、非模态、自动检测发件箱；CC 2014→2026 通用；DSH 启动自动装进用户目录，免密码）+ ExtendScript 模态面板/一键脚本兜底旧版本（成功后自动关闭；ExtendScript 不支持常驻 palette）把选中图层/对象（透明 PNG，裁到边界，记录文档坐标）或整个文档（PSD/.ai 副本）送进项目 `ADOBE桥接/来自Photoshop|Illustrator/`，画布 3s 内自动上画布；画布选中工具栏新增「→Ps」「→Ai」，把图片/分层 PSD/.ai 原样放进 `ADOBE桥接/发件箱/`（序号永不覆盖），返回**按格式分流**：PSD → PS 把全部图层并进当前文档（文字层保持可编辑、组承接、归位）；.ai/.svg → AI 按对象并入（文字可编辑、归位）；其它格式仍作为图片置入/智能对象——真机数值全部精确命中；或「打开为新文档」。传输只靠文件夹 + `~/.dsh/canvas-workbench/adobe-bridge/bridge.json` 握手心跳，无端口无网络，CS6→2026 通用。菜单面板入口：「更多」菜单**按需显示**——检测到未安装（`GET /status` 的 `scriptsInstalled`/`cepInstalled`）才出现「🔐 安装 PS / AI 菜单面板」（PS/AI 都只扫描 root 权限的应用目录，弹一次 macOS 管理员密码框；装好按钮即隐）/ `npm run install:adobe-bridge`。契约 `canvas-workbench/adobe-bridge/PROTOCOL.md`；新增 `check-adobe-bridge-jsx.mjs`（BOM/ES3 守卫）与 6 项单测；脚本支持无头模式供自动化回归。**日常主路径不进 Adobe**：画布顶栏「取 Ps 图层 / 取 Ai 对象」与选中工具栏「→Ps / →Ai」直接远程驱动运行中的 PS/AI（macOS osascript；Windows COM 待验证），取图≈2s、返回并归位≈2s；DSH 启动时自动同步脚本副本（远程驱动零配置）。
+- **Host 拆分**：`lib/index.js` 2,256 行的单个 `apply()` 拆为 `src/host/`（routes 9 文件 / services / server / jobs / adapters）与 `src/shared/utils/`，handler 逐字迁移，`lib/index.js` 成薄壳；API 对等测试 55 条请求 0 差异。
+- **Provider Registry**：`image-engine.js` 拆为 dsh-codex / openai-compatible 两个 Provider + 注册表 + 门面（签名与行为不变）；设置与 API Key 存储路径不变（本地 0600）。
+- **Job Manager**：Job 契约与状态机、内存 Store、事件总线；edit-image / remove-background / vectorize / ocr / export-psd 自动登记，新增只读 `GET /dsh-canvas/jobs`、`/jobs/get`、`POST /jobs/cancel`。
+- **Client 构建管线**：`client.js` 切成分段源码（`src/client/**` + `build-manifest.json`），`npm run build` 拼接为 `lib/client.js`（首构建与原文件逐字节一致）；**删除 tldraw 时代死链**（`TLDR_BUNDLE` 等，无引用），`lib/client.js` 2,344,322 → 426,932 bytes（−81.8%），启动少做一次 1.9MB 字符串处理。
+- **Command / History**：共享 Command 基类、CommandBus、HistoryManager（undo/redo 双栈）；构建期内联进 bundle，挂 `window.__dshCanvas`。
+- **契约层**：CanvasObject（含 Excalidraw element 双向 adapter）、Asset（稳定 assetId、类型/来源推断）、Job、Feature；`project.json` schemaVersion 2（v1→v2 只加字段、幂等、旧插件可读）。
+- **Feature Registry / Capability**：12 项内置 Feature 声明，按 `/health` 推导 capability 启用；新增只读 `GET /dsh-canvas/capabilities`、`/assets`、`/python-tools`（§28 统一 `{ok,data}` 形状）。
+- **Python Tool Registry**：11 个脚本按 id 注册解析（物理目录重组待路由改经注册表后进行）。
+- **文字重建新增 AI（Illustrator）导出**：识别确认后面板提供「生成 AI（Illustrator）」，与 PSD 的「草稿 + 原生脚本」同构——先出 SVG 草稿，再由 Illustrator ExtendScript 建文档、放置并内嵌底图、逐块创建**原生点文字**（字体按本机 PostScript 名解析），saveAs 为**原生 .ai**（PDF 兼容）并自动加入画布。脚本不可用（未装 AI / 非 macOS / 权限）时退回可编辑 SVG 草稿（内嵌背景 + `<text>`，字体映射家族名+字重；背景清理成功时文字组可见，未清理时隐藏避免与原图重叠）。
+- **Adobe 桥接（Photoshop / Illustrator ⇄ 画布）取代并移除「编辑图层」**：原 v1.8 开发的 PSD/AI/SVG 图层级编辑（列层树→提取→引擎改→原位写回）与桥接的「取 Ps 图层 → 画布编辑 → →Ps 归位」往返高度重合，按用户决定整体移除（删除路由 document-layers/edit-layer/extract-layer、LayerEditDialog、psd_layers.py/svg_layers.py 及注册项）。桥接的等价能力与更多形态见上方 Adobe 桥接条目；旧项目里历史 `-图层编辑` 文件与 `画布备份/` 不受影响。
+- **修复 .ai 生成后的“两个文件”与画布不同步**：根因一，Illustrator 2026 的 ExtendScript 没有 `CloseOptions`，脚本里的 `doc.close()` 两种写法都抛错——每次生成的**临时文档都留在 AI 里没关**，用户误把临时文件当正式文件编辑；根因二，脚本成功后跳过了“打开正式文件”步骤。修复：所有 Illustrator/Photoshop 脚本收尾统一用 AppleScript `close every document saving no` 清场（ExtendScript 关不掉的兜底），生成后**总是打开画布正式文件**（与交付到画布的是同一份），在 AI 里保存后画布按 mtime 轮询自动刷新预览。
+- **聊天图片输出回退链重做**：附件/本地条目改为**逐级尝试**的候选链（主机按名找回 → 原路径/条目 sourcePath → 当前项目归档同名 → 附件 blob），本地文件优先即时显示；DSH 旧会话附件解析悬而不决时 6 秒超时降级；新增 `GET /dsh-canvas/resolve-image` 按文件名在项目/工作区（含兄弟项目的 DSH聊天生成图片/、assets/）找回原图，`-N` 副本名回落原名；彻底找不到才显示整洁的失败卡（不再渲染浏览器碎图）。
+- **动态加载界面**：图片修改 / 去背景占位从静态 SVG 改为 iframe 内跟随位置与缩放的 DOM 覆盖层——转圈、流动斜纹、扫光进度条、引擎提示、已用时长；去背景显示真实百分比与阶段；小尺寸自动紧凑模式。
+- **擦除合成痕迹修复**：有蒙版时不再"整图缩到 1024 再放大贴回"，改为按选区裁剪原生分辨率窗口（边距在预算内自适应）送模型、结果贴回原位；羽化环 14–48px 并在羽化环内做源图/生成图色调匹配，消除擦除区发虚与矩形补丁感。
+- **修复**：`/dsh-canvas/system-appearance` 把布尔常量 `isMac`/`isWindows` 当函数调用导致永远 `known:false`（「画布背景跟随系统」主机探测在 1.7.0 从未生效）。
+- **测试与工具**：`npm test`（unit 32 + migration 3）、`npm run test:integration`（git 基线 vs 工作树 API 对等）、`npm run check`（portability + 递归语法 + 构建漂移守卫）；`tests/smoke/` CDP 客户端（页面内 fetch 绕过 DSH 网关 403、DOM 真值快照）；`tests/fixtures/` 零个人数据样例项目；npm 打包白名单加入 `src/`。
+- **生成脚本语法检查（新）**：`npm run check` 增加 `scripts/check-generated-jsx.mjs`——把 host 路由里用字符串拼出来的 Illustrator/Photoshop 脚本抽出来做独立 `node --check`，并检查 iframe 的 srcdoc 内联脚本（求值模板字面量后截取 `<script>`）。这类错误整文件 `node --check` 查不出来，本轮两个致命 bug（缩略图整段 JSX 解析失败、`/edit-layer` 提取必失败）都是这么漏掉的。
+
+### 附：已移除的「图层编辑」功能（历史记录）
+
+该功能（含上面十余轮修复：.ai 缩略图、原子写回消息、z 序自检、临时副本与清场、占位图自愈、诊断通道）已整体随功能移除，详细历史见 git 历史与 AGENT-HANDOFF §15；其中沉淀的通用设施仍在服务其它功能：生成的 JSX 语法检查（check-generated-jsx）、编辑占位图 30 秒自愈、image-edit-result 原子替换消息、dshScratch 标记。
+
 ## 1.7.0
 
 - 素材库多维整理：可按修改时间、文件类型、图片尺寸、文件大小、文件名称排序（选择本地记忆），卡片与预览显示宽高/大小/时间。

@@ -1,9 +1,53 @@
 #!/usr/bin/env python3
-"""Preserve source pixels outside an inpainting mask."""
+"""Preserve source pixels outside an inpainting mask.
+
+--crop x,y,w,h : the model only saw a native-resolution window of the source
+                 (see prepare_model_input.py --crop-to-mask); resize the generated
+                 result to that window and paste it back before compositing, so
+                 nothing outside the window is touched and nothing gets upscaled.
+--tone-match   : the model often returns the repaired area slightly brighter /
+                 warmer than the surroundings, which reads as a rectangular
+                 "patch" even with a feathered edge. Measure the mean colour of
+                 source vs generated inside the feather ring (where both should
+                 show the same untouched content) and shift the generated pixels
+                 by that difference (clamped) before compositing.
+"""
 
 import argparse
 import pathlib
-from PIL import Image, ImageChops, ImageFilter
+import sys
+from PIL import Image, ImageChops, ImageFilter, ImageStat
+
+
+def parse_crop(value, size):
+    try:
+        x, y, w, h = [int(round(float(part))) for part in str(value).split(",")]
+    except Exception:
+        return None
+    if w <= 0 or h <= 0 or x < 0 or y < 0 or x + w > size[0] or y + h > size[1]:
+        print(f"composite_edit: crop {value} outside source {size[0]}x{size[1]}, using whole-image path", file=sys.stderr)
+        return None
+    return x, y, w, h
+
+
+def tone_match(source, generated, band):
+    """Shift `generated` so its mean colour inside `band` matches `source`."""
+    if band.getbbox() is None:
+        return generated
+    stat_src = ImageStat.Stat(source.convert("RGB"), band)
+    stat_gen = ImageStat.Stat(generated.convert("RGB"), band)
+    if not stat_src.count or stat_src.count[0] < 400:
+        return generated
+    offsets = []
+    for s_mean, g_mean in zip(stat_src.mean, stat_gen.mean):
+        offsets.append(max(-32.0, min(32.0, s_mean - g_mean)))
+    if all(abs(offset) < 1.0 for offset in offsets):
+        return generated
+    channels = list(generated.split())
+    for index, offset in enumerate(offsets):
+        channels[index] = channels[index].point(lambda value, o=offset: max(0, min(255, int(round(value + o)))))
+    print(f"composite_edit: tone offset r{offsets[0]:+.1f} g{offsets[1]:+.1f} b{offsets[2]:+.1f}", file=sys.stderr)
+    return Image.merge("RGBA", channels)
 
 
 def main():
@@ -12,11 +56,19 @@ def main():
     parser.add_argument("--generated", required=True, type=pathlib.Path)
     parser.add_argument("--mask", type=pathlib.Path)
     parser.add_argument("--output", required=True, type=pathlib.Path)
+    parser.add_argument("--crop", help="x,y,w,h window the model worked on")
+    parser.add_argument("--tone-match", action="store_true")
     args = parser.parse_args()
 
     source = Image.open(args.source).convert("RGBA")
     generated = Image.open(args.generated).convert("RGBA")
-    if generated.size != source.size:
+    crop = parse_crop(args.crop, source.size) if args.crop else None
+    if crop:
+        x, y, w, h = crop
+        patch = generated if generated.size == (w, h) else generated.resize((w, h), Image.Resampling.LANCZOS)
+        generated = source.copy()
+        generated.paste(patch, (x, y))
+    elif generated.size != source.size:
         generated = generated.resize(source.size, Image.Resampling.LANCZOS)
 
     if args.mask:
@@ -29,21 +81,28 @@ def main():
         # painted area. Keep that core fully generated so old glyphs cannot
         # leak back into the repaired region.
         core = selected.point(lambda value: 255 if value >= 8 else 0)
-        # Feather only a narrow outer ring to remove the visible cut line. The
-        # prepared mask has already covered antialiasing/shadows, so this ring
-        # is deliberately small and cannot reintroduce the original content.
-        # A 2–6px ring is barely visible at normal zoom but still reads as a
-        # hard layer edge when the user inspects the result closely. Use a
-        # wider, low-frequency transition (roughly 1.2% of the image short side)
-        # while keeping the generated core fully opaque.
-        feather_radius = max(12, min(24, round(min(source.size) * 0.012)))
+        # Feather ring outside the core: a wide, low-frequency transition
+        # (about 1.8% of the short side, 14–48px) so a slight tone/texture
+        # difference of the generated core fades out instead of reading as a
+        # rectangular patch. The core itself stays fully opaque.
+        feather_radius = max(14, min(48, round(min(source.size) * 0.018)))
         feather_kernel = feather_radius * 2 + 1
         expanded = core.filter(ImageFilter.MaxFilter(feather_kernel))
-        feather = expanded.filter(ImageFilter.GaussianBlur(max(2.5, feather_radius * 0.72)))
+        feather = expanded.filter(ImageFilter.GaussianBlur(max(3.0, feather_radius * 0.72)))
         # GaussianBlur has a soft tail; clip it back to the geometric ring so
         # no generated pixels are ever written outside the declared feather.
         feather = ImageChops.multiply(feather, expanded)
+        if crop:
+            # Never let the feather reach outside the window the model saw.
+            window = Image.new("L", source.size, 0)
+            window.paste(255, (crop[0], crop[1], crop[0] + crop[2], crop[1] + crop[3]))
+            feather = ImageChops.multiply(feather, window)
         edit_region = ImageChops.lighter(core, feather)
+        if args.tone_match:
+            # Ring = feathered area minus the core: both images should show the
+            # same untouched content there.
+            ring = ImageChops.subtract(expanded, core)
+            generated = tone_match(source, generated, ring)
         result = Image.composite(generated, source, edit_region)
     else:
         result = generated

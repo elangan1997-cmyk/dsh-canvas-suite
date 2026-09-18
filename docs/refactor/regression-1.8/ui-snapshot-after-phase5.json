@@ -1,0 +1,87 @@
+{
+  "page": {
+    "designModeOn": true,
+    "bgFollowSystem": "1",
+    "materialSort": "\"time\"",
+    "bodyDarkAttr": true,
+    "tokens": {
+      "--dsw-alias-bg-base": "#151517",
+      "--dsw-alias-bg-layer-1": "#232324",
+      "--dsw-alias-label-primary": "#f9fafb",
+      "--dsw-alias-border-l2": "#ffffff1f"
+    },
+    "imageTail": {
+      "blocks": 1,
+      "images": 2,
+      "titles": [
+        "图片输出"
+      ],
+      "counts": [
+        "2 张"
+      ],
+      "buttons": [
+        "全部加入画布",
+        "在文件夹中显示",
+        "加入画布",
+        "在文件夹中显示",
+        "加入画布"
+      ]
+    }
+  },
+  "canvas": {
+    "overlayPresent": true,
+    "toolbarButtons": [
+      "项目：超滤棉⌄",
+      "整理图片",
+      "导出 PNG",
+      "素材库",
+      "更多 ···",
+      "收起画布"
+    ],
+    "toolbarStyle": {
+      "backgroundColor": "rgb(35, 35, 36)",
+      "color": "rgb(249, 250, 251)",
+      "boxShadow": "none"
+    },
+    "overlayStyle": {
+      "backgroundColor": "rgb(21, 21, 23)",
+      "boxShadow": "none"
+    },
+    "titleText": [
+      "无限画布"
+    ],
+    "materialPanelOpen": false
+  },
+  "frame": {
+    "vars": {
+      "--dsh-bg": "#15171c",
+      "--dsh-fg": "#f8fafc",
+      "--dsh-fg-muted": "#f8fafc",
+      "--dsh-surface": "#1b2028",
+      "--dsh-line": "rgba(255,255,255,.14)",
+      "--dsh-hover": "rgba(255,255,255,.1)"
+    },
+    "colorScheme": "dark",
+    "excalidrawClass": "excalidraw excalidraw-container theme--dark",
+    "imageElements": 1,
+    "selectionToolbar": {
+      "backgroundColor": "rgb(27, 32, 40)",
+      "color": "rgb(248, 250, 252)",
+      "borderColor": "rgba(255, 255, 255, 0.14)"
+    },
+    "selectionMenu": null,
+    "selectionActions": [
+      "发送至聊天",
+      "去除背景",
+      "智能擦除",
+      "编辑图片",
+      "Ps 编辑",
+      "AI 编辑",
+      "编辑文字",
+      "更多 ▾"
+    ],
+    "tagDots": 0,
+    "bodyBg": "rgb(21, 23, 28)",
+    "canvasCount": 2
+  }
+}
