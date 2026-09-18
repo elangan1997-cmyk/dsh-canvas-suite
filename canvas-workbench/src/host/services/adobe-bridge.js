@@ -5,7 +5,7 @@ import { access, appendFile, copyFile, cp, mkdir, readdir, readFile, rename, sta
 import { constants as fsConstants } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
-import { isWindows, platformName, userHome } from '../../../lib/platform.js';
+import { isWindows as OS_IS_WINDOWS, platformName, userHome } from '../../../lib/platform.js';
 import {
   ADOBE_BRIDGE_APPS, ADOBE_BRIDGE_DIR, ADOBE_BRIDGE_INBOX, ADOBE_BRIDGE_OUTBOX, ADOBE_BRIDGE_PROTOCOL,
   bridgeExtOf, buildOutboundManifest, isPendingBridgeManifest, isReturnableBridgeFile, nextOutboxSeq, outboxFileName, validateInboundManifest
@@ -69,8 +69,10 @@ async function writeJsonAtomic(path, value) {
  * @param {string} [options.home] 测试注入用户目录
  * @param {(exe: string, args: string[], cwd: string, timeoutMs: number) => Promise<{exitCode:number, stdout:string, stderr:string, timedOut?:boolean}>} [options.runProcess] 远程驱动用（host 传 runProcessWithTimeout）
  * @param {(name: string) => Promise<string>} [options.resolveExecutable] 远程驱动用（host 传 ctx.subprocess.resolveExecutable）
+ * @param {boolean} [options.isWindows] 单测注入：在 macOS 上模拟 Windows 分支；生产取平台真值
  */
-export function createAdobeBridge({ pluginVersion, pluginRoot, previewUrl, home, runProcess, resolveExecutable }) {
+export function createAdobeBridge({ pluginVersion, pluginRoot, previewUrl, home, runProcess, resolveExecutable, isWindows: isWindowsOverride }) {
+  const isWindows = typeof isWindowsOverride === 'boolean' ? isWindowsOverride : OS_IS_WINDOWS;
   const root = bridgeRootDir(home);
   const active = { projectDir: '', projectName: '', sessionId: '', at: 0, writtenAt: 0 };
   let versionCache = String(pluginVersion || '');
@@ -339,7 +341,7 @@ export function createAdobeBridge({ pluginVersion, pluginRoot, previewUrl, home,
       return true;
     };
     const sudoHint = (target) => {
-      if (isWindows) return '以管理员身份运行：node scripts/install-adobe-bridge.mjs，或手动把 ' + userCopyDir + ' 下三个 .jsx 复制到 ' + target.dirs[0];
+      if (isWindows) return '点画布「更多 → 🔐 安装 PS / AI 菜单面板」并在 UAC 弹窗里确认，或以管理员身份运行 node scripts/install-adobe-bridge.mjs';
       const files = filesForApp(target.app).map((f) => '"' + userCopyDir + '/' + f + '"').join(' ');
       if (target.presets) return "终端执行：sudo sh -c 'for d in \"" + target.presets + "\"/*/; do mkdir -p \"$d/Scripts\" && cp " + files.replace(/"/g, '\\"') + " \"$d/Scripts/\"; done'";
       return '终端执行：sudo cp ' + files + ' "' + target.dirs[0] + '/"';
@@ -433,6 +435,11 @@ export function createAdobeBridge({ pluginVersion, pluginRoot, previewUrl, home,
   const APP_SCRIPT = { photoshop: 'DSH画布桥接-Photoshop.jsx', illustrator: 'DSH画布桥接-Illustrator.jsx' };
   const APP_LABEL = { photoshop: 'Photoshop', illustrator: 'Illustrator' };
   const remoteWorkDir = () => join(tmpdir(), 'dsh-canvas-bridge');
+  /* PowerShell 命令一律经 -EncodedCommand 传输（Base64 of UTF-16LE）：
+     绕开 Windows 命令行的引号/反斜杠转义与代码页问题，中文路径、空格路径直达。
+     check-windows-compat.mjs 禁止再出现 '-Command' 直拼。 */
+  const psEncode = (script) => Buffer.from(String(script), 'utf16le').toString('base64');
+  const psSingleQuoted = (value) => "'" + String(value).replace(/'/g, "''") + "'";
 
   /** 用户副本永远与插件内脚本同步（远程驱动从这里 evalFile，面板「浏览…」也用它） */
   const ensureUserCopy = async () => {
@@ -456,7 +463,8 @@ export function createAdobeBridge({ pluginVersion, pluginRoot, previewUrl, home,
     try {
       if (isWindows) {
         const powershell = await resolveExecutable('powershell');
-        const result = await runProcess(powershell, ['-NoProfile', '-Command', '(Get-Process -Name ' + (app === 'photoshop' ? 'Photoshop' : 'Illustrator') + ' -ErrorAction SilentlyContinue | Measure-Object).Count'], remoteWorkDir(), 15000);
+        const ps = '(Get-Process -Name ' + (app === 'photoshop' ? 'Photoshop' : 'Illustrator') + ' -ErrorAction SilentlyContinue | Measure-Object).Count';
+        const result = await runProcess(powershell, ['-NoProfile', '-EncodedCommand', psEncode(ps)], remoteWorkDir(), 15000);
         return Number(String(result.stdout || '').trim()) > 0;
       }
       const osascript = await resolveExecutable('osascript');
@@ -489,8 +497,8 @@ export function createAdobeBridge({ pluginVersion, pluginRoot, previewUrl, home,
     try {
       if (isWindows) {
         const powershell = await resolveExecutable('powershell');
-        const ps1 = '$a = New-Object -ComObject ' + JSON.stringify(APP_COM[app]) + '; Write-Output ([string]$a.DoJavaScriptFile(' + JSON.stringify(jsxPath) + '))';
-        result = await runProcess(powershell, ['-NoProfile', '-Command', ps1], workDir, limit);
+        const ps1 = '$a = New-Object -ComObject ' + APP_COM[app] + '; Write-Output ([string]$a.DoJavaScriptFile(' + psSingleQuoted(jsxPath) + '))';
+        result = await runProcess(powershell, ['-NoProfile', '-EncodedCommand', psEncode(ps1)], workDir, limit);
       } else {
         const osascript = await resolveExecutable('osascript');
         const applescriptPath = jsxPath + '.applescript';
@@ -554,11 +562,11 @@ export function createAdobeBridge({ pluginVersion, pluginRoot, previewUrl, home,
     }
   };
 
-  /** macOS：对没有写权限的目录用系统管理员密码弹窗（osascript with administrator privileges）完成安装。
-      密码由 macOS 自己的对话框收集，插件全程接触不到；必须由用户点按钮触发。 */
+  /** 管理员授权安装（必须由用户点按钮触发）：
+      macOS 用 osascript `with administrator privileges`（系统密码框，插件接触不到密码）；
+      Windows 用 PowerShell `Start-Process -Verb RunAs` 弹 UAC（凭据同样由系统收集）。 */
   const installScriptsElevated = async () => {
     requireRemote();
-    if (isWindows) throw new Error('Windows 请以管理员身份运行：npm run install:adobe-bridge');
     const userCopyDir = await ensureUserCopy();
     const targets = await findAdobeScriptDirs();
     const denied = [];
@@ -568,6 +576,11 @@ export function createAdobeBridge({ pluginVersion, pluginRoot, previewUrl, home,
       }
     }
     if (!denied.length) return { elevated: false, ...(await installScripts()) };
+    if (isWindows) {
+      await elevateCopyWindows(userCopyDir, denied);
+      await log('install-scripts-elevated', { dirs: denied.map((d) => d.dir) });
+      return { elevated: true, ...(await installScripts()) };
+    }
     const shell = denied.map(({ dir, app }) => 'mkdir -p ' + shellQuote(dir) + ' && cp ' + filesForApp(app).map((f) => shellQuote(join(userCopyDir, f))).join(' ') + ' ' + shellQuote(dir + '/')).join(' && ');
     const osascript = await resolveExecutable('osascript');
     const result = await runProcess(osascript, ['-e', 'do shell script ' + JSON.stringify(shell) + ' with administrator privileges'], remoteWorkDir(), 180000);
@@ -577,6 +590,51 @@ export function createAdobeBridge({ pluginVersion, pluginRoot, previewUrl, home,
     }
     await log('install-scripts-elevated', { dirs: denied.map((d) => d.dir) });
     return { elevated: true, ...(await installScripts()) };
+  };
+
+  /* Windows 提权复制：把「建目录 + Copy-Item + 回写结果 JSON」写成一段 .ps1（带 BOM，PowerShell 5.1 无 BOM 的
+     UTF-8 会按 ANSI 误读中文），再由 powershell -Verb RunAs 以 UAC 弹窗执行它；外层命令经 -EncodedCommand 传输。
+     内层退出码：0 全部成功 / 1 有失败（详情在结果 JSON）/ 外层 2 = 用户在 UAC 里点了「否」。 */
+  const elevateCopyWindows = async (userCopyDir, denied) => {
+    const workDir = remoteWorkDir();
+    await mkdir(workDir, { recursive: true });
+    const stamp = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+    const innerPath = join(workDir, 'elevate-' + stamp + '.ps1');
+    const resultPath = join(workDir, 'elevate-' + stamp + '.json');
+    const inner = [
+      '$ErrorActionPreference = "Stop"',
+      '$result = @{ ok = $true; errors = @() }'
+    ];
+    for (const { dir, app } of denied) {
+      inner.push('try {');
+      inner.push('  New-Item -ItemType Directory -Force -Path ' + psSingleQuoted(dir) + ' | Out-Null');
+      for (const file of filesForApp(app)) inner.push('  Copy-Item -LiteralPath ' + psSingleQuoted(join(userCopyDir, file)) + ' -Destination ' + psSingleQuoted(dir) + ' -Force');
+      inner.push('} catch { $result.ok = $false; $result.errors += ' + psSingleQuoted(dir) + ' + \': \' + $_.Exception.Message }');
+    }
+    inner.push('$result | ConvertTo-Json -Compress | Set-Content -LiteralPath ' + psSingleQuoted(resultPath) + ' -Encoding UTF8');
+    inner.push('if (-not $result.ok) { exit 1 }');
+    await writeFile(innerPath, '\uFEFF' + inner.join('\r\n'), 'utf8');
+    try {
+      const powershell = await resolveExecutable('powershell');
+      const launcher = [
+        'try {',
+        '  $p = Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile","-ExecutionPolicy","Bypass","-File",' + psSingleQuoted(innerPath) + ') -Verb RunAs -Wait -PassThru',
+        '  exit $p.ExitCode',
+        '} catch { exit 2 }'
+      ].join('\r\n');
+      const result = await runProcess(powershell, ['-NoProfile', '-EncodedCommand', psEncode(launcher)], workDir, 300000);
+      if (result.exitCode === 2) throw new Error('已取消授权（UAC）');
+      let outcome = null;
+      try { outcome = JSON.parse(await readFile(resultPath, 'utf8')); } catch {}
+      if (result.exitCode !== 0 || !outcome || outcome.ok !== true) {
+        const detail = outcome && Array.isArray(outcome.errors) && outcome.errors.length ? '：' + outcome.errors.join('；') : '';
+        throw new Error('授权安装失败' + detail);
+      }
+      return outcome;
+    } finally {
+      await unlink(innerPath).catch(() => {});
+      await unlink(resultPath).catch(() => {});
+    }
   };
   const shellQuote = (value) => "'" + String(value).replace(/'/g, "'\\''") + "'";
 

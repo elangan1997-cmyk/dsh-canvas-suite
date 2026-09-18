@@ -1,21 +1,31 @@
 # DSH画布工作台
 
-面向 DSH Desktop 的可插拔设计画布套件，**最新版本 `1.7.0`（main 分支）**，包括：
+面向 DSH Desktop 的可插拔设计画布套件，**最新版本 `1.8.0`（main 分支）**，包括：
 
-- `canvas-workbench`：无限画布、项目持久化、聊天图片交互和渐进增强图片工具。
+- `canvas-workbench`：无限画布、项目持久化、聊天图片交互、渐进增强图片工具，以及 **Photoshop / Illustrator ⇄ 画布桥接**（取图层到画布、编辑后按格式归位返回）。
 - 独立文件浏览器已移除；项目目录选择与“在文件夹中显示”由画布插件自身提供。
-- macOS 安装工程。
-- Windows 10/11 初级版 PowerShell 安装、恢复、卸载和健康检查。
+- macOS 安装工程；Windows 源码安装器（`install-windows.cmd`）。
 - 可选的内置 `dsh-codex` 兼容构建，用于在支持的 DSH Profile 中使用 Codex OAuth 路由。
 
-## 快速安装最新版（v1.7.0）
+## 快速安装最新版（v1.8.0）
 
 最新功能版始终在 **main 分支**（版本号见 `canvas-workbench/package.json` 与 [CHANGELOG](CHANGELOG.md)）。已安装 DSH Desktop 的机器，克隆仓库后运行同步脚本即可：
+
+**macOS：**
 
 ```bash
 git clone https://github.com/elangan1997-cmyk/dsh-canvas-suite.git
 cd dsh-canvas-suite
 ./sync-local-plugins.sh     # 同步插件到本机全部 DSH Profile 并做健康检查
+```
+
+**Windows（PowerShell 或直接双击 `install-windows.cmd`）：**
+
+```powershell
+git clone https://github.com/elangan1997-cmyk/dsh-canvas-suite.git
+cd dsh-canvas-suite
+.\install-windows.cmd            # 同步 + 健康检查（先完全退出 DSH）
+.\install-windows.cmd -CheckOnly # 只检查不改文件
 ```
 
 完成后完全退出并重启 DSH Desktop 生效。图像引擎（Codex OAuth 或 API）在「更多 → 图像引擎设置」里首次配置。
@@ -65,16 +75,16 @@ DSH 画布工作台不是把网页工具搬到桌面上，而是把设计师每�
 
 | 你的情况 | 推荐做法 |
 | --- | --- |
-| 想要**最新功能 1.7.0**（整理/颜色标记/新字体/主题同步） | 按上方「快速安装」从 main 分支源码安装 |
+| 想要**最新功能 1.8.0**（Adobe 桥接 / 架构重构 / 整理与颜色标记） | 按上方「快速安装」从 main 分支源码安装（macOS 与 Windows 都有脚本） |
 | macOS 新电脑、没有 DSH Desktop | 下载已验证的 1.5.9 完整 DMG/PKG（整机重装验收版），安装后登录自己的账号 |
-| Windows 新电脑或已有 DSH | 使用已验证的 `v1.4.0-windows-preview.4`；r5 之前的旧包不再推荐。1.7.0 的 Windows 实机回归尚未完成 |
+| Windows 新电脑或已有 DSH | 最新版用「快速安装」源码方式（Windows 代码层适配 + 自动检查已就绪，实机验收清单见 [WINDOWS-TEST-CHECKLIST](WINDOWS-TEST-CHECKLIST.md)）；要已实机验证的整包则用 `v1.4.0-windows-preview.4`，r5 之前的旧包不再推荐 |
 | 已有 DSH，只要稳定画布能力 | 独立插件 ZIP（1.5.9），退出 DSH 后运行安装脚本 |
 | 偏好包管理 | `dsh plugin add` 安装 Release 中的 `.tgz`（注意：npm registry 尚未发布，见下文 npm 章节） |
 
 
 面向设计人员的 DSH Desktop 画布工作台，把图片生成、项目文件、无限画布、图片处理和 Photoshop/Illustrator 协作集中在一个工作区。你不需要先了解 Agent：按下面的下载说明安装后，就可以像使用普通设计工具一样开始工作。
 
-> **最新功能版：`v1.7.0`**（整理与颜色标记、聊天图片输出修复、免费商用字体、DSH 主题同步）——从 main 分支源码安装，见上方「快速安装」。
+> **最新功能版：`v1.8.0`**（Photoshop/Illustrator ⇄ 画布桥接、架构重构、整理与颜色标记）——从 main 分支源码安装，见上方「快速安装」。
 > **整机重装验证基线：[`v1.5.9` macOS](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/tag/v1.5.9)**；Windows 使用已完成实机验证的 `v1.4.0-windows-preview.4`（custom 20260906）。r5 之前的 Windows 旧包不再推荐。
 
 ## 画布插件能做什么
@@ -145,7 +155,7 @@ macOS 从 [`v1.5.9` Release](https://github.com/elangan1997-cmyk/dsh-canvas-suit
 Windows 使用已验证的 `v1.4.0-windows-preview.4`（custom 20260906）：完整包 `DSH-Setup-Fixed-v1.4.1-20260906.zip`，SHA-256 `a6d5e1a984af4bacfb64ef8aa5628fb97a569b6bb6cf08334130027725c5a683`；独立画布包 `DSH-Canvas-Workbench-1.4.0-windows-custom-20260906.zip`，SHA-256 `332fac1c8359ea470958dc0e26d7fea6b7b0b8cbe6ce663769a693068f0b8a9b`。r5 之前的 Windows 包应删除或标记为不推荐。
 
 ### B. 独立画布插件：给已经有 DSH Desktop 的电脑
-这是更新画布能力的轻量包，不带完整 DSH Desktop，不能脱离 DSH 单独启动。**注意：Release 中的 ZIP/tgz 目前是 1.5.9；要安装 1.7.0 请使用顶部「快速安装」的源码方式**（1.7.0 的二进制包将在整机验收后发布）。
+这是更新画布能力的轻量包，不带完整 DSH Desktop，不能脱离 DSH 单独启动。**注意：Release 中的 ZIP/tgz 目前是 1.5.9；要安装 1.8.0 请使用顶部「快速安装」的源码方式**（1.8.0 的二进制包将在整机验收后发布）。
 
 macOS 直接下载 [`dsh-canvas-workbench-1.5.9.tgz`](https://github.com/elangan1997-cmyk/dsh-canvas-suite/releases/download/v1.5.9/dsh-canvas-workbench-1.5.9.tgz)；全新电脑则优先使用同一 Release 的 `macOS-Complete` DMG/PKG。
 
@@ -167,7 +177,7 @@ macOS 直接下载 [`dsh-canvas-workbench-1.5.9.tgz`](https://github.com/elangan
 
 画布插件可生成标准 npm 包，并通过 `dsh.bundle.patch` 自动注入 DSH。
 
-> 状态说明：**npm registry 上的 `dsh-canvas-workbench` 尚未发布**（查询返回 404）；目前只能安装 Release 中的 `.tgz`（1.5.9）或走源码安装（1.7.0）。registry 发布需有权限账号完成离线安装验证后进行。
+> 状态说明：**npm registry 上的 `dsh-canvas-workbench` 尚未发布**（查询返回 404）；目前只能安装 Release 中的 `.tgz`（1.5.9）或走源码安装（1.8.0）。registry 发布需有权限账号完成离线安装验证后进行。
 
 官方 DSH（dsh-desktop）直接用官方命令安装 tgz：
 

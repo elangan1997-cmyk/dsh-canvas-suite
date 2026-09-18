@@ -209,9 +209,11 @@ host 只认清单，且要求清单里列出的每个文件都存在、非空、
    远程驱动（§9）从这里 `evalFile`——所以**日常主路径完全不需要下面的菜单安装**。任何时候也能用
    Photoshop「文件 → 脚本 → 浏览…」/ Illustrator「文件 → 脚本 → 其它脚本…」直接打开它。
 2. **应用目录 = 菜单入口**（macOS `/Applications/Adobe Photoshop <年>/Presets/Scripts`、
-   `/Applications/Adobe Illustrator <年>/Presets.localized/<每个 locale>/Scripts`；Windows 对应 Program Files）：
+   `/Applications/Adobe Illustrator <年>/Presets.localized/<每个 locale>/Scripts`；Windows `%ProgramFiles%\Adobe\…\Presets\[locale\]Scripts`）：
    **两款应用都只扫描这里，且都是 root/管理员权限。** 走 `installScriptsElevated()`（画布「更多 → 🔐 安装 PS / AI 菜单面板」
-   → macOS 管理员密码弹窗，一次即可）；普通 `installScripts()` 写不进时返回 `errors[].hint`（可粘贴的 `sudo` 命令）。
+   → macOS 管理员密码弹窗 / Windows `Start-Process -Verb RunAs` UAC 弹窗，一次即可；Windows 的提权内层 .ps1 写
+   `Copy-Item` + 结果 JSON，外层命令经 `-EncodedCommand` 传输，取消时报「已取消授权（UAC）」）；普通 `installScripts()`
+   写不进时返回 `errors[].hint`（macOS 可粘贴的 `sudo` 命令；Windows 提示点按钮或以管理员运行 CLI）。
    Illustrator 一个版本合并为一条（所有 locale 一条命令装完；Scripts 子目录不存在的 locale 会一并创建，中文 UI 的 zh_CN 也在内）。
 
 > **纠错记录（2026-09-18）**：早先误以为 Photoshop 会扫描用户级目录 `~/Library/Application Support/Adobe/Adobe Photoshop <年>/Presets/Scripts`
@@ -281,7 +283,9 @@ host（`services/adobe-bridge.js` 的 `remoteEval`）据此从外面驾驭运行
 执行：
   macOS   osascript → tell application id "com.adobe.Photoshop" to do javascript (read POSIX file … as «class utf8»)
           （PS 2025 的 do javascript 只接受文本、不接受文件引用；外层 with timeout 防 AppleEvent -1712）
-  Windows powershell → (New-Object -ComObject Photoshop.Application).DoJavaScriptFile(路径)  ← **尚未实机验证**（真机清单见 WINDOWS-TEST-CHECKLIST.md「Adobe 桥接」节；PowerShell 双引号串里反斜杠不是转义符，路径直接放）
+  Windows powershell → (New-Object -ComObject Photoshop.Application).DoJavaScriptFile(路径)  ← **尚未实机验证**（真机清单见 WINDOWS-TEST-CHECKLIST.md「Adobe 桥接」节）。
+          命令一律经 `-EncodedCommand`（Base64 of UTF-16LE）传输：绕开命令行引号/反斜杠转义与代码页问题，中文路径直达
+          （`check-windows-compat.mjs` 禁止 `-Command` 直拼；单测解码验证内容，见 `tests/unit/adobe-bridge-windows.test.mjs`）
 解析：stdout 以 OK:/ERR: 开头；否则视为执行失败（stderr 最后一行）。
 ```
 
@@ -292,7 +296,9 @@ host（`services/adobe-bridge.js` 的 `remoteEval`）据此从外面驾驭运行
   否则会把清单标成 `.failed`（2026-09-18 真机发现并修复）。
 - 实测（PS 2025 / AI 2026）：取图层 ≈2s，返回并置入 ≈2s，全程零次进 Adobe 点击；归位精确到像素。
 - Windows 兼容（代码层已做）：jsx 全部经 `B.child()` 自适应分隔符（禁混分隔，检查器强制）；`appRunning` 用 `Get-Process`；
-  CEP 开关注注册表 `HKCU\Software\Adobe\CSXS.<N>`；菜单目录在 Program Files（安装需管理员）。
+  CEP 开关注注册表 `HKCU\Software\Adobe\CSXS.<N>`；菜单目录在 Program Files（`installScriptsElevated` 走 UAC 提权安装）；
+  PowerShell 命令全部 `-EncodedCommand`（`scripts/check-windows-compat.mjs` 入 `npm run check`）。
+  插件本体安装：仓库根 `install-windows.cmd` / `install-windows.ps1`（同步运行副本 + profile 注入 + 健康检查，PS 5.1 兼容、免管理员）。
 - 已知怪癖：通过 `do javascript` 关闭 Illustrator 的**当前**文档，文档会关但 AppleEvent 回执不返回（超时）。
   产品流程不关用户文档，只有测试清理会碰到。
 - 启动即用：`ensureInstalled()` 在 host `apply()` 时静默运行（版本一致且文件在位就跳过），用户副本随插件版本自动同步。

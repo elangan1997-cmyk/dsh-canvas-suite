@@ -563,7 +563,7 @@ git diff --check：通过
 
 **当前运行副本 = 重构版**（sync 于 02:2x，DSH 保持运行以便用户查看）。回滚：`git checkout main && ./sync-local-plugins.sh` 并重启 DSH。
 
-**§40 发布条件未满足项（诚实）：** Windows 实机回归（J3/J4/E8）；scripts/ 物理重组；CanvasOverlay 2,100 行分段未按 Feature 再拆（state 归属表待画）；Command 层未接入具体 UI 操作；性能内存计时。这些不阻塞在 macOS 上使用重构版，但阻塞打 v1.8.0 tag。
+**§40 发布条件（2026-09-18 更新）：** v1.8.0 已发布——用户明确指示"做好 Windows 环境适配和检查后上传 GitHub"，接受以 代码层适配（EncodedCommand / UAC 提权 / B.child 分隔符自适应）+ 4 项 isWindows 注入单测 + `check-windows-compat.mjs` 静态检查 + `WINDOWS-TEST-CHECKLIST.md` 实机清单 作为 Windows 门槛（无 Windows 真机可回归，清单留给有机器的用户/Agent）。仍未做（不阻塞使用，如实告知）：Windows 实机回归（J3/J4/E8 + 清单「Adobe 桥接」「源码安装器」两节）；scripts/ 物理重组；CanvasOverlay 分段再拆；Command 层接入 UI 操作；性能内存计时。
 
 ## 15. 2026-09-17 白天：.ai 图层编辑全链路修复（**未提交**）
 
@@ -731,3 +731,14 @@ PS 应用目录 + AI 25 个 locale（含 zh_CN），`scripts-installed.json` 记
   psdPreviewPath/documentPreviewPath（素材预览在用）、normalize_image.py 等（generation.routes 在用）。
 - 旧项目影响：已有 `-图层编辑` 文件、`画布备份/`、customData 里历史的 dshLayerEdit 字段均无害残留。
 - client.js 482123→467876 bytes；单测 42 过（contracts 的 PYTHON_TOOLS 计数 13→11 已同步）。
+
+**09-18 深夜：Windows 环境适配补齐 + v1.8.0 发布**
+
+- 承接 848bac5（jsx 21 处 `B.child()` 分隔符自适应 + 检查器禁混分隔），本轮补齐四处硬缺口：
+  1. **源码安装器**（仓库根 `install-windows.ps1` + `install-windows.cmd`）：README 一直让 Windows 用户"双击 install-windows.cmd"但**仓库里没有这个文件**（旧 ZIP 包产物）。现在有：同步 canvas-workbench（+dsh-codex）到 root/desktop/web/活动 Profile（读 `%APPDATA%\DSH Desktop\profile-selection\state.json`）、cordis.patch.yml 注入（`[]` 替换/追加，防重复插入）、替换前备份到 `.dsh\canvas-suite\plugin-backups\`、DSH 运行中拒绝执行（`-Force` 强制）、`-CheckOnly` 三项检查。PS 5.1 兼容（无 PS7 语法）、**UTF-8 带 BOM**（无 BOM 中文必乱码，检查器强制）、.cmd 无 BOM（cmd 把 BOM 当命令）。
+  2. **`-EncodedCommand` 统一**：`adobe-bridge.js` 里所有 PowerShell 调用（appRunning Get-Process / remoteEval COM DoJavaScriptFile / 提权外层）改为 Base64(UTF-16LE) 传输，绕开命令行引号/反斜杠转义与代码页问题（中文/空格路径直达）。`check-windows-compat.mjs` 禁止 src/host 再出现 `-Command'` 直拼；lib/platform.js 的"-Command 脚本 + 独立参数"形态（`$args[0]`）安全，保留。
+  3. **Windows UAC 提权安装**：`installScriptsElevated` 不再抛错——内层 .ps1（BOM + Copy-Item + 结果 JSON 回写临时目录）由外层 `Start-Process -Verb RunAs -Wait` 执行；退出码 0/1/2（2=UAC 取消→「已取消授权（UAC）」）。🔐 按钮在 Windows 从"不可用"变为可用。
+  4. **`createAdobeBridge({ isWindows })` 注入**：工厂内 shadow 平台真值，macOS 上可跑 Windows 分支。新增 `tests/unit/adobe-bridge-windows.test.mjs` 4 项：EncodedCommand 解码内容校验（含 BOM/无头模式驱动 jsx）、UAC 流程（假 runProcess 解码外层→读内层 ps1→落结果 JSON）、取消路径、Get-Process。
+- `check-windows-compat.mjs`（入 `npm run check`）：安装器 BOM/PS5.1/括号配平、禁 `-Command` 直拼、平台专属调用（osascript//Applications/~/Library/LaunchAgents）40 行内必须有 isWindows/isMac/darwin/win32 守卫（守卫确实存在但距离超窗时用 `// platform-guard-ok: 理由` 人工确认，text.routes 已用）、禁硬编码 /tmp。首跑即抓到 2 类真问题。
+- 回归：单测 46/46（+4 Windows 分支）；npm run check 全绿；mac 真机桥接 HTTP 级回归（host-harness + 真 PS）：pull 4s / return+远程置入 2.2s / 归位 [122,126,190,150] 逐位命中 / 组名「HTTP标题 ← 画布」/ 无文档错误信息友好。
+- **v1.8.0 发布**：版本三处一致（package.json=1.8.0、CHANGELOG 定稿、README 全面改口径）；refactor/v1.8 合并 main、tag v1.8.0、GitHub Release（源码版，Release 说明如实标注 Windows 未实机回归）。§40 发布门槛由用户确认放宽（见上）。

@@ -1,8 +1,11 @@
 # Changelog
 
-## 1.8.0（未发布 — 分支 refactor/v1.8，Architecture Refactor）
+## 1.8.0（2026-09-18）
 
-> 架构版本，不新增大型业务能力；用户可见行为与 1.7.0 一致（真实 DSH 回归：DOM 结构 0 差异、30 条 API 样例仅 1 处预期修复差异、Codex 端到端生成通过）。发布前仍需 Windows 实机回归（执行文档 §40）。
+> 架构重构 + **Adobe 桥接**（Photoshop / Illustrator ⇄ 画布，macOS 真机验收通过）。核心画布行为与 1.7.0 一致（真实 DSH 回归：DOM 结构 0 差异、30 条 API 样例仅 1 处预期修复差异、Codex 端到端生成通过）。Windows：代码层适配 + 自动检查 + 源码安装器已就绪，实机验收清单见 `WINDOWS-TEST-CHECKLIST.md`（经用户确认按此门槛发布）。
+
+- **「更多」菜单安装入口按需显示**：桥接安装是一次性动作，不再常驻三个按钮——打开菜单时查 `GET /status`，菜单脚本 / CEP 面板缺哪个才显示对应安装按钮（装完即隐）；「刷新脚本副本」按钮删除（DSH 启动已自动同步）。
+- **Windows 适配与检查（本版本新增）**：① 仓库根新增 `install-windows.ps1` / `install-windows.cmd` 源码安装器（同步运行副本 + profile 注入 + 备份 + 健康检查，PowerShell 5.1 兼容、免管理员、UTF-8 BOM 防中文乱码，README 引用的这个文件此前并不存在）；② Adobe 桥接远程驱动的 PowerShell 命令全部改走 `-EncodedCommand`（Base64/UTF-16LE），绕开命令行引号/反斜杠转义与代码页问题，中文/空格路径直达；③ 🔐 菜单脚本安装在 Windows 走 `Start-Process -Verb RunAs` **UAC 提权**（内层 .ps1 带结果 JSON 回写，取消时明确报「已取消授权（UAC）」，此前 Windows 直接抛错不可用）；④ `createAdobeBridge` 支持 `isWindows` 注入，macOS 上即可单测 Windows 分支（新增 4 项单测：EncodedCommand 内容解码校验、UAC 提权流程、取消路径、Get-Process 探测）；⑤ 新增 `check-windows-compat.mjs` 入 `npm run check`：安装器 BOM/PS5.1 语法/括号配平、禁 `-Command` 直拼、平台专属调用必须 40 行内有 isWindows/isMac 守卫（支持 `platform-guard-ok` 人工确认注释）、禁硬编码 `/tmp`。
 
 - **Adobe 桥接（Photoshop / Illustrator ⇄ 画布，真机验收通过：PS 2025 / AI 2026 往返像素级归位）**：PS/AI 内的 **CEP 常驻面板**（可停靠、非模态、自动检测发件箱；CC 2014→2026 通用；DSH 启动自动装进用户目录，免密码）+ ExtendScript 模态面板/一键脚本兜底旧版本（成功后自动关闭；ExtendScript 不支持常驻 palette）把选中图层/对象（透明 PNG，裁到边界，记录文档坐标）或整个文档（PSD/.ai 副本）送进项目 `ADOBE桥接/来自Photoshop|Illustrator/`，画布 3s 内自动上画布；画布选中工具栏新增「→Ps」「→Ai」，把图片/分层 PSD/.ai 原样放进 `ADOBE桥接/发件箱/`（序号永不覆盖），返回**按格式分流**：PSD → PS 把全部图层并进当前文档（文字层保持可编辑、组承接、归位）；.ai/.svg → AI 按对象并入（文字可编辑、归位）；其它格式仍作为图片置入/智能对象——真机数值全部精确命中；或「打开为新文档」。传输只靠文件夹 + `~/.dsh/canvas-workbench/adobe-bridge/bridge.json` 握手心跳，无端口无网络，CS6→2026 通用。菜单面板入口：「更多」菜单**按需显示**——检测到未安装（`GET /status` 的 `scriptsInstalled`/`cepInstalled`）才出现「🔐 安装 PS / AI 菜单面板」（PS/AI 都只扫描 root 权限的应用目录，弹一次 macOS 管理员密码框；装好按钮即隐）/ `npm run install:adobe-bridge`。契约 `canvas-workbench/adobe-bridge/PROTOCOL.md`；新增 `check-adobe-bridge-jsx.mjs`（BOM/ES3 守卫）与 6 项单测；脚本支持无头模式供自动化回归。**日常主路径不进 Adobe**：画布顶栏「取 Ps 图层 / 取 Ai 对象」与选中工具栏「→Ps / →Ai」直接远程驱动运行中的 PS/AI（macOS osascript；Windows COM 待验证），取图≈2s、返回并归位≈2s；DSH 启动时自动同步脚本副本（远程驱动零配置）。
 - **Host 拆分**：`lib/index.js` 2,256 行的单个 `apply()` 拆为 `src/host/`（routes 9 文件 / services / server / jobs / adapters）与 `src/shared/utils/`，handler 逐字迁移，`lib/index.js` 成薄壳；API 对等测试 55 条请求 0 差异。

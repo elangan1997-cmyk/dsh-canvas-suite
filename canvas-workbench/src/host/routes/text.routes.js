@@ -321,6 +321,7 @@ export function register(router, h) {
                     // Illustrator 2026 的 ExtendScript 没有 CloseOptions：脚本里 close 不掉临时文档，
                     // 会留在 AI 里被用户误当成正式文件编辑。先全部关闭（不保存），下面只打开画布正式文件。
                     try {
+                      // platform-guard-ok: 在外层 if (isMac) 块内（277 行起），Windows 走 SVG 兜底不会到达这里
                       const osascript2 = await ctx.subprocess.resolveExecutable('osascript');
                       await runProcessWithTimeout(osascript2, ['-e', 'tell application id "com.adobe.Illustrator"\nclose every document saving no\nend tell'], outputDir, 30000);
                     } catch (errClose) {}
