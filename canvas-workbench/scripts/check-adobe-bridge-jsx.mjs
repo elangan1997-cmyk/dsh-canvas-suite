@@ -19,6 +19,8 @@ const dir = join(root, 'adobe-bridge');
 
 // [正则, 说明]。只扫代码行（去掉块注释/行注释/字符串后的文本），避免把说明文字误报。
 const FORBIDDEN = [
+  // Windows 兼容：禁止混分隔拼接（fsName 反斜杠 + '/'），一律用 B.child(base, name)
+  [/\.fsName\s*\+\s*['"]\//, '混分隔路径拼接（用 B.child）'],
   [/=>/, '箭头函数'],
   [/\b(const|let)\s+[A-Za-z_$]/, 'const/let（用 var）'],
   [/`/, '模板字符串'],

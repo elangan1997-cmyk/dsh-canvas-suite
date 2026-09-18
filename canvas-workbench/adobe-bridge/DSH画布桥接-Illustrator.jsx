@@ -94,7 +94,7 @@
       var pb = unionVisibleBounds(pasted);
       var dx = ab[0] - pb[0], dy = ab[1] - pb[1];
       for (var i = 0; i < pasted.length; i++) pasted[i].translate(dx, dy);
-      var file = new File(B.tempFolder().fsName + '/' + tempName + '.png');
+      var file = new File(B.child(B.tempFolder(), tempName + '.png'));
       if (file.exists) file.remove();
       var o = new ExportOptionsPNG24();
       o.artBoardClipping = true;
@@ -163,7 +163,7 @@
         var tab = tmp.artboards[0].artboardRect;
         var dx = tab[0] - ab.rect[0], dy = tab[1] - ab.rect[1];
         if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) for (var i = 0; i < pasted.length; i++) pasted[i].translate(dx, dy);
-        var temp = new File(B.tempFolder().fsName + '/' + job + '-artboard.ai');
+        var temp = new File(B.child(B.tempFolder(), job + '-artboard.ai'));
         if (temp.exists) temp.remove();
         var o = new IllustratorSaveOptions();
         o.pdfCompatible = true;
@@ -207,7 +207,7 @@
   function openDocSafe(file) {
     var firstError = null;
     try { return app.open(file); } catch (e1) { firstError = e1; }
-    var temp = new File(B.tempFolder().fsName + '/open-' + B.rand4() + '-' + file.name);
+    var temp = new File(B.child(B.tempFolder(), 'open-' + B.rand4() + '-' + file.name));
     if (!file.copy(temp)) throw new Error('无法读取文件：' + file.name + '（' + (firstError && firstError.message ? firstError.message : firstError) + '）');
     return app.open(temp);
   }
@@ -221,7 +221,7 @@
   function importObjectsFromFile(doc, file, origin, alwaysHome, label) {
     var oldRemember = true;
     try { oldRemember = app.preferences.getBooleanPreference('pasteRemembersLayers'); } catch (e0) {}
-    var temp = new File(B.tempFolder().fsName + '/objects-' + B.rand4() + '-' + file.name);
+    var temp = new File(B.child(B.tempFolder(), 'objects-' + B.rand4() + '-' + file.name));
     if (!file.copy(temp)) throw new Error('无法读取文件：' + file.name);
     var src = null;
     try {
@@ -282,7 +282,7 @@
         var m = jobs[i].manifest, ok = true, err = '';
         try {
           for (j = 0; j < m.files.length; j++) {
-            var f = new File(jobs[i].file.parent.fsName + '/' + m.files[j].file);
+            var f = new File(B.child(jobs[i].file.parent, m.files[j].file));
             if (!f.exists) throw new Error('文件不存在：' + m.files[j].file);
             var origin = m.origin;
             var label = origin && origin.layer && origin.layer.name ? origin.layer.name : B.baseName(m.files[j].name || m.files[j].file);

@@ -8,8 +8,7 @@
   实现：无头模式载入同目录的面板脚本，直接调 DSH_BRIDGE.ps.*（协议 canvas-workbench/adobe-bridge/PROTOCOL.md）。
 */
 #target photoshop
-$.global.DSH_BRIDGE_HEADLESS = true;
-$.evalFile(new File(new File($.fileName).parent.fsName + '/DSH画布桥接-Photoshop.jsx'));
+(function () { var d = new File($.fileName).parent.fsName; var s = d.indexOf('\\') >= 0 ? '\\' : '/'; $.global.DSH_BRIDGE_HEADLESS = true; $.evalFile(new File(d + s + 'DSH画布桥接-Photoshop.jsx')); })();
 (function () {
   var B = DSH_BRIDGE;
   try {

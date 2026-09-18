@@ -279,7 +279,7 @@ host（`services/adobe-bridge.js` 的 `remoteEval`）据此从外面驾驭运行
 执行：
   macOS   osascript → tell application id "com.adobe.Photoshop" to do javascript (read POSIX file … as «class utf8»)
           （PS 2025 的 do javascript 只接受文本、不接受文件引用；外层 with timeout 防 AppleEvent -1712）
-  Windows powershell → (New-Object -ComObject Photoshop.Application).DoJavaScriptFile(路径)  ← 尚未实机验证
+  Windows powershell → (New-Object -ComObject Photoshop.Application).DoJavaScriptFile(路径)  ← **尚未实机验证**（真机清单见 WINDOWS-TEST-CHECKLIST.md「Adobe 桥接」节；PowerShell 双引号串里反斜杠不是转义符，路径直接放）
 解析：stdout 以 OK:/ERR: 开头；否则视为执行失败（stderr 最后一行）。
 ```
 
@@ -289,6 +289,8 @@ host（`services/adobe-bridge.js` 的 `remoteEval`）据此从外面驾驭运行
   返回件留在发件箱、清单保持待处理，用户之后在面板「置入」。**脚本在改任何清单前先检查有无打开的文档**——
   否则会把清单标成 `.failed`（2026-09-18 真机发现并修复）。
 - 实测（PS 2025 / AI 2026）：取图层 ≈2s，返回并置入 ≈2s，全程零次进 Adobe 点击；归位精确到像素。
+- Windows 兼容（代码层已做）：jsx 全部经 `B.child()` 自适应分隔符（禁混分隔，检查器强制）；`appRunning` 用 `Get-Process`；
+  CEP 开关注注册表 `HKCU\Software\Adobe\CSXS.<N>`；菜单目录在 Program Files（安装需管理员）。
 - 已知怪癖：通过 `do javascript` 关闭 Illustrator 的**当前**文档，文档会关但 AppleEvent 回执不返回（超时）。
   产品流程不关用户文档，只有测试清理会碰到。
 - 启动即用：`ensureInstalled()` 在 host `apply()` 时静默运行（版本一致且文件在位就跳过），用户副本随插件版本自动同步。

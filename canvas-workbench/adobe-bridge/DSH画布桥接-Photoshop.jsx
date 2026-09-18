@@ -137,7 +137,7 @@
       try { if (dup.mode !== DocumentMode.RGB && dup.mode !== DocumentMode.GRAYSCALE) dup.changeMode(ChangeMode.RGB); } catch (e1) {}
       try { if (dup.bitsPerChannel === BitsPerChannelType.THIRTYTWO) dup.bitsPerChannel = BitsPerChannelType.EIGHT; } catch (e2) {}
       dup.crop([b.left, b.top, b.right, b.bottom]);
-      var file = new File(B.tempFolder().fsName + '/' + tempName + '.png');
+      var file = new File(B.child(B.tempFolder(), tempName + '.png'));
       if (file.exists) file.remove();
       var o = new PNGSaveOptions();
       o.compression = 6;
@@ -200,7 +200,7 @@
     var inbox = B.inboxFolder(s.handshake, APP);
     var job = B.jobId('ps');
     return withQuietPixels(function () {
-      var temp = new File(B.tempFolder().fsName + '/' + job + '-doc.psd');
+      var temp = new File(B.child(B.tempFolder(), job + '-doc.psd'));
       if (temp.exists) temp.remove();
       var o = new PhotoshopSaveOptions();
       o.layers = true;
@@ -244,7 +244,7 @@
   function openDocSafe(file) {
     var firstError = null;
     try { return app.open(file); } catch (e1) { firstError = e1; }
-    var temp = new File(B.tempFolder().fsName + '/open-' + B.rand4() + '-' + file.name);
+    var temp = new File(B.child(B.tempFolder(), 'open-' + B.rand4() + '-' + file.name));
     if (!file.copy(temp)) throw new Error('无法读取文件：' + file.name + '（' + (firstError && firstError.message ? firstError.message : firstError) + '）');
     return app.open(temp);
   }
@@ -254,7 +254,7 @@
      ① 顶层全是普通图层 → 真正包进「label ← 画布」组（已端到端验证）；
      ② 顶层含图层组（如文字重建 PSD 的文字组）→ 逐层复制保持顺序、每项加「«画布»」前缀区分、整体平移归位。 */
   function importLayersFromPSD(doc, file, origin, alwaysHome, label) {
-    var temp = new File(B.tempFolder().fsName + '/layers-' + B.rand4() + '-' + file.name);
+    var temp = new File(B.child(B.tempFolder(), 'layers-' + B.rand4() + '-' + file.name));
     if (!file.copy(temp)) throw new Error('无法读取 PSD：' + file.name);
     var src = app.open(temp);
     if (!src) throw new Error('PSD 打开失败：' + file.name);
@@ -348,7 +348,7 @@
         var m = jobs[i].manifest, ok = true, err = '';
         try {
           for (j = 0; j < m.files.length; j++) {
-            var f = new File(jobs[i].file.parent.fsName + '/' + m.files[j].file);
+            var f = new File(B.child(jobs[i].file.parent, m.files[j].file));
             if (!f.exists) throw new Error('文件不存在：' + m.files[j].file);
             var origin = m.origin;
             var label = origin && origin.layer && origin.layer.name ? origin.layer.name : B.baseName(m.files[j].name || m.files[j].file);

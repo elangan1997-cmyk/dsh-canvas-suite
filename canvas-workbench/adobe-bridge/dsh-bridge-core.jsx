@@ -39,6 +39,15 @@ var DSH_BRIDGE = (typeof DSH_BRIDGE !== 'undefined' && DSH_BRIDGE) ? DSH_BRIDGE 
   B.extOf = function (name) { var s = String(name || ''); var i = s.lastIndexOf('.'); return i > 0 ? s.substring(i + 1).toLowerCase() : ''; };
   B.round = function (v) { return Math.round(Number(v) * 100) / 100; };
 
+  /* ---------- 路径拼接（Windows 兼容） ----------
+     fsName 在 Windows 是反斜杠（C:\Users\x）；统一按基目录自带的分隔符拼接，
+     不要写 X.fsName + '/' + Y 的混分隔（ExtendScript 多数时候能容错，但 File.exists/copy 偶发失败）。 */
+  B.child = function (base, name) {
+    var b = base && base.fsName !== undefined ? base.fsName : String(base || '');
+    var sep = b.indexOf('\\') >= 0 ? '\\' : '/';
+    return b + sep + String(name || '');
+  };
+
   /* ---------- 文本文件（UTF-8，统一 LF：ExtendScript 在 macOS 默认把 \n 写成 CR） ---------- */
   B.readText = function (file) {
     if (!file || !file.exists) return null;
@@ -101,19 +110,19 @@ var DSH_BRIDGE = (typeof DSH_BRIDGE !== 'undefined' && DSH_BRIDGE) ? DSH_BRIDGE 
 
   /* ---------- 桥接根目录 / 日志 / 偏好 ---------- */
   B.rootFolder = function () {
-    var f = new Folder(Folder('~').fsName + '/.dsh/canvas-workbench/adobe-bridge');
+    var f = new Folder(B.child(Folder('~'), '.dsh/canvas-workbench/adobe-bridge'));
     if (!f.exists) f.create();
     return f;
   };
   B.log = function (app, msg) {
     try {
-      var f = new File(B.rootFolder().fsName + '/script-log.txt');
+      var f = new File(B.child(B.rootFolder(), 'script-log.txt'));
       f.encoding = 'UTF-8';
       f.lineFeed = 'Unix';
       if (f.open('a')) { f.writeln(new Date().toString() + ' [' + app + '] ' + msg); f.close(); }
     } catch (e) {}
   };
-  B.prefsFile = function () { return new File(B.rootFolder().fsName + '/panel-prefs.json'); };
+  B.prefsFile = function () { return new File(B.child(B.rootFolder(), 'panel-prefs.json')); };
   B.loadPrefs = function (app, defaults) {
     var all = B.readJSON(B.prefsFile()) || {};
     var mine = all[app] || {};
@@ -125,13 +134,13 @@ var DSH_BRIDGE = (typeof DSH_BRIDGE !== 'undefined' && DSH_BRIDGE) ? DSH_BRIDGE 
     try { var all = B.readJSON(B.prefsFile()) || {}; all[app] = prefs; B.writeJSON(B.prefsFile(), all); } catch (e) {}
   };
   B.tempFolder = function () {
-    var f = new Folder(Folder.temp.fsName + '/dsh-canvas-bridge');
+    var f = new Folder(B.child(Folder.temp, 'dsh-canvas-bridge'));
     if (!f.exists) f.create();
     return f;
   };
 
   /* ---------- 握手（PROTOCOL §2） ---------- */
-  B.readHandshake = function () { return B.readJSON(new File(B.rootFolder().fsName + '/bridge.json')); };
+  B.readHandshake = function () { return B.readJSON(new File(B.child(B.rootFolder(), 'bridge.json'))); };
   /* 返回 { online, reason, handshake }；离线原因面向用户可读 */
   B.status = function () {
     var h = B.readHandshake();
@@ -159,7 +168,7 @@ var DSH_BRIDGE = (typeof DSH_BRIDGE !== 'undefined' && DSH_BRIDGE) ? DSH_BRIDGE 
   /* ---------- 收件（脚本 → 画布，PROTOCOL §3） ---------- */
   /* 把临时导出的文件复制进收件箱（最终名），返回最终 File；复制失败抛错 */
   B.deliverFile = function (tempFile, inbox, finalName) {
-    var target = new File(inbox.fsName + '/' + finalName);
+    var target = new File(B.child(inbox, finalName));
     if (target.exists) target.remove();
     if (!tempFile.copy(target)) throw new Error('复制到收件箱失败：' + finalName);
     try { tempFile.remove(); } catch (e) {}
@@ -167,7 +176,7 @@ var DSH_BRIDGE = (typeof DSH_BRIDGE !== 'undefined' && DSH_BRIDGE) ? DSH_BRIDGE 
   };
   /* 清单最后写（host 只认清单） */
   B.writeInboundManifest = function (inbox, manifest) {
-    var f = new File(inbox.fsName + '/' + manifest.jobId + '.json');
+    var f = new File(B.child(inbox, manifest.jobId + '.json'));
     B.writeJSON(f, manifest);
     return f;
   };
@@ -195,7 +204,7 @@ var DSH_BRIDGE = (typeof DSH_BRIDGE !== 'undefined' && DSH_BRIDGE) ? DSH_BRIDGE 
       try {
         var m = B.readJSON(file) || {};
         m.error = String(error);
-        B.writeJSON(new File(file.parent.fsName + '/' + targetName), m);
+        B.writeJSON(new File(B.child(file.parent, targetName)), m);
         file.remove();
         return;
       } catch (e) {}
