@@ -62,3 +62,27 @@ install-windows.cmd
 已知说明：安装器以"实体副本"方式同步（`profiles\node_modules\@local\canvas-workbench`
 等三处），程序内置副本（`resources\app\node_modules\@local\canvas-workbench`）保留不动；
 DSH 升级后重跑一次 `install-windows.cmd` 即可恢复全部补丁。
+
+## macOS 兼容性承诺（2026-09-19 逐项核对）
+
+本分支基线是 main 的 v1.8.0（a82fa89），**所有 macOS 代码路径的行为完全不变**：
+
+- 全部新逻辑都由 `isWindows` / `!isMac` 守卫，或位于仅 Windows 调用的函数里：
+  - `openWithSystem`：mac 分支仍原样 `open -b com.adobe.*`
+  - `pickFolder`：mac 仍原样 osascript `choose folder`
+  - `psdPreviewPath`：mac 仍原样 `sips`
+  - `documentPreviewPath`：mac 严格保持原顺序 `pdftoppm → qlmanage → 占位图`（新增的
+    PyMuPDF 分支已用 `!isMac` 排除，mac 不多走一步）
+  - PS/AI 原生文字层：mac 的 osascript 分支一字未改，JSX 脚本内容逐字节相同
+    （仅把字符串提取为函数，纯等价重构）
+  - Adobe 应用目录发现：mac 仍原样扫 `/Applications`
+  - 提权 / CEP / PlayerDebugMode：mac 分支原样
+- 唯一跨平台增强：SVG 预览的外链位图内联 —— **失败安全**（无外链图或处理失败时
+  返回原文件，与 v1.8.0 行为一致；有外链图则 mac 上渲染同样更正确）
+- 测试归因：新旧代码（a82fa89 vs 本分支）跑 unit 测试的失败集合完全一致
+  （3 例为 macOS 上编写的测试在 Windows 环境的天然失败，如 chmod 0o555 模拟只读），
+  **新代码引入零测试回归**
+- 安装器修复仅涉及 `install-windows.ps1`（mac 使用 mac-installer，不受影响）
+
+**结论：macOS 可以继续用 main 的 1.8.0，也可以直接用本分支 —— 行为完全一致，
+本分支额外获得 Windows 的全部修复。**

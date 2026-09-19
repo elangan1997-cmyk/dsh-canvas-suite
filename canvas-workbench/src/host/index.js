@@ -163,7 +163,9 @@ function apply(ctx) {
     // Windows 既没有 pdftoppm(Poppler) 也没有 macOS 的 qlmanage，此前 .ai/.pdf
     // 只能落占位图 —— 画布上永远是"预览转换器不可用"，改了源文件也看不出变化。
     // AI 文件在 PDF 兼容模式下（Illustrator 默认）文件头就是 %PDF-x.y，可直接解析。
-    try {
+    // ⚠️ 仅非 macOS：macOS 保持 1.8.0 的原路径（pdftoppm -> qlmanage -> 占位图）不变，
+    // 避免 mac 上多出一条未验证的渲染分支 —— 本仓库的跨平台兼容承诺是"mac 行为零变化"。
+    if (!isMac) try {
       const python = await resolvePython(ctx);
       const renderer = join(PLUGIN_ROOT, 'scripts', 'document_preview.py');
       const rendered = await runProcessWithTimeout(
